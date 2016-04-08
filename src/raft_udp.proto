@@ -1,0 +1,22 @@
+option (int32_type) = int_t;
+
+import "raft.proto";
+
+package raft.udp;
+
+message configuration {
+  required raft.Configuration     raft_configuration = 1; 
+  repeated ServerUdpConfiguration servers_udp_configuration = 2;
+    // Note that there is an invariant that this  [servers_udp_configuration] 
+    // field should the length of the [nb_of_server] field in the 
+    // raft configuration.
+}
+
+message ServerUdpConfiguration {
+  required int32  raft_id      = 1;
+    // This is the logical raft identifier for that server. [0 - nb_of_server[.
+  required string inet4_address = 2; 
+    // IPv4 Internet Address: aaa.bbb.ccc.ddd
+  required int32  port         = 3; 
+    // Port number. 
+}
