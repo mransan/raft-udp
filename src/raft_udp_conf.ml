@@ -7,8 +7,8 @@ let default_configuration () = Udp.({
     nb_of_server = 3;
     election_timeout = 1.;
     election_timeout_range = 0.1;
-    hearbeat_timeout = 0.1;
-    max_nb_message = 300;
+    hearbeat_timeout = 0.2;
+    max_nb_logs_per_message = 300;
   });
   servers_udp_configuration = [
     {raft_id = 0; inet4_address = "127.0.0.1"; port = 31000; };

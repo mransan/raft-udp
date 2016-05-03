@@ -1,29 +1,26 @@
 module Raft = Raft_pb
 module Udp  = Raft_udp_pb
 module Conf = Raft_udp_conf
+module Counter = Raft_udp_counter.Counter 
+module Perf = Raft_udp_counter.Perf
 
 open Lwt.Infix
 
-let new_election_timeout ?timeout {Udp.raft_configuration; _ } =
-  let timeout = match timeout with
-    | Some timeout -> timeout
-    | None ->
-      let {Raft.election_timeout; _ } =  raft_configuration in
-      election_timeout
-  in
-  let range  = raft_configuration.Raft.election_timeout_range in
-  timeout +. (Random.float range -. (range /. 2.))
+module Ext = struct 
+  let list_make n v = 
+    let rec aux l = function
+      | 0 -> l 
+      | i -> aux (v::l) (i - 1) 
+    in 
+    aux [] n  
 
-let timeout_of_wait_rpc configuration {Raft_pb.timeout; timeout_type} =
-  match timeout_type with
-  | Raft.Heartbeat -> timeout
-  | Raft.New_leader_election -> new_election_timeout ~timeout configuration
+end (* Ext *)
 
 (* -- Server -- *)
 
 let run_server configuration id =
 
-  let now =
+  let get_now =
     (* 
      * For easier logging the time is initialized at the 
      * beginning of the program.
@@ -35,8 +32,8 @@ let run_server configuration id =
   in
   
   let initial_raft_state = Raft_helper.Follower.create
-    ~configuration:configuration.Udp.raft_configuration ~id () in
-  
+    ~configuration:configuration.Udp.raft_configuration ~now:(get_now ()) ~id () in
+
   (*
    * Counters to collect statistics about the
    * various rate of pertinent events. Those
@@ -44,14 +41,17 @@ let run_server configuration id =
    * printed in the print thread.
    *
    *)
-  let raft_msg_received_counter = Raft_udp_counter.make () in
-  let raft_msg_sent_counter = Raft_udp_counter.make () in
+  let raft_msg_received_counter = Counter.make () in
+  let raft_msg_sent_counter = Counter.make () in
   let log_counter =
     let initial_counter = initial_raft_state.Raft.log_size in
-    Raft_udp_counter.make ~initial_counter ()
+    Counter.make ~initial_counter ()
   in
-  let heartbeat_counter = Raft_udp_counter.make () in
-  let append_entries_failure_counter = Raft_udp_counter.make () in
+  let heartbeat_counter = Counter.make () in
+  let append_entries_failure_counter = Counter.make () in
+
+  let msg_perf = Perf.make () in 
+  let hb_perf = Perf.make () in 
 
   let next_raft_message_f =
     Raft_udp_ipc.get_next_raft_message_f_for_server configuration id
@@ -60,7 +60,7 @@ let run_server configuration id =
   let send_raft_message_f =
     let f = Raft_udp_ipc.get_send_raft_message_f configuration in 
     (fun msg server_id -> 
-      Raft_udp_counter.incr raft_msg_sent_counter; 
+      Counter.incr raft_msg_sent_counter; 
       f msg server_id
     ) 
   in
@@ -112,21 +112,22 @@ let run_server configuration id =
     )
     >>=(fun event ->
 
-      let now = now () in
-
-      let handle_follow_up_action raft_state = function
-        | Raft.Wait_for_rpc ({Raft.timeout_type; } as wait_for_rpc) ->
-          server_loop raft_state now (timeout_of_wait_rpc configuration wait_for_rpc) timeout_type
+      let handle_follow_up_action raft_state =   
+        let now = get_now () in
+        let {Raft.timeout; timeout_type } = Raft_helper.Timeout_event.next raft_state now in
+        server_loop raft_state now timeout timeout_type 
       in
+      
+      let now = get_now () in
 
-      Raft_udp_counter.set log_counter raft_state.Raft.log_size;
+      Counter.set log_counter raft_state.Raft.log_size;
 
       match event with
       | `Raft_message msg -> (
-        Raft_udp_counter.incr raft_msg_received_counter;
+        Counter.incr raft_msg_received_counter;
         begin match msg with
         | Raft.Append_entries_response {Raft.result = Raft.Failure ; _} ->
-          Raft_udp_counter.incr append_entries_failure_counter
+          Counter.incr append_entries_failure_counter
         | _ -> ()
         end;
 
@@ -134,27 +135,33 @@ let run_server configuration id =
         Format.printf "--------------------------------------------\n";
         Format.printf ">> Message received: %a\n%!" Raft.pp_message msg;
         *)
-        let raft_state, responses, action = Raft_logic.Message.handle_message raft_state msg now in
+        let raft_state, responses = Perf.f3 msg_perf 
+          Raft_logic.Message.handle_message raft_state msg now
+        in
         (*
         Format.printf ">> New state: %a\n%!" Raft.pp_state raft_state;
         Format.printf ">> action: %a\n%!" Raft.pp_follow_up_action action;
         *)
         send_raft_messages_f responses
-        >>=(fun _ -> handle_follow_up_action raft_state action)
+        >>=(fun _ -> handle_follow_up_action raft_state)
       )
 
       | `Timeout -> (
-        let raft_state, msgs, action = match timeout_type with
-        | Raft.Heartbeat -> (
-          Raft_udp_counter.incr heartbeat_counter;
-          Raft_logic.Message.handle_heartbeat_timeout raft_state now
-        )
-        | Raft.New_leader_election -> (
-          Raft_logic.Message.handle_new_election_timeout raft_state now
-        )
+        let raft_state, msgs = match timeout_type with
+          | Raft.Heartbeat -> (
+            Counter.incr heartbeat_counter;
+            Perf.f2 hb_perf 
+              Raft_logic.Message.handle_heartbeat_timeout raft_state now
+          )
+
+          | Raft.New_leader_election -> (
+            print_endline "NEW LEADER ELECTION%!";
+            Raft_logic.Message.handle_new_election_timeout raft_state now
+          )
+
         in
         send_raft_messages_f msgs
-        >>=(fun _ -> handle_follow_up_action raft_state action)
+        >>=(fun _ -> handle_follow_up_action raft_state)
       )
 
       | `Failure -> (
@@ -162,30 +169,35 @@ let run_server configuration id =
       )
 
       | `Add_log -> (
-        let raft_state = match raft_state.Raft.role with
-          | Raft.Leader _ ->
-            let data = Bytes.of_string (string_of_float now) in
-            Raft_helper.Leader.add_log data raft_state
-            |>Raft_helper.Leader.add_log data
-            |>Raft_helper.Leader.add_log data
-            |>Raft_helper.Leader.add_log data
-            |>Raft_helper.Leader.add_log data
-            |>Raft_helper.Leader.add_log data
-          | _ -> raft_state
-        in
-        server_loop raft_state now (timeout +. now' -. now) timeout_type
+
+        let new_log_response  = 
+          let data  = Bytes.of_string (string_of_float now) in 
+          let datas = Ext.list_make 20 data in 
+          Raft_logic.Message.handle_add_log_entries raft_state datas now 
+        in 
+
+        match new_log_response with
+        | Raft_logic.Message.Delay
+        | Raft_logic.Message.Forward_to_leader _ -> 
+          server_loop raft_state now (timeout +. now' -. now) timeout_type
+        | Raft_logic.Message.Appended (raft_state, msgs) -> 
+          send_raft_messages_f msgs
+          >>=(fun _ -> handle_follow_up_action raft_state)
       )
     )
   in
 
   let server_t =
-    let timeout = new_election_timeout configuration in
-    server_loop initial_raft_state (now ()) timeout Raft.New_leader_election
+    let {
+      Raft.timeout; 
+      timeout_type
+    } = Raft_helper.Timeout_event.next initial_raft_state (get_now ()) in 
+    server_loop initial_raft_state (get_now ()) timeout timeout_type 
   in
 
   let add_log_t  =
     let rec aux () =
-      Lwt_unix.sleep 0.00001
+      Lwt_unix.sleep 0.001
       >>=(fun () ->
         Lwt_mvar.put add_log_mvar ()
       )
@@ -217,12 +229,12 @@ let run_server configuration id =
       )
       >>=(fun counter ->
         Lwt_io.printf " %15.3f | %15.3f | %10.3f | %8i | %4.1f | %6.1f |  \n"
-          (Raft_udp_counter.rate raft_msg_received_counter)
-          (Raft_udp_counter.rate raft_msg_sent_counter)
-          (Raft_udp_counter.rate log_counter)
-          (Raft_udp_counter.value log_counter)
-          (Raft_udp_counter.rate heartbeat_counter)
-          (Raft_udp_counter.rate append_entries_failure_counter)
+          (Counter.rate raft_msg_received_counter)
+          (Counter.rate raft_msg_sent_counter)
+          (Counter.rate log_counter)
+          (Counter.value log_counter)
+          (Counter.rate heartbeat_counter)
+          (Counter.rate append_entries_failure_counter)
         >>=(fun () -> aux (counter - 1) ()) 
       )
     in
