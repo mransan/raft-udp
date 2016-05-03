@@ -18,7 +18,7 @@ end (* Ext *)
 
 (* -- Server -- *)
 
-let run_server configuration id =
+let run_server configuration id logger =
 
   let get_now =
     (* 
@@ -61,7 +61,10 @@ let run_server configuration id =
     let f = Raft_udp_ipc.get_send_raft_message_f configuration in 
     (fun msg server_id -> 
       Counter.incr raft_msg_sent_counter; 
-      f msg server_id
+      Raft_udp_log.print_msg_to_send logger id msg server_id 
+      >>= (fun () -> 
+        f msg server_id
+      )
     ) 
   in
 
@@ -142,7 +145,10 @@ let run_server configuration id =
         Format.printf ">> New state: %a\n%!" Raft.pp_state raft_state;
         Format.printf ">> action: %a\n%!" Raft.pp_follow_up_action action;
         *)
-        send_raft_messages_f responses
+        Raft_udp_log.print_msg_received logger msg id
+        >>= (fun () -> 
+          send_raft_messages_f responses
+        )
         >>=(fun _ -> handle_follow_up_action raft_state)
       )
 
@@ -241,11 +247,21 @@ let run_server configuration id =
     aux 0 () 
   in
 
-  Lwt_main.run (Lwt.join [
+  Lwt.join [
     server_t;
     print_stats_t;
     add_log_t;
-  ])
+  ]
+
+let run configuration id = 
+  let t = 
+    let file_name = Printf.sprintf "raft_upd_%i.log" id in 
+    Lwt_log.file ~mode:`Truncate ~file_name () 
+    >>=(fun logger -> 
+      run_server configuration id logger 
+    ) 
+  in
+  Lwt_main.run t 
 
 let () =
   Random.self_init ();
@@ -260,4 +276,5 @@ let () =
     ("--id", id_spec , " : server raft id");
   ] (fun _ -> ()) "test.ml";
 
-  run_server configuration !id
+
+  run configuration !id
