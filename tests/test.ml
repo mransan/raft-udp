@@ -33,13 +33,36 @@ let run_server configuration id =
       Unix.gettimeofday () -. t0
     )
   in
+  
+  let initial_raft_state = Raft_helper.Follower.create
+    ~configuration:configuration.Udp.raft_configuration ~id () in
+  
+  (*
+   * Counters to collect statistics about the
+   * various rate of pertinent events. Those
+   * rates are updated in the main event thread and
+   * printed in the print thread.
+   *
+   *)
+  let raft_msg_received_counter = Raft_udp_counter.make () in
+  let raft_msg_sent_counter = Raft_udp_counter.make () in
+  let log_counter =
+    let initial_counter = initial_raft_state.Raft.log_size in
+    Raft_udp_counter.make ~initial_counter ()
+  in
+  let heartbeat_counter = Raft_udp_counter.make () in
+  let append_entries_failure_counter = Raft_udp_counter.make () in
 
   let next_raft_message_f =
     Raft_udp_ipc.get_next_raft_message_f_for_server configuration id
   in
 
   let send_raft_message_f =
-    Raft_udp_ipc.get_send_raft_message_f configuration
+    let f = Raft_udp_ipc.get_send_raft_message_f configuration in 
+    (fun msg server_id -> 
+      Raft_udp_counter.incr raft_msg_sent_counter; 
+      f msg server_id
+    ) 
   in
 
   let send_raft_messages_f requests =
@@ -48,24 +71,6 @@ let run_server configuration id =
     ) requests
     >|= ignore
   in
-
-  let initial_raft_state = Raft_helper.Follower.create
-    ~configuration:configuration.Udp.raft_configuration ~id () in
-
-  (*
-   * Counters to collect statistics about the
-   * various rate of pertinent events. Those
-   * rates are updated in the main event thread and
-   * printed in the print thread.
-   *
-   *)
-  let raft_msg_counter = Raft_udp_counter.make () in
-  let log_counter =
-    let initial_counter = initial_raft_state.Raft.log_size in
-    Raft_udp_counter.make ~initial_counter ()
-  in
-  let heartbeat_counter = Raft_udp_counter.make () in
-  let append_entries_failure_counter = Raft_udp_counter.make () in
 
   (*
    * In order to simulate a new request to the leader by a
@@ -118,7 +123,7 @@ let run_server configuration id =
 
       match event with
       | `Raft_message msg -> (
-        Raft_udp_counter.incr raft_msg_counter;
+        Raft_udp_counter.incr raft_msg_received_counter;
         begin match msg with
         | Raft.Append_entries_response {Raft.result = Raft.Failure ; _} ->
           Raft_udp_counter.incr append_entries_failure_counter
@@ -163,6 +168,9 @@ let run_server configuration id =
             Raft_helper.Leader.add_log data raft_state
             |>Raft_helper.Leader.add_log data
             |>Raft_helper.Leader.add_log data
+            |>Raft_helper.Leader.add_log data
+            |>Raft_helper.Leader.add_log data
+            |>Raft_helper.Leader.add_log data
           | _ -> raft_state
         in
         server_loop raft_state now (timeout +. now' -. now) timeout_type
@@ -177,7 +185,7 @@ let run_server configuration id =
 
   let add_log_t  =
     let rec aux () =
-      Lwt_unix.sleep 0.0002
+      Lwt_unix.sleep 0.00001
       >>=(fun () ->
         Lwt_mvar.put add_log_mvar ()
       )
@@ -187,20 +195,38 @@ let run_server configuration id =
   in
 
   let print_stats_t =
-    let rec aux () =
-      Lwt_unix.sleep 1.
-      >>=(fun () ->
-        Lwt_io.printf " %10.3f    | %10.3f  | %8i | %10.3f | %10.3f |  \n"
-          (Raft_udp_counter.rate raft_msg_counter)
+    
+    let print_header_every = 20 in 
+
+    let rec aux counter () =
+      Lwt_unix.sleep 0.2
+      >>=(fun () -> 
+        if counter = 0 
+        then 
+          Lwt_io.printf 
+            " %15s | %15s | %10s | %8s | %4s | %6s |\n" 
+            "recv msg/s"
+            "sent msg/s" 
+            "log/s"
+            "log nb"
+            "hb/s"
+            "er/s"
+          >|=(fun () -> print_header_every)
+        else
+          Lwt.return counter 
+      )
+      >>=(fun counter ->
+        Lwt_io.printf " %15.3f | %15.3f | %10.3f | %8i | %4.1f | %6.1f |  \n"
+          (Raft_udp_counter.rate raft_msg_received_counter)
+          (Raft_udp_counter.rate raft_msg_sent_counter)
           (Raft_udp_counter.rate log_counter)
           (Raft_udp_counter.value log_counter)
           (Raft_udp_counter.rate heartbeat_counter)
           (Raft_udp_counter.rate append_entries_failure_counter)
+        >>=(fun () -> aux (counter - 1) ()) 
       )
-      >>= aux
     in
-    Lwt_io.printf "  raft msg/s   |   log/s     |  nb log  |   hb/s     | failures   |\n"
-    >>= aux
+    aux 0 () 
   in
 
   Lwt_main.run (Lwt.join [
