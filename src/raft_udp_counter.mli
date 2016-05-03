@@ -52,5 +52,7 @@ module Perf : sig
   (** [stats ~reset:() t] returns [(min, max, avg, count) for the current
    * period. if [reset] argument is given then the period is reset. 
    *) 
+  
+  val avg : ?reset:unit -> ?unit_:[`Us | `Ms]  -> t -> float 
  
 end 

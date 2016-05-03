@@ -89,4 +89,16 @@ module Perf = struct
     | Some () -> reset t
     end;
     r
+
+  let avg ?reset:do_reset ?unit_ ({avg; _ } as t)  = 
+    let r = match unit_ with
+      | None -> avg 
+      | Some `Ms -> avg *. 1_000. 
+      | Some `Us -> avg *. 1_000_000.  
+    in
+    begin match do_reset with
+    | None -> ()
+    | Some () -> reset t
+    end;
+    r
 end

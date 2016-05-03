@@ -6,21 +6,6 @@ module Perf = Raft_udp_counter.Perf
 
 open Lwt.Infix
 
-let new_election_timeout ?timeout {Udp.raft_configuration; _ } =
-  let timeout = match timeout with
-    | Some timeout -> timeout
-    | None ->
-      let {Raft.election_timeout; _ } =  raft_configuration in
-      election_timeout
-  in
-  let range  = raft_configuration.Raft.election_timeout_range in
-  timeout +. (Random.float range -. (range /. 2.))
-
-let timeout_of_wait_rpc configuration {Raft_pb.timeout; timeout_type} =
-  match timeout_type with
-  | Raft.Heartbeat -> timeout
-  | Raft.New_leader_election -> new_election_timeout ~timeout configuration
-
 (* -- Server -- *)
 
 let run_server configuration id =
@@ -112,12 +97,10 @@ let run_server configuration id =
     )
     >>=(fun event ->
 
-
       let handle_follow_up_action raft_state =   
         let now = get_now () in
-        match Raft_helper.Follow_up_action.default raft_state now with
-        | Raft.Wait_for_rpc ({Raft.timeout_type; } as wait_for_rpc) ->
-          server_loop raft_state now (timeout_of_wait_rpc configuration wait_for_rpc) timeout_type
+        let {Raft.timeout; timeout_type } = Raft_helper.Timeout_event.next raft_state now in
+        server_loop raft_state now timeout timeout_type 
       in
       
       let now = get_now () in
@@ -166,6 +149,7 @@ let run_server configuration id =
       )
 
       | `Add_log -> (
+        (*
         let raft_state = match raft_state.Raft.role with
           | Raft.Leader _ ->
             let data = Bytes.of_string (string_of_float now) in
@@ -174,18 +158,34 @@ let run_server configuration id =
             |>Raft_helper.Leader.add_log data
           | _ -> raft_state
         in
-        server_loop raft_state now (timeout +. now' -. now) timeout_type
+        *)
+
+        let new_log_response  = 
+          let data = Bytes.of_string (string_of_float now) in 
+          Raft_logic.Message.handle_add_log_entries raft_state [data] now 
+        in 
+        match new_log_response with
+        | Raft_logic.Message.Delay
+        | Raft_logic.Message.Forward_to_leader _ -> 
+          server_loop raft_state now (timeout +. now' -. now) timeout_type
+        | Raft_logic.Message.Appended (raft_state, msgs) -> 
+          send_raft_messages_f msgs
+          >>=(fun _ -> handle_follow_up_action raft_state)
       )
     )
   in
 
   let server_t =
-    server_loop initial_raft_state (get_now ()) 1. Raft.New_leader_election
+    let {
+      Raft.timeout; 
+      timeout_type
+    } = Raft_helper.Timeout_event.next initial_raft_state (get_now ()) in 
+    server_loop initial_raft_state (get_now ()) timeout timeout_type 
   in
 
   let add_log_t  =
     let rec aux () =
-      Lwt_unix.sleep 0.0002
+      Lwt_unix.sleep 0.0001
       >>=(fun () ->
         Lwt_mvar.put add_log_mvar ()
       )
@@ -198,27 +198,25 @@ let run_server configuration id =
     let rec aux () =
       Lwt_unix.sleep 1.
       >>=(fun () ->
-        Lwt_io.printf " %10.3f | %10.3f | %8i | %10.3f | %10.3f | %10.3f | %8i | %10.3f \n"
+        Lwt_io.printf " %10.3f | %10.3f | %8i | %10.3f | %10.3f | %10.3f | %10.3f \n"
           (Counter.rate raft_msg_counter)
           (Counter.rate log_counter)
           (Counter.value log_counter)
           (Counter.rate heartbeat_counter)
           (Counter.rate append_entries_failure_counter)
-          (let _, _, x, _ = Perf.stats ~reset:() msg_perf in x)
-          (let _, _, _, x = Perf.stats ~reset:() msg_perf in x)
-          (let _, _, x, _ = Perf.stats ~reset:() hb_perf in x)
+          (Perf.avg ~reset:() ~unit_:`Us msg_perf)
+          (Perf.avg ~reset:() ~unit_:`Us hb_perf)
       )
       >>= aux
     in
-    Lwt_io.printf " %10s | %10s | %8s | %10s | %10s | %10s | %8s | %10s \n" 
+    Lwt_io.printf " %10s | %10s | %8s | %10s | %10s | %10s | %10s \n" 
       "raft msg/s"
       "log/s"
       "nb log"
       "hb/s"
       "failures"
-      "avg(msg)"
-      "cnt(msg)"
-      "avg(hb)"
+      "avg msg (us)"
+      "avg hb (us)"
 
     >>= aux
   in
