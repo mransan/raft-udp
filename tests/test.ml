@@ -6,6 +6,16 @@ module Perf = Raft_udp_counter.Perf
 
 open Lwt.Infix
 
+module Ext = struct 
+  let list_make n v = 
+    let rec aux l = function
+      | 0 -> l 
+      | i -> aux (v::l) (i - 1) 
+    in 
+    aux [] n  
+
+end (* Ext *)
+
 (* -- Server -- *)
 
 let run_server configuration id =
@@ -120,7 +130,9 @@ let run_server configuration id =
         Format.printf "--------------------------------------------\n";
         Format.printf ">> Message received: %a\n%!" Raft.pp_message msg;
         *)
-        let raft_state, responses = Perf.f3 msg_perf Raft_logic.Message.handle_message raft_state msg now in
+        let raft_state, responses = Perf.f3 msg_perf 
+          Raft_logic.Message.handle_message raft_state msg now
+        in
         (*
         Format.printf ">> New state: %a\n%!" Raft.pp_state raft_state;
         Format.printf ">> action: %a\n%!" Raft.pp_follow_up_action action;
@@ -131,14 +143,17 @@ let run_server configuration id =
 
       | `Timeout -> (
         let raft_state, msgs = match timeout_type with
-        | Raft.Heartbeat -> (
-          Counter.incr heartbeat_counter;
-          Perf.f2 hb_perf Raft_logic.Message.handle_heartbeat_timeout raft_state now
-        )
-        | Raft.New_leader_election -> (
-          print_endline "NEW LEADER ELECTION%!";
-          Raft_logic.Message.handle_new_election_timeout raft_state now
-        )
+          | Raft.Heartbeat -> (
+            Counter.incr heartbeat_counter;
+            Perf.f2 hb_perf 
+              Raft_logic.Message.handle_heartbeat_timeout raft_state now
+          )
+
+          | Raft.New_leader_election -> (
+            print_endline "NEW LEADER ELECTION%!";
+            Raft_logic.Message.handle_new_election_timeout raft_state now
+          )
+
         in
         send_raft_messages_f msgs
         >>=(fun _ -> handle_follow_up_action raft_state)
@@ -149,21 +164,13 @@ let run_server configuration id =
       )
 
       | `Add_log -> (
-        (*
-        let raft_state = match raft_state.Raft.role with
-          | Raft.Leader _ ->
-            let data = Bytes.of_string (string_of_float now) in
-            Raft_helper.Leader.add_log data raft_state
-            |>Raft_helper.Leader.add_log data
-            |>Raft_helper.Leader.add_log data
-          | _ -> raft_state
-        in
-        *)
 
         let new_log_response  = 
-          let data = Bytes.of_string (string_of_float now) in 
-          Raft_logic.Message.handle_add_log_entries raft_state [data] now 
+          let data  = Bytes.of_string (string_of_float now) in 
+          let datas = Ext.list_make 20 data in 
+          Raft_logic.Message.handle_add_log_entries raft_state datas now 
         in 
+
         match new_log_response with
         | Raft_logic.Message.Delay
         | Raft_logic.Message.Forward_to_leader _ -> 
@@ -185,7 +192,7 @@ let run_server configuration id =
 
   let add_log_t  =
     let rec aux () =
-      Lwt_unix.sleep 0.0001
+      Lwt_unix.sleep 0.001
       >>=(fun () ->
         Lwt_mvar.put add_log_mvar ()
       )
