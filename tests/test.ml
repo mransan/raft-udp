@@ -129,7 +129,8 @@ let run_server configuration id logger =
       | `Raft_message msg -> (
         Counter.incr raft_msg_received_counter;
         begin match msg with
-        | Raft.Append_entries_response {Raft.result = Raft.Failure ; _} ->
+        | Raft.Append_entries_response {Raft.result = Raft.Log_failure  _ ; _}
+        | Raft.Append_entries_response {Raft.result = Raft.Term_failure ; _} ->
           Counter.incr append_entries_failure_counter
         | _ -> ()
         end;
@@ -217,30 +218,34 @@ let run_server configuration id logger =
     let print_header_every = 20 in 
 
     let rec aux counter () =
-      Lwt_unix.sleep 0.2
+      Lwt_unix.sleep 1.
       >>=(fun () -> 
         if counter = 0 
         then 
           Lwt_io.printf 
-            " %15s | %15s | %10s | %8s | %4s | %6s |\n" 
+            " %15s | %15s | %10s | %8s | %4s | %6s | %12s | %12s | \n" 
             "recv msg/s"
             "sent msg/s" 
             "log/s"
             "log nb"
             "hb/s"
             "er/s"
+            "avg msg (us)"
+            "avg hb (us)"
           >|=(fun () -> print_header_every)
         else
           Lwt.return counter 
       )
       >>=(fun counter ->
-        Lwt_io.printf " %15.3f | %15.3f | %10.3f | %8i | %4.1f | %6.1f |  \n"
+        Lwt_io.printf " %15.3f | %15.3f | %10.3f | %8i | %4.1f | %6.1f | %12.3f | %12.3f | \n"
           (Counter.rate raft_msg_received_counter)
           (Counter.rate raft_msg_sent_counter)
           (Counter.rate log_counter)
           (Counter.value log_counter)
           (Counter.rate heartbeat_counter)
           (Counter.rate append_entries_failure_counter)
+          (Perf.avg ~reset:() ~unit_:`Us msg_perf)
+          (Perf.avg ~reset:() ~unit_:`Us hb_perf)
         >>=(fun () -> aux (counter - 1) ()) 
       )
     in

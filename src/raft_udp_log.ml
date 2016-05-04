@@ -44,8 +44,10 @@ let print_msg_details logger msg () =
     begin match r.Raft.result with
     | Raft.Success {Raft.receiver_last_log_index} -> 
       log_f ~logger ~level:Notice "\t Success - last log index: %10i" receiver_last_log_index
-    | Raft.Failure -> 
-      log_f ~logger ~level:Notice "\t Failure"
+    | Raft.Log_failure {Raft.receiver_last_log_index; _ } -> 
+      log_f ~logger ~level:Notice "\t Failure(Log) - last log index: %10i" receiver_last_log_index 
+    | Raft.Term_failure -> 
+      log_f ~logger ~level:Notice "\t Failure(Term) - sender term: %i" r.Raft.receiver_term 
     end
 
 let print_msg_to_send logger sender_id msg receiver_id = 
