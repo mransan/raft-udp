@@ -140,7 +140,7 @@ let run_server configuration id logger =
         Format.printf ">> Message received: %a\n%!" Raft.pp_message msg;
         *)
         let raft_state, responses = Perf.f3 msg_perf 
-          Raft_logic.Message.handle_message raft_state msg now
+          Raft_logic.handle_message raft_state msg now
         in
         (*
         Format.printf ">> New state: %a\n%!" Raft.pp_state raft_state;
@@ -158,12 +158,12 @@ let run_server configuration id logger =
           | Raft.Heartbeat -> (
             Counter.incr heartbeat_counter;
             Perf.f2 hb_perf 
-              Raft_logic.Message.handle_heartbeat_timeout raft_state now
+              Raft_logic.handle_heartbeat_timeout raft_state now
           )
 
           | Raft.New_leader_election -> (
             print_endline "NEW LEADER ELECTION%!";
-            Raft_logic.Message.handle_new_election_timeout raft_state now
+            Raft_logic.handle_new_election_timeout raft_state now
           )
 
         in
@@ -180,14 +180,14 @@ let run_server configuration id logger =
         let new_log_response  = 
           let data  = Bytes.of_string (string_of_float now) in 
           let datas = Ext.list_make 20 data in 
-          Raft_logic.Message.handle_add_log_entries raft_state datas now 
+          Raft_logic.handle_add_log_entries raft_state datas now 
         in 
 
         match new_log_response with
-        | Raft_logic.Message.Delay
-        | Raft_logic.Message.Forward_to_leader _ -> 
+        | Raft_logic.Delay
+        | Raft_logic.Forward_to_leader _ -> 
           server_loop raft_state now (timeout +. now' -. now) timeout_type
-        | Raft_logic.Message.Appended (raft_state, msgs) -> 
+        | Raft_logic.Appended (raft_state, msgs) -> 
           send_raft_messages_f msgs
           >>=(fun _ -> handle_follow_up_action raft_state)
       )
