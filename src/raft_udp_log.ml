@@ -74,24 +74,95 @@ let print_msg_received logger msg receiver_id =
 
   >>= print_msg_details logger msg 
 
-let print_leader_state logger = function
-  | Raft.Candidate _ | Raft.Follower _ -> Lwt.return_unit 
-  | Raft.Leader {Raft.indices} -> 
-    log_f ~logger ~level:Notice "State"
-    >>=(fun () ->
-      Lwt_list.iter_s (fun server_index -> 
-        let {
-          Raft.server_id;
-          next_index;
-          match_index;
-          local_cache;
-          heartbeat_deadline;
-          outstanding_request;} = server_index 
-        in 
-        log_f ~logger ~level:Notice "\tServer Index [%2i]: next: %10i, match: %10i, outstanding?: %b"
-          server_id
-          next_index
-          match_index
-          outstanding_request
-      ) indices
-    )
+let print_follower () follower_state = 
+  let {
+    Raft_pb.voted_for;
+    current_leader;
+    election_deadline;} = follower_state in 
+
+  let int_option = function 
+    | None -> "None"
+    | Some x -> Printf.sprintf "Some(%i)" x
+  in 
+
+  let fmt = 
+    "\t\t %15s: Follower\n"     ^^ 
+    "\t\t\t %15s : %s\n"  ^^ 
+    "\t\t\t %15s : %s\n"  ^^ 
+    "\t\t\t %15s : %f\n"
+  in 
+
+  Printf.sprintf fmt 
+    "role"
+    "voted for" (int_option voted_for)
+    "current leader" (int_option current_leader)
+    "election d." election_deadline
+
+let print_leader () leader_state = 
+
+  let rec aux () = function
+    | [] -> ""
+    | server_index::tl -> 
+      let {
+        Raft_pb.server_id : int;
+        next_index : int;
+        outstanding_request : bool;
+      } = server_index in 
+
+      Printf.sprintf "\t\t\t\t server index: (id: %i, next: %i, out req.: %b)\n%a" 
+        server_id
+        next_index
+        outstanding_request
+        aux tl 
+  in
+  Printf.sprintf "\t\t %15s: Leader\n%a"
+    "role"
+    aux leader_state.Raft_pb.indices
+
+let print_candidate () candidate_state = 
+  let fmt = 
+    "\t\t %15s: Candidate\n" ^^ 
+    "\t\t\t %15s: %i\n" ^^ 
+    "\t\t\t %15s: %f\n" 
+  in
+  let {
+    Raft_pb.vote_count; 
+    Raft_pb.election_deadline;
+  } = candidate_state in
+  Printf.sprintf fmt 
+    "role"
+    "vote count" vote_count
+    "elec dead." election_deadline
+
+let print_state logger state = 
+  let {
+    Raft_pb.id;
+    current_term;
+    log;
+    log_size;
+    commit_index;
+    role;
+    configuration;
+    global_cache;
+  } = state in
+
+  let print_role (oc:unit) = function
+    | Raft_pb.Follower x -> print_follower oc x 
+    | Raft_pb.Leader x -> print_leader oc x 
+    | Raft_pb.Candidate x -> print_candidate oc x 
+  in 
+
+  let fmt = 
+    "Raft State:\n"    ^^ 
+    "\t\t%15s : %i \n" ^^ 
+    "\t\t%15s : %i \n" ^^ 
+    "\t\t%15s : %i \n" ^^ 
+    "\t\t%15s : %i \n" ^^ 
+    "%a"
+  in
+  log_f ~logger ~level:Notice fmt 
+    "id" id 
+    "current term" current_term
+    "commit index" commit_index
+    "log size " log_size 
+    print_role role 

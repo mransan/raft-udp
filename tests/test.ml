@@ -6,6 +6,8 @@ module Perf = Raft_udp_counter.Perf
 
 open Lwt.Infix
 
+open Lwt_log_core
+
 module Ext = struct 
   let list_make n v = 
     let rec aux l = function
@@ -135,48 +137,56 @@ let run_server configuration id logger =
 
       match event with
       | `Raft_message msg -> (
-        Counter.incr raft_msg_received_counter;
-        begin match msg with
-        | Raft.Append_entries_response {Raft.result = Raft.Log_failure  _ ; _}
-        | Raft.Append_entries_response {Raft.result = Raft.Term_failure ; _} ->
-          Counter.incr append_entries_failure_counter
-        | _ -> ()
-        end;
-
-        (*
-        Format.printf "--------------------------------------------\n";
-        Format.printf ">> Message received: %a\n%!" Raft.pp_message msg;
-        *)
-        let raft_state, responses = Perf.f3 msg_perf 
-          Raft_logic.handle_message raft_state msg now
-        in
-        (*
-        Format.printf ">> New state: %a\n%!" Raft.pp_state raft_state;
-        Format.printf ">> action: %a\n%!" Raft.pp_follow_up_action action;
-        *)
-        Raft_udp_log.print_msg_received logger msg id
-        >>= (fun () -> 
-          send_raft_messages_f raft_state responses
+        log ~logger ~level:Notice ">> Raft Message Received"
+        >>=(fun () ->
+          Raft_udp_log.print_state logger raft_state
         )
-        >>=(fun _ -> handle_follow_up_action raft_state)
+        >>=(fun () ->
+          Counter.incr raft_msg_received_counter;
+          begin match msg with
+          | Raft.Append_entries_response {Raft.result = Raft.Log_failure  _ ; _}
+          | Raft.Append_entries_response {Raft.result = Raft.Term_failure ; _} ->
+            Counter.incr append_entries_failure_counter
+          | _ -> ()
+          end;
+
+          let raft_state, responses = Perf.f3 msg_perf 
+            Raft_logic.handle_message raft_state msg now
+          in
+          Raft_udp_log.print_msg_received logger msg id
+          >>= (fun () -> 
+            send_raft_messages_f raft_state responses
+          )
+          >>=(fun _ -> handle_follow_up_action raft_state)
+        )
       )
 
       | `Timeout -> (
-        let raft_state, msgs = match timeout_type with
-          | Raft.Heartbeat -> (
-            Counter.incr heartbeat_counter;
+        begin match timeout_type with
+        | Raft.Heartbeat -> (
+          Counter.incr heartbeat_counter;
+          log ~logger ~level:Notice ">> Heartbeat timeout" 
+          >|= (fun () ->
             Perf.f2 hb_perf 
               Raft_logic.handle_heartbeat_timeout raft_state now
           )
+        )
 
-          | Raft.New_leader_election -> (
-            print_endline "NEW LEADER ELECTION%!";
+        | Raft.New_leader_election -> (
+          print_endline "NEW LEADER ELECTION%!";
+          log ~logger ~level:Notice ">> Leader Election timeout"
+          >|= (fun () ->
             Raft_logic.handle_new_election_timeout raft_state now
           )
+        )
+        end
 
-        in
-        send_raft_messages_f raft_state msgs
-        >>=(fun _ -> handle_follow_up_action raft_state)
+        >>=(fun (raft_state, msgs) ->
+          send_raft_messages_f raft_state msgs
+          >|= (fun _ -> raft_state) 
+        )
+
+        >>=(fun raft_state -> handle_follow_up_action raft_state)
       )
 
       | `Failure -> (
@@ -196,10 +206,13 @@ let run_server configuration id logger =
         | Raft_logic.Forward_to_leader _ -> 
           server_loop raft_state now (timeout +. now' -. now) timeout_type
         | Raft_logic.Appended (raft_state, msgs) -> 
-          send_raft_messages_f raft_state msgs
+          log_f ~logger ~level:Notice ">> Log Added (log size: %i)" raft_state.Raft_pb.log_size 
+          >>=(fun () ->
+            send_raft_messages_f raft_state msgs
+          )
           >>=(fun _ -> handle_follow_up_action raft_state)
+        )
       )
-    )
   in
 
   let server_t =
