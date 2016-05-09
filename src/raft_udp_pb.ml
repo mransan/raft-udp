@@ -57,9 +57,27 @@ let rec decode_server_udp_configuration d =
     match Pbrt.Decoder.key d with
     | None -> (
     )
-    | Some (1, Pbrt.Varint) -> v.raft_id <- (Pbrt.Decoder.int_as_varint d); loop ()
-    | Some (2, Pbrt.Bytes) -> v.inet4_address <- (Pbrt.Decoder.string d); loop ()
-    | Some (3, Pbrt.Varint) -> v.port <- (Pbrt.Decoder.int_as_varint d); loop ()
+    | Some (1, Pbrt.Varint) -> (
+      v.raft_id <- Pbrt.Decoder.int_as_varint d;
+      loop ()
+    )
+    | Some (1, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(server_udp_configuration), field(1)", pk))
+    )
+    | Some (2, Pbrt.Bytes) -> (
+      v.inet4_address <- Pbrt.Decoder.string d;
+      loop ()
+    )
+    | Some (2, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(server_udp_configuration), field(2)", pk))
+    )
+    | Some (3, Pbrt.Varint) -> (
+      v.port <- Pbrt.Decoder.int_as_varint d;
+      loop ()
+    )
+    | Some (3, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(server_udp_configuration), field(3)", pk))
+    )
     | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
@@ -73,8 +91,20 @@ let rec decode_configuration d =
     | None -> (
       v.servers_udp_configuration <- List.rev v.servers_udp_configuration;
     )
-    | Some (1, Pbrt.Bytes) -> v.raft_configuration <- (Raft_pb.decode_configuration (Pbrt.Decoder.nested d)); loop ()
-    | Some (2, Pbrt.Bytes) -> v.servers_udp_configuration <- (decode_server_udp_configuration (Pbrt.Decoder.nested d)) :: v.servers_udp_configuration; loop ()
+    | Some (1, Pbrt.Bytes) -> (
+      v.raft_configuration <- Raft_pb.decode_configuration (Pbrt.Decoder.nested d);
+      loop ()
+    )
+    | Some (1, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(configuration), field(1)", pk))
+    )
+    | Some (2, Pbrt.Bytes) -> (
+      v.servers_udp_configuration <- (decode_server_udp_configuration (Pbrt.Decoder.nested d)) :: v.servers_udp_configuration;
+      loop ()
+    )
+    | Some (2, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(configuration), field(2)", pk))
+    )
     | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();

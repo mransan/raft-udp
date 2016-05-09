@@ -15,7 +15,7 @@ test:
 	time ./test.native --id 0  
 
 gen:
-	ocaml-protoc -I ../raft/src/ -ml_out src src/raft_udp.proto
+	ocaml-protoc -I ../raft.git/src/ -ml_out src src/raft_udp.proto
 
 lib.native:
 	$(OCB) raft_udp.cmxa

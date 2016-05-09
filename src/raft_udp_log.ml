@@ -74,4 +74,24 @@ let print_msg_received logger msg receiver_id =
 
   >>= print_msg_details logger msg 
 
-
+let print_leader_state logger = function
+  | Raft.Candidate _ | Raft.Follower _ -> Lwt.return_unit 
+  | Raft.Leader {Raft.indices} -> 
+    log_f ~logger ~level:Notice "State"
+    >>=(fun () ->
+      Lwt_list.iter_s (fun server_index -> 
+        let {
+          Raft.server_id;
+          next_index;
+          match_index;
+          local_cache;
+          heartbeat_deadline;
+          outstanding_request;} = server_index 
+        in 
+        log_f ~logger ~level:Notice "\tServer Index [%2i]: next: %10i, match: %10i, outstanding?: %b"
+          server_id
+          next_index
+          match_index
+          outstanding_request
+      ) indices
+    )

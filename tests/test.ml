@@ -68,11 +68,19 @@ let run_server configuration id logger =
     ) 
   in
 
-  let send_raft_messages_f requests =
-    Lwt_list.map_p (fun (msg, receiver_id) ->
-      send_raft_message_f msg receiver_id
-    ) requests
-    >|= ignore
+  let send_raft_messages_f raft_state requests =
+    (*
+    match requests with
+    | [] -> Lwt.return_unit
+    | _  -> Raft_udp_log.print_leader_state logger raft_state.Raft.role 
+    *)
+    Lwt.return_unit
+    >>=(fun () ->
+      Lwt_list.map_p (fun (msg, receiver_id) ->
+        send_raft_message_f msg receiver_id
+      ) requests
+      >|= ignore
+    )
   in
 
   (*
@@ -148,7 +156,7 @@ let run_server configuration id logger =
         *)
         Raft_udp_log.print_msg_received logger msg id
         >>= (fun () -> 
-          send_raft_messages_f responses
+          send_raft_messages_f raft_state responses
         )
         >>=(fun _ -> handle_follow_up_action raft_state)
       )
@@ -167,7 +175,7 @@ let run_server configuration id logger =
           )
 
         in
-        send_raft_messages_f msgs
+        send_raft_messages_f raft_state msgs
         >>=(fun _ -> handle_follow_up_action raft_state)
       )
 
@@ -188,7 +196,7 @@ let run_server configuration id logger =
         | Raft_logic.Forward_to_leader _ -> 
           server_loop raft_state now (timeout +. now' -. now) timeout_type
         | Raft_logic.Appended (raft_state, msgs) -> 
-          send_raft_messages_f msgs
+          send_raft_messages_f raft_state msgs
           >>=(fun _ -> handle_follow_up_action raft_state)
       )
     )
@@ -204,7 +212,7 @@ let run_server configuration id logger =
 
   let add_log_t  =
     let rec aux () =
-      Lwt_unix.sleep 0.001
+      Lwt_unix.sleep 0.0005
       >>=(fun () ->
         Lwt_mvar.put add_log_mvar ()
       )

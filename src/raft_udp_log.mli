@@ -9,3 +9,5 @@ val print_msg_to_send : Lwt_log_core.logger -> int -> Raft_pb.message -> int -> 
 val print_msg_received : Lwt_log_core.logger -> Raft_pb.message -> int -> unit Lwt.t 
 (** [print_msg_received logger msg recipient] logs a receive message information 
  *)
+
+val print_leader_state : Lwt_log_core.logger -> Raft_pb.state_role -> unit Lwt.t
