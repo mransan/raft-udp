@@ -12,7 +12,6 @@ endif
 
 test: 
 	$(OCB) test.native
-	time ./test.native --id 0  
 
 gen:
 	ocaml-protoc -I ../raft.git/src/ -ml_out src src/raft_udp.proto
