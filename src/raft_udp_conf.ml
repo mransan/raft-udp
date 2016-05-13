@@ -11,9 +11,9 @@ let default_configuration () = Udp.({
     max_nb_logs_per_message = 300;
   });
   servers_udp_configuration = [
-    {raft_id = 0; inet4_address = "127.0.0.1"; port = 31000; };
-    {raft_id = 1; inet4_address = "127.0.0.1"; port = 31001; };
-    {raft_id = 2; inet4_address = "127.0.0.1"; port = 31002; };
+    {raft_id = 0; inet4_address = "172.17.0.2"; port = 12000; };
+    {raft_id = 1; inet4_address = "172.17.0.3"; port = 12000; };
+    {raft_id = 2; inet4_address = "172.17.0.4"; port = 12000; };
   ];
 })
 
