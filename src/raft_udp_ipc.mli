@@ -24,3 +24,12 @@ val get_send_raft_message_f :
 (** [get_send_raft_message_f configuration] returns the function
     [f] to send a Raft message to [server_id].
   *)
+
+type 'a next_client_connection_f = 
+  unit -> 
+  ([> `New_client_connection of Lwt_unix.file_descr | `Failure] as 'a) Lwt.t  
+
+val get_next_client_connection_f :
+  Raft_udp_pb.configuration ->
+  int ->
+  'a next_client_connection_f

@@ -1,4 +1,4 @@
-OCB_INC   = -I src -I tests
+OCB_INC   = -I src 
 OCB_FLAGS = -use-ocamlfind -pkgs ocaml-protoc -pkgs raft -pkgs lwt.unix
 OCB       = ocamlbuild $(OCB_FLAGS) $(OCB_INC)
 
@@ -11,7 +11,8 @@ endif
 .PHONY: test gen lib.native lib.byte lib.install lib.uninstall clean 
 
 test: 
-	$(OCB) test.native
+	$(OCB) server.native
+	$(OCB) client.native
 
 gen:
 	ocaml-protoc -I ../raft.git/src/ -ml_out src src/raft_udp.proto
