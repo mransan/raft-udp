@@ -59,6 +59,10 @@ let run_server configuration id logger =
     Raft_udp_ipc.get_next_raft_message_f_for_server configuration id
   in
 
+  let next_client_connection_f = 
+    Raft_udp_ipc.get_next_client_connection_f configuration id 
+  in 
+
   let send_raft_message_f =
     let f = Raft_udp_ipc.get_send_raft_message_f configuration in 
     (fun msg server_id -> 
@@ -109,7 +113,8 @@ let run_server configuration id logger =
       Lwt.pick [
         add_log ();
         Lwt_unix.timeout timeout;
-        next_raft_message_f ()
+        next_raft_message_f ();
+        next_client_connection_f (); 
       ];
     ) (function
         | Lwt_unix.Timeout -> Lwt.return `Timeout
@@ -212,6 +217,11 @@ let run_server configuration id logger =
           )
           >>=(fun _ -> handle_follow_up_action raft_state)
         )
+
+      | `New_client_connection fd -> 
+         Lwt_io.printl "New client connection received"
+         >>=(fun () -> Lwt_unix.close fd)
+         >>=(fun () -> handle_follow_up_action raft_state) 
       )
   in
 

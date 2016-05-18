@@ -13,10 +13,39 @@ message configuration {
 }
 
 message ServerUdpConfiguration {
-  required int32  raft_id      = 1;
+  required int32  raft_id       = 1;
     // This is the logical raft identifier for that server. [0 - nb_of_server[.
   required string inet4_address = 2; 
     // IPv4 Internet Address: aaa.bbb.ccc.ddd
-  required int32  port         = 3; 
+  required int32  raft_port     = 3; 
     // Port number. 
+  required int32  client_port   = 4; 
+    // Port number. 
+}
+
+message ClientRequest {
+  message Ping {}
+  message AddLog {
+    required string request_id = 1; 
+    required bytes  data       = 2;
+  }
+  oneof t {
+    Ping    ping    = 1;
+    AddLog  add_log = 2;
+  }
+}
+
+message ClientResponse {
+
+  message Success {}
+  message ReplicationFailure {}
+  message NotALeader {
+    required int32 leader_id = 1;
+  }
+
+  oneof t {
+    Success            success             = 1;
+    ReplicationFailure replication_failure = 2;
+    NotALeader         not_a_leader        = 3;
+  }
 }

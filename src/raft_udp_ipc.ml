@@ -9,7 +9,7 @@ type 'a next_raft_message_f =
 
 let get_next_raft_message_f_for_server configuration server_id =
   
-  match Conf.sockaddr_of_server_id configuration server_id with
+  match Conf.sockaddr_of_server_id `Raft configuration server_id with
   | None ->
     (fun () -> Lwt.return `Failure)
   | Some ad ->
@@ -40,7 +40,7 @@ let get_send_raft_message_f configuration =
   let module U = Lwt_unix in
 
   let server_addresses = List.map (fun ({Raft_udp_pb.raft_id} as server_config) ->
-    (raft_id, Conf.sockaddr_of_server_config server_config)
+    (raft_id, Conf.sockaddr_of_server_config `Raft server_config)
   ) configuration.Raft_udp_pb.servers_udp_configuration in
 
   let fd = U.socket U.PF_INET U.SOCK_DGRAM 0 in
@@ -74,3 +74,27 @@ let get_send_raft_message_f configuration =
     | exception Not_found -> 
       Lwt.fail_with @@ Printf.sprintf "Address not found for server %i" server_id
   )
+
+type 'a next_client_connection_f = 
+  unit -> 
+  ([> `New_client_connection of Lwt_unix.file_descr | `Failure] as 'a) Lwt.t  
+
+let get_next_client_connection_f configuration server_id =
+  let module U = Lwt_unix in 
+
+  match Conf.sockaddr_of_server_id `Client configuration server_id with
+  | None    -> (fun () -> Lwt.return `Failure) 
+  | Some ad ->
+    let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
+
+    U.bind fd ad; 
+    U.listen fd 10;   
+
+    (fun () -> 
+      U.accept fd 
+      >|=(fun (fd, ad) -> 
+        `New_client_connection fd
+      )
+    )
+
+
