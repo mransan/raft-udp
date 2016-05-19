@@ -75,26 +75,3 @@ let get_send_raft_message_f configuration =
       Lwt.fail_with @@ Printf.sprintf "Address not found for server %i" server_id
   )
 
-type 'a next_client_connection_f = 
-  unit -> 
-  ([> `New_client_connection of Lwt_unix.file_descr | `Failure] as 'a) Lwt.t  
-
-let get_next_client_connection_f configuration server_id =
-  let module U = Lwt_unix in 
-
-  match Conf.sockaddr_of_server_id `Client configuration server_id with
-  | None    -> (fun () -> Lwt.return `Failure) 
-  | Some ad ->
-    let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
-
-    U.bind fd ad; 
-    U.listen fd 10;   
-
-    (fun () -> 
-      U.accept fd 
-      >|=(fun (fd, ad) -> 
-        `New_client_connection fd
-      )
-    )
-
-
