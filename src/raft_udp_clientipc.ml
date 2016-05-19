@@ -1,8 +1,15 @@
 open Lwt.Infix 
 open Lwt_log_core
 
-module U = Lwt_unix 
-module Conf = Raft_udp_conf 
+module U     = Lwt_unix 
+module Conf  = Raft_udp_conf 
+module Stats = Raft_udp_serverstats
+
+type handle = Lwt_unix.file_descr
+
+type client_request = Raft_udp_pb.client_request * handle 
+
+type send_response_f = (Raft_udp_pb.client_response * handle) option -> unit 
 
 let get_next_client_connection_f logger configuration server_id =
 
@@ -10,40 +17,35 @@ let get_next_client_connection_f logger configuration server_id =
   | None    -> (fun () -> Lwt.return `Failure) 
   | Some ad ->
 
-    try
-      let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
-      U.bind fd ad; 
-      U.listen fd 10;   
-
-      (fun () -> 
-        Lwt.catch (fun () ->
-
+    let make_acccept_f fd =  fun () -> 
+      Lwt.catch (fun () ->
         U.accept fd 
         >>=(fun (fd2, ad) -> 
-          log ~logger ~level:Notice "New client connection accepted"
-          >|=(fun () ->
-            `New_client_connection fd2
-          )
+          log ~logger ~level:Notice "[ClientIPC] New client connection accepted"
+          >|=(fun () -> `New_client_connection fd2)
         )
+      ) (* with *) (fun exn ->
+        
+        (* The accept has failed, this is a critical failure AFAIK
+         * so best to return a fatale `Failure.
+         *)
+        log_f ~logger ~level:Fatal 
+          "[ClientIPC] Error when accepting new client connection, details: %s"
+          (Printexc.to_string exn)
+        >|=(fun () -> `Failure)
+      ) 
+    in
 
-        ) (* with *) (fun exn ->
-          
-          (* The accept has failed, this is a critical failure AFAIK
-           * so best to return a fatale `Failure.
-           *)
-          log_f ~logger ~level:Fatal 
-            "Error when accepting new client connection, details: %s"
-            (Printexc.to_string exn)
-          >|=(fun () -> 
-            `Failure 
-          )
-        ) 
-      )
+    try
 
+      let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
+      U.bind fd ad; 
+      U.listen fd 100;   
+      make_acccept_f fd 
     with exn -> (fun () -> 
 
       log_f ~logger ~level:Fatal 
-        "Error initializing TCP listen connection for client IPC. details: %s"
+        "[ClientIPC] Error initializing TCP listen connection for client IPC. details: %s"
         (Printexc.to_string exn)
 
       >|=(fun () -> `Failure)
@@ -58,7 +60,7 @@ let handle_new_client_connection logger req_push fd : unit Lwt.t =
   >>=(fun nb_bytes_received ->
 
     log_f ~logger ~level:Notice 
-      "New Client message received, nb of bytes: %i" nb_bytes_received
+      "[ClientIPC] New Client message received, nb of bytes: %i" nb_bytes_received
     >|=(fun () -> nb_bytes_received)
   )
   >>=(function 
@@ -81,19 +83,20 @@ let handle_new_client_connection logger req_push fd : unit Lwt.t =
     | nb_bytes_received -> begin  
       let decoder = Pbrt.Decoder.of_bytes buffer in 
       begin match Raft_udp_pb.decode_client_request decoder with
-      | req -> Lwt.return @@ req_push (Some req)
+      | req -> 
+        Lwt.return @@ req_push (Some (req, fd))
       | exception exn -> 
         log_f ~logger ~level:Error 
-          "Error decoding client request, details: %s"
+          "[ClientIPC] Error decoding client request, details: %s"
           (Printexc.to_string exn)
+        >>=(fun () -> U.close fd)
       end 
-      >>=(fun () -> U.close fd)
     end
   )
   ) (* try *) (fun exn  ->
     
     log_f ~logger ~level:Error 
-      "Error when reading client data from connection, details: %s"
+      "[ClientIPC] Error when reading client data from connection, details: %s"
       (Printexc.to_string exn) 
     
     (* 
@@ -105,14 +108,46 @@ let handle_new_client_connection logger req_push fd : unit Lwt.t =
     >>=(fun () -> U.close fd) 
   ) 
 
+let process_response_stream logger res_stream =
+  Lwt_stream.iter_p (fun (response, fd) -> 
 
-let client_request_stream logger configuration server_id = 
+    let encoder = Pbrt.Encoder.create () in 
+    Raft_udp_pb.encode_client_response response encoder; 
+    let buffer = Pbrt.Encoder.to_bytes encoder in 
+    let buffer_len = Bytes.length buffer in 
+    
+    begin 
+      Lwt.catch (fun () -> 
+        Lwt_unix.write fd buffer 0 buffer_len
+        >>=(fun nb_byte_written -> 
+          if nb_byte_written <> buffer_len
+          then 
+            log_f ~logger ~level:Error 
+              "[ClientIPC] Error sending client response, byte written: %i, len: %i"
+              nb_byte_written buffer_len
+
+          else  Lwt.return_unit
+        )
+
+      ) (* with *) (fun exn -> 
+        log_f ~logger ~level:Error
+          "[ClientIPC] Error sending client response, detail: %s" 
+          (Printexc.to_string exn)
+      ) 
+    end
+    >>=(fun () -> 
+      Lwt_unix.close fd 
+      >>=(fun () -> log ~logger ~level:Notice "[ClientIPC] Client connection closed")) 
+
+  ) res_stream  
+
+let client_request_stream logger configuration stats server_id = 
 
   let next_client_connection_f = 
     get_next_client_connection_f logger configuration server_id
   in  
 
-  let req_stream, req_push, set_ref = Lwt_stream.create_with_reference () in 
+  let req_stream, req_push, set_req_ref = Lwt_stream.create_with_reference () in 
 
   (*
    * This is the main client IPC loop. 
@@ -136,6 +171,7 @@ let client_request_stream logger configuration server_id =
             (next_threads, true)
 
           | `New_client_connection fd -> 
+            Stats.tick_new_client_connection stats;
 
             let recv_thread = 
               handle_new_client_connection logger req_push fd 
@@ -143,17 +179,10 @@ let client_request_stream logger configuration server_id =
             in 
             let next_threads = 
               recv_thread::(next_client_connection_f ())::next_threads
-              (* 
-               * By appending the threads which reads the client
-               * connection we ensure that this thread will be 
-               * concurrently processed with the new connections.
-               *
-               * This ensure that new conncetions can be accepted
-               * while a client interaction is not over. When 
-               * multiple client connects the communication processing will
-               * be concurrent.
-               * 
-               *) 
+              (* This is where the fundamental logic of handling a TCP 
+               * connection is. Each new connection can then be processed
+               * concurently with the the next iteration of accept. 
+               *)
             in
             (next_threads, is_failure)
           
@@ -179,6 +208,8 @@ let client_request_stream logger configuration server_id =
       else loop next_threads ()
     )
   in
+  set_req_ref @@ loop [next_client_connection_f ()] (); 
 
-  set_ref @@ loop [next_client_connection_f ()] (); 
-  req_stream
+  let res_stream, res_push, set_res_ref = Lwt_stream.create_with_reference () in  
+  set_res_ref ((process_response_stream logger res_stream):unit Lwt.t); 
+  (req_stream, res_push)
