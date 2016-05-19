@@ -1,8 +1,8 @@
-module Raft = Raft_pb
-module Udp  = Raft_udp_pb
-module Conf = Raft_udp_conf
-module Counter = Raft_udp_counter.Counter 
-module Perf = Raft_udp_counter.Perf
+module Raft  = Raft_pb
+module Udp   = Raft_udp_pb
+module Conf  = Raft_udp_conf
+module Perf  = Raft_udp_counter.Perf
+module Stats = Raft_udp_serverstats
 
 open Lwt.Infix
 
@@ -36,54 +36,27 @@ let run_server configuration id logger =
   let initial_raft_state = Raft_helper.Follower.create
     ~configuration:configuration.Udp.raft_configuration ~now:(get_now ()) ~id () in
 
-  (*
-   * Counters to collect statistics about the
-   * various rate of pertinent events. Those
-   * rates are updated in the main event thread and
-   * printed in the print thread.
-   *
-   *)
-  let raft_msg_received_counter = Counter.make () in
-  let raft_msg_sent_counter = Counter.make () in
-  let log_counter =
-    let initial_counter = initial_raft_state.Raft.log_size in
-    Counter.make ~initial_counter ()
+  let stats = 
+    Stats.make ~initial_log_size:initial_raft_state.Raft.log_size ()
   in
-  let heartbeat_counter = Counter.make () in
-  let append_entries_failure_counter = Counter.make () in
-
-  let msg_perf = Perf.make () in 
-  let hb_perf = Perf.make () in 
 
   let next_raft_message_f =
     Raft_udp_ipc.get_next_raft_message_f_for_server configuration id
   in
 
-
   let send_raft_message_f =
     let f = Raft_udp_ipc.get_send_raft_message_f configuration in 
-    (fun msg server_id -> 
-      Counter.incr raft_msg_sent_counter; 
+    fun msg server_id -> 
+      Stats.tick_raft_msg_send stats; 
       Raft_udp_log.print_msg_to_send logger id msg server_id 
-      >>= (fun () -> 
-        f msg server_id
-      )
-    ) 
+      >>= (fun () -> f msg server_id)
   in
 
   let send_raft_messages_f raft_state requests =
-    (*
-    match requests with
-    | [] -> Lwt.return_unit
-    | _  -> Raft_udp_log.print_leader_state logger raft_state.Raft.role 
-    *)
-    Lwt.return_unit
-    >>=(fun () ->
-      Lwt_list.map_p (fun (msg, receiver_id) ->
-        send_raft_message_f msg receiver_id
-      ) requests
-      >|= ignore
-    )
+    Lwt_list.map_p (fun (msg, receiver_id) ->
+      send_raft_message_f msg receiver_id
+    ) requests
+    >|= ignore
   in
 
   (*
@@ -99,18 +72,21 @@ let run_server configuration id logger =
   in
   
   let process_client_request_thread = 
-
-    let req_stream = 
-      Raft_udp_clientipc.client_request_stream logger configuration id 
+    let req_stream, send_response_f = 
+      Raft_udp_clientipc.client_request_stream logger configuration stats id 
     in 
-    Lwt_stream.iter_s (function
+    Lwt_stream.iter_s (fun (client_request, client_handle) ->
+      begin match client_request with
       | Udp.Ping ->  
-        log ~logger ~level:Notice ">> Raft Message Received"
+        log ~logger ~level:Notice ">> Ping Message Received"
       | Udp.Add_log _ ->
         Lwt_mvar.put add_log_mvar ()
+      end 
+      >|=(fun () -> 
+        send_response_f (Some (Raft_udp_pb.Success, client_handle))
+      ) 
     ) req_stream 
   in 
-
 
   let rec server_loop raft_state now' timeout timeout_type =
     (*
@@ -148,7 +124,7 @@ let run_server configuration id logger =
       
       let now = get_now () in
 
-      Counter.set log_counter raft_state.Raft.log_size;
+      Stats.set_log_count stats raft_state.Raft.log_size;
 
       match event with
       | `Raft_message msg -> (
@@ -157,15 +133,15 @@ let run_server configuration id logger =
           Raft_udp_log.print_state logger raft_state
         )
         >>=(fun () ->
-          Counter.incr raft_msg_received_counter;
+          Stats.tick_raft_msg_recv stats;
           begin match msg with
           | Raft.Append_entries_response {Raft.result = Raft.Log_failure  _ ; _}
           | Raft.Append_entries_response {Raft.result = Raft.Term_failure ; _} ->
-            Counter.incr append_entries_failure_counter
+            Stats.tick_append_entries_failure stats; 
           | _ -> ()
           end;
 
-          let raft_state, responses = Perf.f3 msg_perf 
+          let raft_state, responses = Perf.f3 (Stats.msg_processing stats) 
             Raft_logic.handle_message raft_state msg now
           in
           Raft_udp_log.print_msg_received logger msg id
@@ -179,10 +155,10 @@ let run_server configuration id logger =
       | `Timeout -> (
         begin match timeout_type with
         | Raft.Heartbeat -> (
-          Counter.incr heartbeat_counter;
+          Stats.tick_heartbeat stats;
           log ~logger ~level:Notice ">> Heartbeat timeout" 
           >|= (fun () ->
-            Perf.f2 hb_perf 
+            Perf.f2 (Stats.hb_processing stats)
               Raft_logic.handle_heartbeat_timeout raft_state now
           )
         )
@@ -212,7 +188,7 @@ let run_server configuration id logger =
 
         let new_log_response  = 
           let data  = Bytes.of_string (string_of_float now) in 
-          let datas = Ext.list_make 20 data in 
+          let datas = [data] in 
           Raft_logic.handle_add_log_entries raft_state datas now 
         in 
 
@@ -251,48 +227,8 @@ let run_server configuration id logger =
   in
   *)
 
-  let print_stats_t =
-    
-    let print_header_every = 20 in 
-
-    let rec aux counter () =
-      Lwt_unix.sleep 1.
-      >>=(fun () -> 
-        if counter = 0 
-        then 
-          Lwt_io.printf 
-            " %15s | %15s | %10s | %8s | %4s | %6s | %12s | %12s | \n" 
-            "recv msg/s"
-            "sent msg/s" 
-            "log/s"
-            "log nb"
-            "hb/s"
-            "er/s"
-            "avg msg (us)"
-            "avg hb (us)"
-          >|=(fun () -> print_header_every)
-        else
-          Lwt.return counter 
-      )
-      >>=(fun counter ->
-        Lwt_io.printf " %15.3f | %15.3f | %10.3f | %8i | %4.1f | %6.1f | %12.3f | %12.3f | \n"
-          (Counter.rate raft_msg_received_counter)
-          (Counter.rate raft_msg_sent_counter)
-          (Counter.rate log_counter)
-          (Counter.value log_counter)
-          (Counter.rate heartbeat_counter)
-          (Counter.rate append_entries_failure_counter)
-          (Perf.avg ~reset:() ~unit_:`Us msg_perf)
-          (Perf.avg ~reset:() ~unit_:`Us hb_perf)
-        >>=(fun () -> aux (counter - 1) ()) 
-      )
-    in
-    aux 0 () 
-  in
-
   Lwt.join [
     server_t;
-    print_stats_t;
     (*
     add_log_t;
     *)
@@ -310,6 +246,7 @@ let run configuration id =
   Lwt_main.run t 
 
 let () =
+  Printf.printf ">>PID: %i\n%!" (Unix.getpid ());
   Random.self_init ();
   let configuration = Conf.default_configuration () in
 
