@@ -39,6 +39,7 @@ let get_next_client_connection_f logger configuration server_id =
     try
 
       let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
+      U.setsockopt fd U.SO_REUSEADDR true; 
       U.bind fd ad; 
       U.listen fd 100;   
       make_acccept_f fd 
