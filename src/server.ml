@@ -59,9 +59,6 @@ let run_server configuration id logger =
     Raft_udp_ipc.get_next_raft_message_f_for_server configuration id
   in
 
-  let next_client_connection_f = 
-    Raft_udp_ipc.get_next_client_connection_f configuration id 
-  in 
 
   let send_raft_message_f =
     let f = Raft_udp_ipc.get_send_raft_message_f configuration in 
@@ -100,6 +97,20 @@ let run_server configuration id logger =
   let add_log () =
     Lwt_mvar.take add_log_mvar >|= (fun () -> `Add_log)
   in
+  
+  let process_client_request_thread = 
+
+    let req_stream = 
+      Raft_udp_clientipc.client_request_stream logger configuration id 
+    in 
+    Lwt_stream.iter_s (function
+      | Udp.Ping ->  
+        log ~logger ~level:Notice ">> Raft Message Received"
+      | Udp.Add_log _ ->
+        Lwt_mvar.put add_log_mvar ()
+    ) req_stream 
+  in 
+
 
   let rec server_loop raft_state now' timeout timeout_type =
     (*
@@ -114,7 +125,6 @@ let run_server configuration id logger =
         add_log ();
         Lwt_unix.timeout timeout;
         next_raft_message_f ();
-        next_client_connection_f (); 
       ];
     ) (function
         | Lwt_unix.Timeout -> Lwt.return `Timeout
@@ -217,11 +227,6 @@ let run_server configuration id logger =
           )
           >>=(fun _ -> handle_follow_up_action raft_state)
         )
-
-      | `New_client_connection fd -> 
-         Lwt_io.printl "New client connection received"
-         >>=(fun () -> Lwt_unix.close fd)
-         >>=(fun () -> handle_follow_up_action raft_state) 
       )
   in
 
@@ -233,6 +238,7 @@ let run_server configuration id logger =
     server_loop initial_raft_state (get_now ()) timeout timeout_type 
   in
 
+  (* 
   let add_log_t  =
     let rec aux () =
       Lwt_unix.sleep 0.0005
@@ -243,6 +249,7 @@ let run_server configuration id logger =
     in
     aux ()
   in
+  *)
 
   let print_stats_t =
     
@@ -286,7 +293,10 @@ let run_server configuration id logger =
   Lwt.join [
     server_t;
     print_stats_t;
+    (*
     add_log_t;
+    *)
+    process_client_request_thread
   ]
 
 let run configuration id = 
