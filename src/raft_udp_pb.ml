@@ -24,6 +24,14 @@ and configuration_mutable = {
   mutable servers_udp_configuration : server_udp_configuration list;
 }
 
+type client_request_ping = {
+  request_id : string;
+}
+
+and client_request_ping_mutable = {
+  mutable request_id : string;
+}
+
 type client_request_add_log = {
   request_id : string;
   data : bytes;
@@ -35,21 +43,32 @@ and client_request_add_log_mutable = {
 }
 
 type client_request =
-  | Ping
+  | Ping of client_request_ping
   | Add_log of client_request_add_log
 
-type client_response_not_aleader = {
-  leader_id : int;
+type client_response_pong = {
+  request_id : string;
+  leader_id : int option;
 }
 
-and client_response_not_aleader_mutable = {
-  mutable leader_id : int;
+and client_response_pong_mutable = {
+  mutable request_id : string;
+  mutable leader_id : int option;
+}
+
+type client_response_add_log_not_aleader = {
+  leader_id : int option;
+}
+
+and client_response_add_log_not_aleader_mutable = {
+  mutable leader_id : int option;
 }
 
 type client_response =
-  | Success
-  | Replication_failure
-  | Not_a_leader of client_response_not_aleader
+  | Pong of client_response_pong
+  | Add_log_success
+  | Add_log_replication_failure
+  | Add_log_not_a_leader of client_response_add_log_not_aleader
 
 let rec default_server_udp_configuration 
   ?raft_id:((raft_id:int) = 0)
@@ -83,6 +102,16 @@ and default_configuration_mutable () : configuration_mutable = {
   servers_udp_configuration = [];
 }
 
+let rec default_client_request_ping 
+  ?request_id:((request_id:string) = "")
+  () : client_request_ping  = {
+  request_id;
+}
+
+and default_client_request_ping_mutable () : client_request_ping_mutable = {
+  request_id = "";
+}
+
 let rec default_client_request_add_log 
   ?request_id:((request_id:string) = "")
   ?data:((data:bytes) = Bytes.create 64)
@@ -96,19 +125,32 @@ and default_client_request_add_log_mutable () : client_request_add_log_mutable =
   data = Bytes.create 64;
 }
 
-let rec default_client_request (): client_request = Ping
+let rec default_client_request () : client_request = Ping (default_client_request_ping ())
 
-let rec default_client_response_not_aleader 
-  ?leader_id:((leader_id:int) = 0)
-  () : client_response_not_aleader  = {
+let rec default_client_response_pong 
+  ?request_id:((request_id:string) = "")
+  ?leader_id:((leader_id:int option) = None)
+  () : client_response_pong  = {
+  request_id;
   leader_id;
 }
 
-and default_client_response_not_aleader_mutable () : client_response_not_aleader_mutable = {
-  leader_id = 0;
+and default_client_response_pong_mutable () : client_response_pong_mutable = {
+  request_id = "";
+  leader_id = None;
 }
 
-let rec default_client_response (): client_response = Success
+let rec default_client_response_add_log_not_aleader 
+  ?leader_id:((leader_id:int option) = None)
+  () : client_response_add_log_not_aleader  = {
+  leader_id;
+}
+
+and default_client_response_add_log_not_aleader_mutable () : client_response_add_log_not_aleader_mutable = {
+  leader_id = None;
+}
+
+let rec default_client_response () : client_response = Pong (default_client_response_pong ())
 
 let rec decode_server_udp_configuration d =
   let v = default_server_udp_configuration_mutable () in
@@ -177,6 +219,25 @@ let rec decode_configuration d =
   let v:configuration = Obj.magic v in
   v
 
+let rec decode_client_request_ping d =
+  let v = default_client_request_ping_mutable () in
+  let rec loop () = 
+    match Pbrt.Decoder.key d with
+    | None -> (
+    )
+    | Some (1, Pbrt.Bytes) -> (
+      v.request_id <- Pbrt.Decoder.string d;
+      loop ()
+    )
+    | Some (1, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_request_ping), field(1)", pk))
+    )
+    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+  in
+  loop ();
+  let v:client_request_ping = Obj.magic v in
+  v
+
 let rec decode_client_request_add_log d =
   let v = default_client_request_add_log_mutable () in
   let rec loop () = 
@@ -207,7 +268,7 @@ let rec decode_client_request d =
   let rec loop () = 
     let ret:client_request = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
-      | Some (1, _) -> (Pbrt.Decoder.empty_nested d ; Ping)
+      | Some (1, _) -> Ping (decode_client_request_ping (Pbrt.Decoder.nested d))
       | Some (2, _) -> Add_log (decode_client_request_add_log (Pbrt.Decoder.nested d))
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
@@ -218,32 +279,59 @@ let rec decode_client_request d =
   in
   loop ()
 
-let rec decode_client_response_not_aleader d =
-  let v = default_client_response_not_aleader_mutable () in
+let rec decode_client_response_pong d =
+  let v = default_client_response_pong_mutable () in
+  let rec loop () = 
+    match Pbrt.Decoder.key d with
+    | None -> (
+    )
+    | Some (1, Pbrt.Bytes) -> (
+      v.request_id <- Pbrt.Decoder.string d;
+      loop ()
+    )
+    | Some (1, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_response_pong), field(1)", pk))
+    )
+    | Some (2, Pbrt.Varint) -> (
+      v.leader_id <- Some (Pbrt.Decoder.int_as_varint d);
+      loop ()
+    )
+    | Some (2, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_response_pong), field(2)", pk))
+    )
+    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+  in
+  loop ();
+  let v:client_response_pong = Obj.magic v in
+  v
+
+let rec decode_client_response_add_log_not_aleader d =
+  let v = default_client_response_add_log_not_aleader_mutable () in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (1, Pbrt.Varint) -> (
-      v.leader_id <- Pbrt.Decoder.int_as_varint d;
+      v.leader_id <- Some (Pbrt.Decoder.int_as_varint d);
       loop ()
     )
     | Some (1, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_response_not_aleader), field(1)", pk))
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_response_add_log_not_aleader), field(1)", pk))
     )
     | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
-  let v:client_response_not_aleader = Obj.magic v in
+  let v:client_response_add_log_not_aleader = Obj.magic v in
   v
 
 let rec decode_client_response d = 
   let rec loop () = 
     let ret:client_response = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
-      | Some (1, _) -> (Pbrt.Decoder.empty_nested d ; Success)
-      | Some (2, _) -> (Pbrt.Decoder.empty_nested d ; Replication_failure)
-      | Some (3, _) -> Not_a_leader (decode_client_response_not_aleader (Pbrt.Decoder.nested d))
+      | Some (1, _) -> Pong (decode_client_response_pong (Pbrt.Decoder.nested d))
+      | Some (2, _) -> (Pbrt.Decoder.empty_nested d ; Add_log_success)
+      | Some (3, _) -> (Pbrt.Decoder.empty_nested d ; Add_log_replication_failure)
+      | Some (4, _) -> Add_log_not_a_leader (decode_client_response_add_log_not_aleader (Pbrt.Decoder.nested d))
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
         loop () 
@@ -273,6 +361,11 @@ let rec encode_configuration (v:configuration) encoder =
   ) v.servers_udp_configuration;
   ()
 
+let rec encode_client_request_ping (v:client_request_ping) encoder = 
+  Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
+  Pbrt.Encoder.string v.request_id encoder;
+  ()
+
 let rec encode_client_request_add_log (v:client_request_add_log) encoder = 
   Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
   Pbrt.Encoder.string v.request_id encoder;
@@ -282,33 +375,56 @@ let rec encode_client_request_add_log (v:client_request_add_log) encoder =
 
 let rec encode_client_request (v:client_request) encoder = 
   match v with
-  | Ping -> (
+  | Ping x -> (
     Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.empty_nested encoder
+    Pbrt.Encoder.nested (encode_client_request_ping x) encoder;
   )
   | Add_log x -> (
     Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.nested (encode_client_request_add_log x) encoder;
   )
 
-let rec encode_client_response_not_aleader (v:client_response_not_aleader) encoder = 
-  Pbrt.Encoder.key (1, Pbrt.Varint) encoder; 
-  Pbrt.Encoder.int_as_varint v.leader_id encoder;
+let rec encode_client_response_pong (v:client_response_pong) encoder = 
+  Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
+  Pbrt.Encoder.string v.request_id encoder;
+  (
+    match v.leader_id with 
+    | Some x -> (
+      Pbrt.Encoder.key (2, Pbrt.Varint) encoder; 
+      Pbrt.Encoder.int_as_varint x encoder;
+    )
+    | None -> ();
+  );
+  ()
+
+let rec encode_client_response_add_log_not_aleader (v:client_response_add_log_not_aleader) encoder = 
+  (
+    match v.leader_id with 
+    | Some x -> (
+      Pbrt.Encoder.key (1, Pbrt.Varint) encoder; 
+      Pbrt.Encoder.int_as_varint x encoder;
+    )
+    | None -> ();
+  );
   ()
 
 let rec encode_client_response (v:client_response) encoder = 
   match v with
-  | Success -> (
+  | Pong x -> (
     Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.empty_nested encoder
+    Pbrt.Encoder.nested (encode_client_response_pong x) encoder;
   )
-  | Replication_failure -> (
+  | Add_log_success -> (
     Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.empty_nested encoder
   )
-  | Not_a_leader x -> (
+  | Add_log_replication_failure -> (
     Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.nested (encode_client_response_not_aleader x) encoder;
+    Pbrt.Encoder.empty_nested encoder
+  )
+  | Add_log_not_a_leader x -> (
+    Pbrt.Encoder.key (4, Pbrt.Bytes) encoder; 
+    Pbrt.Encoder.nested (encode_client_response_add_log_not_aleader x) encoder;
   )
 
 let rec pp_server_udp_configuration fmt (v:server_udp_configuration) = 
@@ -331,6 +447,14 @@ let rec pp_configuration fmt (v:configuration) =
   in
   Pbrt.Pp.pp_brk pp_i fmt ()
 
+let rec pp_client_request_ping fmt (v:client_request_ping) = 
+  let pp_i fmt () =
+    Format.pp_open_vbox fmt 1;
+    Pbrt.Pp.pp_record_field "request_id" Pbrt.Pp.pp_string fmt v.request_id;
+    Format.pp_close_box fmt ()
+  in
+  Pbrt.Pp.pp_brk pp_i fmt ()
+
 let rec pp_client_request_add_log fmt (v:client_request_add_log) = 
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
@@ -342,19 +466,29 @@ let rec pp_client_request_add_log fmt (v:client_request_add_log) =
 
 let rec pp_client_request fmt (v:client_request) =
   match v with
-  | Ping  -> Format.fprintf fmt "Ping"
+  | Ping x -> Format.fprintf fmt "@[Ping(%a)@]" pp_client_request_ping x
   | Add_log x -> Format.fprintf fmt "@[Add_log(%a)@]" pp_client_request_add_log x
 
-let rec pp_client_response_not_aleader fmt (v:client_response_not_aleader) = 
+let rec pp_client_response_pong fmt (v:client_response_pong) = 
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
-    Pbrt.Pp.pp_record_field "leader_id" Pbrt.Pp.pp_int fmt v.leader_id;
+    Pbrt.Pp.pp_record_field "request_id" Pbrt.Pp.pp_string fmt v.request_id;
+    Pbrt.Pp.pp_record_field "leader_id" (Pbrt.Pp.pp_option Pbrt.Pp.pp_int) fmt v.leader_id;
+    Format.pp_close_box fmt ()
+  in
+  Pbrt.Pp.pp_brk pp_i fmt ()
+
+let rec pp_client_response_add_log_not_aleader fmt (v:client_response_add_log_not_aleader) = 
+  let pp_i fmt () =
+    Format.pp_open_vbox fmt 1;
+    Pbrt.Pp.pp_record_field "leader_id" (Pbrt.Pp.pp_option Pbrt.Pp.pp_int) fmt v.leader_id;
     Format.pp_close_box fmt ()
   in
   Pbrt.Pp.pp_brk pp_i fmt ()
 
 let rec pp_client_response fmt (v:client_response) =
   match v with
-  | Success  -> Format.fprintf fmt "Success"
-  | Replication_failure  -> Format.fprintf fmt "Replication_failure"
-  | Not_a_leader x -> Format.fprintf fmt "@[Not_a_leader(%a)@]" pp_client_response_not_aleader x
+  | Pong x -> Format.fprintf fmt "@[Pong(%a)@]" pp_client_response_pong x
+  | Add_log_success  -> Format.fprintf fmt "Add_log_success"
+  | Add_log_replication_failure  -> Format.fprintf fmt "Add_log_replication_failure"
+  | Add_log_not_a_leader x -> Format.fprintf fmt "@[Add_log_not_a_leader(%a)@]" pp_client_response_add_log_not_aleader x

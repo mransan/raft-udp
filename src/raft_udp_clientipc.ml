@@ -52,12 +52,33 @@ let get_next_client_connection_f logger configuration server_id =
       >|=(fun () -> `Failure)
     )
 
-let handle_new_client_connection logger req_push fd : unit Lwt.t = 
+type client_connection_event = 
+  | Read_ok of U.file_descr 
+  | Closed  
+
+let close_client_connection fd () = 
+  U.close fd
+  >|= (fun () -> Closed)
+
+let read_with_attempts ~attempts fd buffer pos len = 
+  let rec aux = function
+    | 1 -> U.read fd buffer pos len
+    | n -> 
+      U.read fd buffer pos len
+      >>=(function
+        | 0 -> Lwt_unix.sleep 0.01 >>= (fun () -> aux (n -1))
+        | n -> Lwt.return n
+      )
+  in
+  aux attempts
+
+
+let handle_new_client_connection logger req_push fd : client_connection_event Lwt.t = 
   let buffer = Bytes.create 1024 in 
 
   Lwt.catch (fun () ->
 
-  U.read fd buffer 0 1024 
+  read_with_attempts ~attempts:10 fd buffer 0 1024 
   >>=(fun nb_bytes_received ->
 
     log_f ~logger ~level:Notice 
@@ -67,14 +88,14 @@ let handle_new_client_connection logger req_push fd : unit Lwt.t =
   >>=(function 
     | 0 ->
       log ~logger ~level:Warning
-        "Client terminated connection early"
-      >>=(fun () -> U.close fd)
+        "[ClientIPC] Client terminated connection early"
+      >>=(close_client_connection fd)
 
     | nb_bytes_received when nb_bytes_received = 1024 -> 
     
       log ~logger ~level:Error 
-        "Client message is too large... closing connection"
-      >>=(fun () -> U.close fd)
+        "[ClientIPC] Client message is too large... closing connection"
+      >>=(close_client_connection fd) 
         (* Here we have a message too large from the 
          * client. We chose to close the connection
          * defensively, we should log such an event
@@ -85,12 +106,16 @@ let handle_new_client_connection logger req_push fd : unit Lwt.t =
       let decoder = Pbrt.Decoder.of_bytes buffer in 
       begin match Raft_udp_pb.decode_client_request decoder with
       | req -> 
-        Lwt.return @@ req_push (Some (req, fd))
+        begin 
+          req_push (Some (req, fd)); 
+          Lwt.return (Read_ok fd)
+        end
+
       | exception exn -> 
         log_f ~logger ~level:Error 
           "[ClientIPC] Error decoding client request, details: %s"
           (Printexc.to_string exn)
-        >>=(fun () -> U.close fd)
+        >>=(close_client_connection fd)
       end 
     end
   )
@@ -106,7 +131,7 @@ let handle_new_client_connection logger req_push fd : unit Lwt.t =
      * failure, but since the failure is localize to a
      * client connection it is not propagated upstream.
      *)
-    >>=(fun () -> U.close fd) 
+    >>=(close_client_connection fd)
   ) 
 
 let process_response_stream logger res_stream =
@@ -126,6 +151,8 @@ let process_response_stream logger res_stream =
             log_f ~logger ~level:Error 
               "[ClientIPC] Error sending client response, byte written: %i, len: %i"
               nb_byte_written buffer_len
+            >>=(fun ()  -> Lwt_unix.close fd)
+            >>=(fun () -> log ~logger ~level:Notice "[ClientIPC] Client connection closed") 
 
           else  Lwt.return_unit
         )
@@ -134,12 +161,10 @@ let process_response_stream logger res_stream =
         log_f ~logger ~level:Error
           "[ClientIPC] Error sending client response, detail: %s" 
           (Printexc.to_string exn)
+        >>=(fun () -> Lwt_unix.close fd)
+        >>=(fun () -> log ~logger ~level:Notice "[ClientIPC] Client connection closed") 
       ) 
     end
-    >>=(fun () -> 
-      Lwt_unix.close fd 
-      >>=(fun () -> log ~logger ~level:Notice "[ClientIPC] Client connection closed")) 
-
   ) res_stream  
 
 let client_request_stream logger configuration stats server_id = 
@@ -176,7 +201,7 @@ let client_request_stream logger configuration stats server_id =
 
             let recv_thread = 
               handle_new_client_connection logger req_push fd 
-              >|=(fun () -> `Req_done)
+              >|=(fun x -> `Req_done x)
             in 
             let next_threads = 
               recv_thread::(next_client_connection_f ())::next_threads
@@ -187,12 +212,19 @@ let client_request_stream logger configuration stats server_id =
             in
             (next_threads, is_failure)
           
-          | `Req_done ->
+          | `Req_done Closed->
             (* 
              * Indication that a client interaction was terminated, no
              * follow up to do.
              *)
             (next_threads, is_failure)
+          
+          | `Req_done (Read_ok fd)->
+            let recv_thread = 
+              handle_new_client_connection logger req_push fd 
+              >|=(fun x -> `Req_done x)
+            in 
+            (recv_thread::next_threads, is_failure)
         ) (non_terminated_threads, false) events 
       in 
 
