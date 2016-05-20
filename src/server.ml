@@ -59,33 +59,15 @@ let run_server configuration id logger =
     >|= ignore
   in
 
-  (*
-   * In order to simulate a new request to the leader by a
-   * client application we use a separate thread to populate
-   * an [Lwt_mvar.t] value. This variable is populated in a
-   * separate Lwt thread. (See add_log_t)
-   *)
-
-  let add_log_mvar = Lwt_mvar.create_empty () in
-  let add_log () =
-    Lwt_mvar.take add_log_mvar >|= (fun () -> `Add_log)
-  in
-  
-  let process_client_request_thread = 
+  let next_client_request, send_response_f = 
     let req_stream, send_response_f = 
       Raft_udp_clientipc.client_request_stream logger configuration stats id 
     in 
-    Lwt_stream.iter_s (fun (client_request, client_handle) ->
-      begin match client_request with
-      | Udp.Ping ->  
-        log ~logger ~level:Notice ">> Ping Message Received"
-      | Udp.Add_log _ ->
-        Lwt_mvar.put add_log_mvar ()
-      end 
-      >|=(fun () -> 
-        send_response_f (Some (Raft_udp_pb.Success, client_handle))
-      ) 
-    ) req_stream 
+    (
+      (fun () -> Lwt_stream.next req_stream >|= (fun x -> `Client_request x)), 
+      (* TODO Replace by get *)
+      send_response_f
+    )
   in 
 
   let rec server_loop raft_state now' timeout timeout_type =
@@ -98,9 +80,9 @@ let run_server configuration id logger =
 
     Lwt.catch (fun () ->
       Lwt.pick [
-        add_log ();
         Lwt_unix.timeout timeout;
         next_raft_message_f ();
+        next_client_request();
       ];
     ) (function
         | Lwt_unix.Timeout -> Lwt.return `Timeout
@@ -128,7 +110,10 @@ let run_server configuration id logger =
 
       match event with
       | `Raft_message msg -> (
+        Lwt_unix.sleep 0.00
+        >>=(fun () ->
         log ~logger ~level:Notice ">> Raft Message Received"
+        )
         >>=(fun () ->
           Raft_udp_log.print_state logger raft_state
         )
@@ -141,9 +126,10 @@ let run_server configuration id logger =
           | _ -> ()
           end;
 
-          let raft_state, responses = Perf.f3 (Stats.msg_processing stats) 
+          let raft_state, responses, notifications = Perf.f3 (Stats.msg_processing stats) 
             Raft_logic.handle_message raft_state msg now
           in
+          (* TODO Handle notifications *)
           Raft_udp_log.print_msg_received logger msg id
           >>= (fun () -> 
             send_raft_messages_f raft_state responses
@@ -161,6 +147,7 @@ let run_server configuration id logger =
             Perf.f2 (Stats.hb_processing stats)
               Raft_logic.handle_heartbeat_timeout raft_state now
           )
+          >|= (fun (raft_state, msgs) -> (raft_state, msgs, []))
         )
 
         | Raft.New_leader_election -> (
@@ -172,7 +159,8 @@ let run_server configuration id logger =
         )
         end
 
-        >>=(fun (raft_state, msgs) ->
+        >>=(fun (raft_state, msgs, notifications) ->
+          (* TODO Handle notifications *)
           send_raft_messages_f raft_state msgs
           >|= (fun _ -> raft_state) 
         )
@@ -184,25 +172,47 @@ let run_server configuration id logger =
         Lwt_io.eprintf "System failure...\n%!"
       )
 
-      | `Add_log -> (
+      | `Client_request (client_request, handle) -> (
 
-        let new_log_response  = 
-          let data  = Bytes.of_string (string_of_float now) in 
-          let datas = [data] in 
-          Raft_logic.handle_add_log_entries raft_state datas now 
-        in 
+        match client_request with
+        | Udp.Ping {Udp.request_id; } -> 
+          begin  
+            let client_response = Udp.(Pong {
+              request_id; 
+              leader_id = Raft_helper.State.current_leader raft_state; 
+            }) in 
+            send_response_f (Some (client_response, handle)); 
+            handle_follow_up_action raft_state
+          end 
 
-        match new_log_response with
-        | Raft_logic.Delay
-        | Raft_logic.Forward_to_leader _ -> 
-          server_loop raft_state now (timeout +. now' -. now) timeout_type
-        | Raft_logic.Appended (raft_state, msgs) -> 
-          log_f ~logger ~level:Notice ">> Log Added (log size: %i)" raft_state.Raft_pb.log_size 
-          >>=(fun () ->
-            send_raft_messages_f raft_state msgs
+        | Udp.Add_log {Udp.request_id; data} -> 
+          
+          let new_log_response  = 
+            let datas = [(data, request_id)] in 
+            Raft_logic.handle_add_log_entries raft_state datas now 
+          in 
+
+          match new_log_response with
+          | Raft_logic.Delay
+          | Raft_logic.Forward_to_leader _ -> 
+            begin 
+              let client_response = Udp.(Add_log_not_a_leader {
+                leader_id = Raft_helper.State.current_leader raft_state; 
+              }) in 
+              send_response_f (Some (client_response, handle)); 
+              handle_follow_up_action raft_state
+            end
+
+          | Raft_logic.Appended (raft_state, msgs) -> 
+            begin 
+              send_response_f (Some (Udp.Add_log_success, handle)); 
+              log_f ~logger ~level:Notice ">> Log Added (log size: %i)" raft_state.Raft_pb.log_size 
+              >>=(fun () ->
+                send_raft_messages_f raft_state msgs
+              )
+              >>=(fun _ -> handle_follow_up_action raft_state)
+            end
           )
-          >>=(fun _ -> handle_follow_up_action raft_state)
-        )
       )
   in
 
@@ -229,10 +239,6 @@ let run_server configuration id logger =
 
   Lwt.join [
     server_t;
-    (*
-    add_log_t;
-    *)
-    process_client_request_thread
   ]
 
 let run configuration id = 

@@ -24,7 +24,16 @@ message ServerUdpConfiguration {
 }
 
 message ClientRequest {
-  message Ping {}
+  // Ping request allows the client to query the RAFT server
+  // for information. 
+  // The RAFT server will reply which server it believed to be 
+  // the leader.
+  message Ping { 
+    required string request_id = 1; 
+  }
+
+  // Add log request allows a client to append a log 
+  // to the RAFT state machine. 
   message AddLog {
     required string request_id = 1; 
     required bytes  data       = 2;
@@ -37,15 +46,20 @@ message ClientRequest {
 
 message ClientResponse {
 
-  message Success {}
-  message ReplicationFailure {}
-  message NotALeader {
-    required int32 leader_id = 1;
+  message Pong  {
+    required string request_id = 1; 
+    optional int32  leader_id  = 2;
+  }
+  message AddLogSuccess  {}
+  message AddLogReplicationFailure {}
+  message AddLogNotALeader {
+    optional int32 leader_id = 1;
   }
 
   oneof t {
-    Success            success             = 1;
-    ReplicationFailure replication_failure = 2;
-    NotALeader         not_a_leader        = 3;
+    Pong                     pong                    = 1;
+    AddLogSuccess            add_log_success             = 2;
+    AddLogReplicationFailure add_log_replication_failure = 3;
+    AddLogNotALeader         add_log_not_a_leader        = 4;
   }
 }
