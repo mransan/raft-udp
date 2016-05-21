@@ -53,20 +53,28 @@ let get_next_client_connection_f logger configuration server_id =
     )
 
 type client_connection_event = 
-  | Read_ok of U.file_descr 
-  | Closed  
+  | Read_ok  
+  | Read_closed  
+  | Write_ok of U.file_descr 
+  | Write_closed 
+  | Write_none 
 
 let close_client_connection fd () = 
-  U.close fd
-  >|= (fun () -> Closed)
+  (* U.close fd *)
+  Lwt.return_unit 
+  >|= (fun () -> Read_closed)
 
-let read_with_attempts ~attempts fd buffer pos len = 
+let read_with_attempts ~logger ~attempts fd buffer pos len = 
   let rec aux = function
     | 1 -> U.read fd buffer pos len
     | n -> 
       U.read fd buffer pos len
       >>=(function
-        | 0 -> Lwt_unix.sleep 0.01 >>= (fun () -> aux (n -1))
+        | 0 -> 
+          Lwt_unix.sleep 0.01 
+          >>= (fun () -> log_f ~logger ~level:Warning "[ClientIPC] read attempt [%4i]" (attempts - n)) 
+          >>= (fun () -> aux (n-1)) 
+
         | n -> Lwt.return n
       )
   in
@@ -78,7 +86,7 @@ let handle_new_client_connection logger req_push fd : client_connection_event Lw
 
   Lwt.catch (fun () ->
 
-  read_with_attempts ~attempts:10 fd buffer 0 1024 
+  read_with_attempts ~logger ~attempts:1000 fd buffer 0 1024 
   >>=(fun nb_bytes_received ->
 
     log_f ~logger ~level:Notice 
@@ -108,7 +116,7 @@ let handle_new_client_connection logger req_push fd : client_connection_event Lw
       | req -> 
         begin 
           req_push (Some (req, fd)); 
-          Lwt.return (Read_ok fd)
+          Lwt.return Read_ok
         end
 
       | exception exn -> 
@@ -134,8 +142,16 @@ let handle_new_client_connection logger req_push fd : client_connection_event Lw
     >>=(close_client_connection fd)
   ) 
 
+
+let close_connection ~logger fd () = 
+  U.close fd
+  >>=(fun () -> 
+    log ~logger ~level:Notice "[ClientIPC] Client connection closed"
+  ) 
+  >|= (fun () -> `Req_done Write_closed )
+
 let process_response_stream logger res_stream =
-  Lwt_stream.iter_p (fun (response, fd) -> 
+  Lwt_stream.map_s(fun (response, fd) -> 
 
     let encoder = Pbrt.Encoder.create () in 
     Raft_udp_pb.encode_client_response response encoder; 
@@ -151,18 +167,18 @@ let process_response_stream logger res_stream =
             log_f ~logger ~level:Error 
               "[ClientIPC] Error sending client response, byte written: %i, len: %i"
               nb_byte_written buffer_len
-            >>=(fun ()  -> Lwt_unix.close fd)
-            >>=(fun () -> log ~logger ~level:Notice "[ClientIPC] Client connection closed") 
+            >>= close_connection ~logger fd 
 
-          else  Lwt.return_unit
+          else  
+            log ~logger ~level:Notice "[ClientIPC] Response successfully sent"
+            >|= (fun () -> `Req_done (Write_ok fd))
         )
 
       ) (* with *) (fun exn -> 
         log_f ~logger ~level:Error
           "[ClientIPC] Error sending client response, detail: %s" 
           (Printexc.to_string exn)
-        >>=(fun () -> Lwt_unix.close fd)
-        >>=(fun () -> log ~logger ~level:Notice "[ClientIPC] Client connection closed") 
+        >>=(close_connection ~logger fd)
       ) 
     end
   ) res_stream  
@@ -174,6 +190,16 @@ let client_request_stream logger configuration stats server_id =
   in  
 
   let req_stream, req_push, set_req_ref = Lwt_stream.create_with_reference () in 
+  let res_stream, res_push = Lwt_stream.create () in  
+  let res_stream = process_response_stream logger res_stream in 
+
+  let next_response () =
+    Lwt_stream.get res_stream
+    >|=(function
+      | None ->   `Req_done Write_none
+      | Some x -> x
+    )
+  in 
 
   (*
    * This is the main client IPC loop. 
@@ -212,19 +238,25 @@ let client_request_stream logger configuration stats server_id =
             in
             (next_threads, is_failure)
           
-          | `Req_done Closed->
+          | `Req_done Read_closed
+          | `Req_done Read_ok ->
+
             (* 
              * Indication that a client interaction was terminated, no
              * follow up to do.
              *)
             (next_threads, is_failure)
           
-          | `Req_done (Read_ok fd)->
+          | `Req_done (Write_ok fd)->
             let recv_thread = 
               handle_new_client_connection logger req_push fd 
               >|=(fun x -> `Req_done x)
             in 
-            (recv_thread::next_threads, is_failure)
+            ((next_response ())::recv_thread::next_threads, is_failure)
+          | `Req_done (Write_closed) 
+          | `Req_done (Write_none) -> 
+            ((next_response ())::next_threads, is_failure)
+
         ) (non_terminated_threads, false) events 
       in 
 
@@ -241,8 +273,6 @@ let client_request_stream logger configuration stats server_id =
       else loop next_threads ()
     )
   in
-  set_req_ref @@ loop [next_client_connection_f ()] (); 
+  set_req_ref @@ loop [(next_response ()); next_client_connection_f ()] (); 
 
-  let res_stream, res_push, set_res_ref = Lwt_stream.create_with_reference () in  
-  set_res_ref ((process_response_stream logger res_stream):unit Lwt.t); 
   (req_stream, res_push)
