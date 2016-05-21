@@ -58,7 +58,7 @@ let send_log ad n' () =
               begin  
                 (* Format.(fprintf std_formatter "%a\n" Raft_udp_pb.pp_client_response client_response);
                  *)
-                U.sleep 0.0000 >>= (fun () ->aux (n -1))
+                U.sleep 0.0005 >>= (fun () ->aux (n -1))
               end 
           )
       in 

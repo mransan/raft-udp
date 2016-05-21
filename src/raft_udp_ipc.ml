@@ -40,14 +40,14 @@ let get_send_raft_message_f configuration =
   let module U = Lwt_unix in
 
   let server_addresses = List.map (fun ({Raft_udp_pb.raft_id} as server_config) ->
-    (raft_id, Conf.sockaddr_of_server_config `Raft server_config)
+    let fd = U.socket U.PF_INET U.SOCK_DGRAM 0 in
+    (raft_id, (Conf.sockaddr_of_server_config `Raft server_config, fd))
   ) configuration.Raft_udp_pb.servers_udp_configuration in
 
-  let fd = U.socket U.PF_INET U.SOCK_DGRAM 0 in
 
   (fun msg server_id ->
     match List.assq server_id server_addresses with
-    | ad -> (
+    | (ad, fd) -> (
       let encoder = Pbrt.Encoder.create () in
       Raft.encode_message msg encoder;
       let buffer  = Pbrt.Encoder.to_bytes encoder in
