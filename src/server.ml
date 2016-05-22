@@ -10,7 +10,7 @@ open Lwt_log_core
 
 (* -- Server -- *)
 
-let run_server configuration id logger =
+let run_server configuration id logger print_header =
 
   let get_now =
     (* 
@@ -27,7 +27,11 @@ let run_server configuration id logger =
     ~configuration:configuration.Udp.raft_configuration ~now:(get_now ()) ~id () in
 
   let stats = 
-    Stats.make ~initial_log_size:initial_raft_state.Raft.log_size ()
+    let print_header = if print_header then Some () else None in
+    Stats.make 
+      ?print_header 
+      ~initial_log_size:initial_raft_state.Raft.log_size 
+      ~id ()
   in
 
   let get_next_raft_message =
@@ -35,16 +39,16 @@ let run_server configuration id logger =
   in
 
   let send_raft_message =
-    let f = Raft_udp_ipc.get_send_raft_message_f configuration in 
-    fun msg server_id -> 
+    let ipc_handle, f = Raft_udp_ipc.get_send_raft_message_f configuration in 
+    fun ((msg, server_id) as msg_to_send) -> 
       Stats.tick_raft_msg_send stats; 
       Raft_udp_log.print_msg_to_send logger id msg server_id 
-      >>= (fun () -> f msg server_id)
+      >|= (fun () -> f ipc_handle msg_to_send)
   in
 
   let send_raft_messages requests =
-    Lwt_list.map_p (fun (msg, receiver_id) ->
-      send_raft_message msg receiver_id
+    Lwt_list.map_p (fun msg_to_send ->
+      send_raft_message msg_to_send
     ) requests
     >|= ignore
   in
@@ -117,8 +121,7 @@ let run_server configuration id logger =
         )
 
         | `Failure -> (
-          Lwt_io.eprintf "System failure...\n%!"
-          >|= (fun () -> raft_state)
+          exit 1
         )
 
         | `Client_request None -> (
@@ -156,12 +159,12 @@ let run_server configuration id logger =
   server_loop initial_threads initial_raft_state 
 
 
-let run configuration id = 
+let run configuration id print_header = 
   let t = 
     let file_name = Printf.sprintf "raft_upd_%i.log" id in 
     Lwt_log.file ~mode:`Truncate ~file_name () 
     >>=(fun logger -> 
-      run_server configuration id logger 
+      run_server configuration id logger print_header 
     ) 
   in
   Lwt_main.run t 
@@ -176,9 +179,12 @@ let () =
     id := int_of_string s
   ) in
 
+  let print_header = ref false in 
+  let print_header_spec = Arg.Set print_header in
+
   Arg.parse [
     ("--id", id_spec , " : server raft id");
+    ("--print-header", print_header_spec, " : enable header printing");
   ] (fun _ -> ()) "test.ml";
 
-
-  run configuration !id
+  run configuration !id !print_header

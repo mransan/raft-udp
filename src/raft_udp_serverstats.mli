@@ -7,7 +7,7 @@ type t
 
 (** {2 Creators} *)
 
-val make : initial_log_size:int -> unit -> t 
+val make : ?print_header:unit -> initial_log_size:int -> id:int -> unit -> t 
 (** [make ~initial_log_size ()] create the statistic collector
   *)
 

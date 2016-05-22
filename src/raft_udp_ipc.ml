@@ -30,10 +30,12 @@ let get_next_raft_message_f_for_server configuration server_id =
     in
     receive_loop
 
+type ipc_handle = (Raft.message *  int) Lwt_stream.t  
+
 type send_raft_message_f = 
-  Raft_pb.message ->
-  int ->
-  unit Lwt.t 
+  ipc_handle ->
+  Raft_pb.message * int ->
+  unit 
 
 let get_send_raft_message_f configuration =
 
@@ -44,8 +46,9 @@ let get_send_raft_message_f configuration =
     (raft_id, (Conf.sockaddr_of_server_config `Raft server_config, fd))
   ) configuration.Raft_udp_pb.servers_udp_configuration in
 
+  let res_stream, res_push, res_set_ref = Lwt_stream.create_with_reference () in 
 
-  (fun msg server_id ->
+  let res_stream' : unit Lwt.t = Lwt_stream.iter_p (fun (msg, server_id) ->
     match List.assq server_id server_addresses with
     | (ad, fd) -> (
       let encoder = Pbrt.Encoder.create () in
@@ -73,5 +76,12 @@ let get_send_raft_message_f configuration =
     )
     | exception Not_found -> 
       Lwt.fail_with @@ Printf.sprintf "Address not found for server %i" server_id
-  )
+  ) res_stream
+  in  
+
+  res_set_ref res_stream'; 
+  
+  (res_stream, (fun _ msg_to_send ->
+    res_push (Some msg_to_send)
+  ))
 

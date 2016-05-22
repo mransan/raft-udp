@@ -81,7 +81,7 @@ let read_with_attempts ~logger ~attempts fd buffer pos len =
   aux attempts
 
 
-let handle_new_client_connection logger req_push fd : client_connection_event Lwt.t = 
+let read_from_client_connection logger req_push fd : client_connection_event Lwt.t = 
   let buffer = Bytes.create 1024 in 
 
   Lwt.catch (fun () ->
@@ -148,7 +148,7 @@ let close_connection ~logger fd () =
   >>=(fun () -> 
     log ~logger ~level:Notice "[ClientIPC] Client connection closed"
   ) 
-  >|= (fun () -> `Req_done Write_closed )
+  >|= (fun () -> `Existing_client_connection Write_closed )
 
 let process_response_stream logger res_stream =
   Lwt_stream.map_s(fun (response, fd) -> 
@@ -171,7 +171,7 @@ let process_response_stream logger res_stream =
 
           else  
             log ~logger ~level:Notice "[ClientIPC] Response successfully sent"
-            >|= (fun () -> `Req_done (Write_ok fd))
+            >|= (fun () -> `Existing_client_connection (Write_ok fd))
         )
 
       ) (* with *) (fun exn -> 
@@ -196,7 +196,7 @@ let client_request_stream logger configuration stats server_id =
   let next_response () =
     Lwt_stream.get res_stream
     >|=(function
-      | None ->   `Req_done Write_none
+      | None ->   `Existing_client_connection Write_none
       | Some x -> x
     )
   in 
@@ -226,8 +226,8 @@ let client_request_stream logger configuration stats server_id =
             Stats.tick_new_client_connection stats;
 
             let recv_thread = 
-              handle_new_client_connection logger req_push fd 
-              >|=(fun x -> `Req_done x)
+              read_from_client_connection logger req_push fd 
+              >|=(fun x -> `Existing_client_connection x)
             in 
             let next_threads = 
               recv_thread::(next_client_connection_f ())::next_threads
@@ -238,8 +238,8 @@ let client_request_stream logger configuration stats server_id =
             in
             (next_threads, is_failure)
           
-          | `Req_done Read_closed
-          | `Req_done Read_ok ->
+          | `Existing_client_connection Read_closed
+          | `Existing_client_connection Read_ok ->
 
             (* 
              * Indication that a client interaction was terminated, no
@@ -247,14 +247,20 @@ let client_request_stream logger configuration stats server_id =
              *)
             (next_threads, is_failure)
           
-          | `Req_done (Write_ok fd)->
+          | `Existing_client_connection (Write_ok fd)->
+
+            (* 
+             * After this server write to the client connection, it's
+             * expected that the client will send another message, therefore
+             * we can now read from that connection.
+             *)
             let recv_thread = 
-              handle_new_client_connection logger req_push fd 
-              >|=(fun x -> `Req_done x)
+              read_from_client_connection logger req_push fd 
+              >|=(fun x -> `Existing_client_connection x)
             in 
             ((next_response ())::recv_thread::next_threads, is_failure)
-          | `Req_done (Write_closed) 
-          | `Req_done (Write_none) -> 
+          | `Existing_client_connection (Write_closed) 
+          | `Existing_client_connection (Write_none) -> 
             ((next_response ())::next_threads, is_failure)
 
         ) (non_terminated_threads, false) events 

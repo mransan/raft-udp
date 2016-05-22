@@ -13,14 +13,16 @@ val get_next_raft_message_f_for_server :
     the function [f] to receive the next raft message for [server_id].
  *)
 
+type ipc_handle 
+
 type send_raft_message_f = 
-  Raft_pb.message ->
-  int ->
-  unit Lwt.t 
+  ipc_handle ->
+  Raft_pb.message * int ->
+  unit 
 
 val get_send_raft_message_f :
   Raft_udp_pb.configuration ->
-  send_raft_message_f 
+  (ipc_handle * send_raft_message_f)
 (** [get_send_raft_message_f configuration] returns the function
     [f] to send a Raft message to [server_id].
   *)
