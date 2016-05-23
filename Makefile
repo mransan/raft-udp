@@ -14,6 +14,7 @@ test:
 	$(OCB) server.native
 	$(OCB) client.native
 	$(OCB) start_all_servers.native
+	$(OCB) start_all_clients.native
 
 gen:
 	ocaml-protoc -I ../raft.git/src/ -ml_out src src/raft_udp.proto

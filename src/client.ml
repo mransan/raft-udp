@@ -2,11 +2,12 @@ open Lwt.Infix
 
 module Conf = Raft_udp_conf 
 module U    = Lwt_unix 
+module Pb   = Raft_udp_pb
 
 let configuration = Conf.default_configuration () 
 
-let test_add_log_request = Raft_udp_pb.(Add_log {
-    request_id = "Max";
+let test_add_log_request = Pb.(Add_log {
+  request_id = string_of_int (Unix.getpid()); 
     data = Bytes.of_string "Hi";
   }) 
 
@@ -16,7 +17,7 @@ let return_error s =
 
 let send_request fd client_request = 
   let encoder = Pbrt.Encoder.create () in 
-  Raft_udp_pb.encode_client_request client_request encoder; 
+  Pb.encode_client_request client_request encoder; 
   let buffer     = Pbrt.Encoder.to_bytes encoder in 
   let buffer_len = Bytes.length buffer in 
   U.write fd buffer 0 buffer_len
@@ -30,7 +31,7 @@ let send_request fd client_request =
         if bytes_read <> 0 && bytes_read <> 1024
         then 
           let decoder = Pbrt.Decoder.of_bytes buffer in 
-          Lwt.return (Some (Raft_udp_pb.decode_client_response decoder))
+          Lwt.return (Some (Pb.decode_client_response decoder))
         else 
           return_error "Wrong nb of byte read"
       )  
@@ -45,7 +46,7 @@ let send_log ad n' () =
         | 0 -> Lwt.return_unit 
         | n -> 
           begin 
-            if n mod 500 = 0 
+            if n mod 20 = 0 
             then Lwt_io.printlf "[%4i]" (n' - n)
             else Lwt.return_unit
           end 
@@ -56,9 +57,10 @@ let send_log ad n' () =
             | None -> Lwt_io.eprintl "Error occured" 
             | Some client_response -> 
               begin  
-                (* Format.(fprintf std_formatter "%a\n" Raft_udp_pb.pp_client_response client_response);
-                 *)
-                U.sleep 0.00001 >>= (fun () ->aux (n -1))
+                (*
+                Format.(fprintf std_formatter "%a\n%!" Pb.pp_client_response client_response);
+                *)
+                U.sleep 0.001 >>= (fun () ->aux (n -1))
               end 
           )
       in 
