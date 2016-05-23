@@ -20,6 +20,8 @@ let send_request fd client_request =
   Pb.encode_client_request client_request encoder;
   let buffer     = Pbrt.Encoder.to_bytes encoder in
   let buffer_len = Bytes.length buffer in
+
+  Lwt.catch (fun () ->
   U.write fd buffer 0 buffer_len
   >>= (fun nb_byte_written ->
     if nb_byte_written <>  buffer_len
@@ -35,6 +37,10 @@ let send_request fd client_request =
         else
           return_error "Wrong nb of byte read"
       )
+  )) (* with *) (fun exn ->
+    Lwt_io.eprintlf "Error in IPC with RAFT server, details: %s" 
+      (Printexc.to_string exn) 
+    >|=(fun () -> None) 
   )
 
 let send_log ad n' () =
@@ -56,11 +62,17 @@ let send_log ad n' () =
           >>= (function
             | None -> Lwt_io.eprintl "Error occured"
             | Some client_response ->
-              begin
+              begin match client_response with
+              | Pb.Add_log_success -> 
                 (*
                 Format.(fprintf std_formatter "%a\n%!" Pb.pp_client_response client_response);
                 *)
                 U.sleep 0.0000 >>= (fun () ->aux (n -1))
+              | Pb.Add_log_replication_failure
+              | Pb.Pong _
+              | Pb.Add_log_not_a_leader _ ->
+                Lwt_io.eprintl "Error received from RAFT server" 
+
               end
           )
       in
