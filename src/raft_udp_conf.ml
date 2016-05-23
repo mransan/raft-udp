@@ -1,9 +1,9 @@
 
-module Udp  = Raft_udp_pb
-module Raft = Raft_pb 
+module Pb  = Raft_udp_pb
+module RPb = Raft_pb 
 
-let default_configuration () = Udp.({
-  raft_configuration = Raft.({
+let default_configuration () = Pb.({
+  raft_configuration = RPb.({
     nb_of_server = 3;
     election_timeout = 1.;
     election_timeout_range = 0.1;
@@ -17,7 +17,7 @@ let default_configuration () = Udp.({
   ];
 })
 
-let sockaddr_of_server_config which {Udp.inet4_address; raft_port; client_port} =
+let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port} =
   let port = match which with
     | `Client  -> client_port 
     | `Raft    -> raft_port
@@ -25,9 +25,9 @@ let sockaddr_of_server_config which {Udp.inet4_address; raft_port; client_port} 
   Unix.ADDR_INET (Unix.inet_addr_of_string inet4_address, port)
 
 let sockaddr_of_server_id which configuration server_id =
-  let is_server {Udp.raft_id; _ } =
+  let is_server {Pb.raft_id; _ } =
     raft_id = server_id
   in
-  match List.find is_server configuration.Udp.servers_udp_configuration with
+  match List.find is_server configuration.Pb.servers_udp_configuration with
   | server_config -> Some (sockaddr_of_server_config which server_config)
   | exception Not_found -> None

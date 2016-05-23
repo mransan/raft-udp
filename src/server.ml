@@ -1,8 +1,13 @@
-module Raft  = Raft_pb
-module Udp   = Raft_udp_pb
-module Conf  = Raft_udp_conf
-module Perf  = Raft_udp_counter.Perf
-module Stats = Raft_udp_serverstats
+module RPb = Raft_pb
+module RHelper = Raft_helper
+
+module Pb = Raft_udp_pb
+module Conf = Raft_udp_conf
+module Counter = Raft_udp_counter
+module Server_stats = Raft_udp_serverstats
+module Ipc = Raft_udp_ipc
+module Server_ipc = Raft_udp_serveripc
+module Client_ipc = Raft_udp_clientipc
 
 open Lwt.Infix
 
@@ -23,25 +28,25 @@ let run_server configuration id logger print_header =
     )
   in
   
-  let initial_raft_state = Raft_helper.Follower.create
-    ~configuration:configuration.Udp.raft_configuration ~now:(get_now ()) ~id () in
+  let initial_raft_state = RHelper.Follower.create
+    ~configuration:configuration.Pb.raft_configuration ~now:(get_now ()) ~id () in
 
   let stats = 
     let print_header = if print_header then Some () else None in
-    Stats.make 
+    Server_stats.make 
       ?print_header 
-      ~initial_log_size:initial_raft_state.Raft.log_size 
+      ~initial_log_size:initial_raft_state.RPb.log_size 
       ~id ()
   in
 
   let get_next_raft_message =
-    Raft_udp_ipc.get_next_raft_message_f_for_server configuration id
+    Ipc.get_next_raft_message_f_for_server configuration id
   in
 
   let send_raft_message =
-    let ipc_handle, f = Raft_udp_ipc.get_send_raft_message_f configuration in 
+    let ipc_handle, f = Ipc.get_send_raft_message_f configuration in 
     fun ((msg, server_id) as msg_to_send) -> 
-      Stats.tick_raft_msg_send stats; 
+      Server_stats.tick_raft_msg_send stats; 
       Raft_udp_log.print_msg_to_send logger id msg server_id 
       >|= (fun () -> f ipc_handle msg_to_send)
   in
@@ -53,15 +58,19 @@ let run_server configuration id logger print_header =
     >|= ignore
   in
 
-  let get_next_client_request, send_client_response = 
-    let req_stream, send_response_f = 
-      Raft_udp_clientipc.client_request_stream logger configuration stats id 
+  let get_next_client_request, send_response = 
+    let req_stream, send_response = 
+      Client_ipc.client_request_stream logger configuration stats id 
     in 
     (
       (fun () -> Lwt_stream.get req_stream >|= (fun x -> `Client_request x)), 
-      send_response_f
+      send_response
     )
   in 
+
+  let send_responses client_responses =
+    List.iter (fun res -> send_response (Some res)) client_responses 
+  in
 
   let next_raft_message_or_timeout timeout timeout_type = 
     Lwt.catch (fun () ->
@@ -72,7 +81,7 @@ let run_server configuration id logger print_header =
     )
   in
 
-  let rec server_loop threads raft_state =
+  let rec server_loop threads ((raft_state, _ ) as state)=
     (*
      * [now'] is the time associated with [timeout] meanding that the
      * time deadline at which the [Timeout] exception will be raised should be
@@ -84,9 +93,9 @@ let run_server configuration id logger print_header =
 
     >>=(fun (events, non_terminated_threads) ->
 
-      let handle_follow_up_action raft_state =   
+      let handle_follow_up_action ((raft_state, _ ) as state) = 
         let now = get_now () in
-        let {Raft.timeout; timeout_type } = Raft_helper.Timeout_event.next raft_state now in
+        let {RPb.timeout; timeout_type } = RHelper.Timeout_event.next raft_state now in
         let threads =
           if List.exists (function | `Client_request _ -> true  | _ -> false) events
           then [
@@ -95,28 +104,30 @@ let run_server configuration id logger print_header =
           ]
           else (next_raft_message_or_timeout timeout timeout_type)::non_terminated_threads
         in  
-        server_loop threads raft_state 
+        server_loop threads state 
       in
       
       let now = get_now () in
       
-      Stats.set_log_count stats raft_state.Raft.log_size;
+      Server_stats.set_log_count stats raft_state.RPb.log_size;
 
-      let raft_state = Lwt_list.fold_left_s (fun raft_state event ->
+      let state = Lwt_list.fold_left_s (fun state event ->
         match event with
         | `Raft_message msg -> (
-          Raft_udp_serveripc.handle_raft_message ~logger ~stats ~now raft_state msg 
-          >>=(fun (raft_state, msg_to_send, client_responses) ->
+          Server_ipc.handle_raft_message ~logger ~stats ~now state msg 
+          >>=(fun (state, msg_to_send, client_responses) ->
+            send_responses client_responses;
             send_raft_messages msg_to_send
-            >|=(fun () -> raft_state)
+            >|=(fun () -> state)
           )
         )
 
         | `Timeout timeout_type -> (
-          Raft_udp_serveripc.handle_timeout ~logger ~stats ~now raft_state timeout_type
-          >>=(fun (raft_state, msg_to_send, client_responses) ->
-           send_raft_messages msg_to_send 
-           >|=(fun () -> raft_state) 
+          Server_ipc.handle_timeout ~logger ~stats ~now state timeout_type
+          >>=(fun (state, msg_to_send, client_responses) ->
+            send_responses client_responses;
+            send_raft_messages msg_to_send 
+            >|=(fun () -> state)
           )
         )
 
@@ -126,37 +137,33 @@ let run_server configuration id logger print_header =
 
         | `Client_request None -> (
           log ~logger ~level:Notice "None receive from stream"
-          >|=(fun () -> raft_state)
+          >|=(fun () -> state)
         )
 
         | `Client_request (Some client_request) -> (
-          Raft_udp_serveripc.handle_client_request ~logger ~stats ~now raft_state client_request
-          >>=(fun (raft_state, msg_to_send, client_responses) ->
-
-            List.iter (fun client_response -> 
-              send_client_response (Some client_response)
-            ) client_responses;
-
+          Server_ipc.handle_client_request ~logger ~stats ~now state client_request
+          >>=(fun (state, msg_to_send, client_responses) ->
+            send_responses client_responses;
             send_raft_messages msg_to_send 
-            >|=(fun () -> raft_state) 
+            >|=(fun () -> state)
           )
         )
-        ) raft_state events in 
-        raft_state >>= handle_follow_up_action 
+        ) state  events in 
+        state >>= handle_follow_up_action 
     )
   in
 
   let {
-    Raft.timeout; 
+    RPb.timeout; 
     timeout_type
-  } = Raft_helper.Timeout_event.next initial_raft_state (get_now ()) in 
+  } = RHelper.Timeout_event.next initial_raft_state (get_now ()) in 
 
   let initial_threads = [
     get_next_client_request (); 
     next_raft_message_or_timeout timeout timeout_type;
   ] in 
 
-  server_loop initial_threads initial_raft_state 
+  server_loop initial_threads (initial_raft_state, Server_ipc.initialize())
 
 
 let run configuration id print_header = 
