@@ -20,10 +20,18 @@ let () =
 
   let {Udp.servers_udp_configuration ;_  } = Conf.default_configuration () in 
 
-  for i = 0 to (List.length servers_udp_configuration) - 1  do
+  let nb_of_servers = List.length servers_udp_configuration in 
+
+  for i = 0 to nb_of_servers - 1  do
     match Unix.fork () with
     | 0 -> Unix.execv "./server.native" (arg_of_server i)
     | _ -> Unix.sleep 1
   done;
 
-  ignore @@ Unix.wait ()
+
+  for i = 0 to nb_of_servers - 1  do
+    ignore @@ Unix.wait ();
+    Printf.eprintf "Child died \n"
+  done;
+
+  ()

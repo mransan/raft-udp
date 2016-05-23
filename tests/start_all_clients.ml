@@ -10,7 +10,7 @@ module Udp  = Raft_udp_pb
 
 let () = 
 
-  for i = 1 to 200 do
+  for i = 1 to 400 do
     match Unix.fork () with
     | 0 -> Unix.execv "./client.native" (arg_of_server i)
     | _ -> ()
