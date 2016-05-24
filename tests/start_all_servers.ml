@@ -30,8 +30,14 @@ let () =
 
 
   for i = 0 to nb_of_servers - 1  do
-    ignore @@ Unix.wait ();
-    Printf.eprintf "Child died \n"
+    let pid, process_status = Unix.wait () in 
+    Printf.eprintf "Process [%5i] died with status %s\n%!"
+      pid
+      ((function 
+        | Unix.WEXITED i -> Printf.sprintf "WEXITED(%i)" i
+        | Unix.WSIGNALED i -> Printf.sprintf "WSIGNALED(%i)" i 
+        | Unix.WSTOPPED i -> Printf.sprintf "WSTOPPED(%i)" i
+      ) process_status) 
   done;
 
   ()

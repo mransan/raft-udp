@@ -225,6 +225,7 @@ let client_request_stream logger configuration stats server_id =
             (next_threads, is_failure)
 
           | `Existing_client_connection (Read_ok ((client_request, handle) as r)) ->
+            Server_stats.tick_client_requests stats;
             req_push (Some r);
             (next_threads, is_failure)
 

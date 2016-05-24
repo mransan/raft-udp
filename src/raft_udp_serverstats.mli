@@ -23,6 +23,8 @@ val tick_heartbeat : t -> unit
 
 val tick_new_client_connection : t -> unit 
 
+val tick_client_requests : t -> unit 
+
 val tick_append_entries_failure : t -> unit 
 
 val msg_processing : t -> Raft_udp_counter.Perf.t 

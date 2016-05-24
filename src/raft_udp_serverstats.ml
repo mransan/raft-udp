@@ -4,13 +4,14 @@ module Perf    = Raft_udp_counter.Perf
 open Lwt.Infix 
 
 type t =  {
-  id             : int;
-  raft_msg_recv  : Counter.t; 
-  raft_msg_send  : Counter.t; 
-  log_count      : Counter.t; 
-  heartbeat      : Counter.t; 
+  id : int;
+  raft_msg_recv : Counter.t; 
+  raft_msg_send : Counter.t; 
+  log_count : Counter.t; 
+  heartbeat : Counter.t; 
   append_failures: Counter.t;
   new_client_connection : Counter.t;
+  client_requests : Counter.t; 
   msg_processing: Perf.t;
   hb_processing : Perf.t; 
   mutable print_stats_t : unit Lwt.t;
@@ -26,6 +27,7 @@ let print_stats_t t =
     log_count;
     heartbeat;
     new_client_connection;
+    client_requests;
     msg_processing;
     append_failures;
     hb_processing; 
@@ -41,13 +43,14 @@ let print_stats_t t =
       if counter = 0 && print_header 
       then 
         Lwt_io.printf 
-          "[id] | %12s | %12s | %10s | %8s | %4s | %5s | %6s | %10s | %10s | \n" 
+          "[id] | %10s | %10s | %10s | %8s | %4s | %5s | %6s | %6s | %10s | %10s | \n" 
           "recv msg/s"
           "sent msg/s" 
           "log/s"
           "log nb"
           "hb/s"
           "clt/s"
+          "req/s"
           "er/s"
           "av msg(us)"
           "av hb(us)"
@@ -56,7 +59,7 @@ let print_stats_t t =
         Lwt.return counter 
     )
     >>=(fun counter ->
-      Lwt_io.printf "[%2i] | %12.3f | %12.3f | %10.3f | %8i | %4.1f | %5.1f | %6.1f | %10.1f | %10.1f | \n"
+      Lwt_io.printf "[%2i] | %10.0f | %10.0f | %10.3f | %8i | %4.1f | %5.1f | %6.0f | %6.1f | %10.1f | %10.1f | \n"
         id
         (Counter.rate raft_msg_recv)
         (Counter.rate raft_msg_send)
@@ -64,6 +67,7 @@ let print_stats_t t =
         (Counter.value log_count)
         (Counter.rate heartbeat)
         (Counter.rate new_client_connection)
+        (Counter.rate client_requests)
         (Counter.rate append_failures)
         (Perf.avg ~reset:() ~unit_:`Us msg_processing)
         (Perf.avg ~reset:() ~unit_:`Us hb_processing)
@@ -84,6 +88,7 @@ let make ?print_header ~initial_log_size ~id () =
     log_count     = Counter.make ~initial_counter:initial_log_size ();
     heartbeat      = Counter.make ();
     new_client_connection = Counter.make ();
+    client_requests = Counter.make ();
     msg_processing= Perf.make (); 
     hb_processing = Perf.make (); 
     append_failures = Counter.make (); 
@@ -107,6 +112,9 @@ let tick_heartbeat {heartbeat;_ } =
 
 let tick_new_client_connection {new_client_connection;_ } = 
   Counter.incr new_client_connection
+
+let tick_client_requests {client_requests;_ } = 
+  Counter.incr client_requests
 
 let tick_append_entries_failure {append_failures; _}  = 
   Counter.incr append_failures
