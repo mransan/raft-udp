@@ -22,10 +22,11 @@ let () =
 
   let nb_of_servers = List.length servers_udp_configuration in 
 
+  let sleep = ref 1 in 
   for i = 0 to nb_of_servers - 1  do
     match Unix.fork () with
     | 0 -> Unix.execv "./server.native" (arg_of_server i)
-    | _ -> Unix.sleep 1
+    | _ -> Unix.sleep !sleep; sleep := 0
   done;
 
 

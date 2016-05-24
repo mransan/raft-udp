@@ -180,9 +180,18 @@ let () =
   Printf.printf ">>PID: %i\n%!" (Unix.getpid ());
   Random.self_init ();
   let configuration = Conf.default_configuration () in
+  let nb_of_servers = List.length configuration.Pb.servers_udp_configuration in 
+
+  let ids = 
+    let rec aux acc = function
+      | -1 -> acc
+      | n  -> aux ((string_of_int n)::acc) (n - 1)
+    in 
+    aux [] (nb_of_servers - 1)
+  in
 
   let id   = ref (-1) in
-  let id_spec = Arg.Symbol (["0";"1";"2"], fun s ->
+  let id_spec = Arg.Symbol (ids, fun s ->
     id := int_of_string s
   ) in
 

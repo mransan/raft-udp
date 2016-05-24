@@ -67,7 +67,7 @@ let send_log ad n' () =
                 (*
                 Format.(fprintf std_formatter "%a\n%!" Pb.pp_client_response client_response);
                 *)
-                U.sleep 0.001 >>= (fun () ->aux (n -1))
+                U.sleep 0.00 >>= (fun () ->aux (n -1))
               | Pb.Add_log_replication_failure
               | Pb.Pong _
               | Pb.Add_log_not_a_leader _ ->
