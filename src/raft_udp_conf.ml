@@ -9,6 +9,7 @@ let default_configuration () = Pb.({
     election_timeout_range = 0.5;
     hearbeat_timeout = 0.2;
     max_nb_logs_per_message = 300;
+    log_interval_size = 10_000;
   });
   servers_udp_configuration = [
     {raft_id = 0; inet4_address = "127.0.0.1"; raft_port = 34765; client_port = 34865};

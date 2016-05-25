@@ -77,7 +77,10 @@ let handle_raft_message ~logger ~stats ~now (raft_state, connection_state) msg =
   >>=(fun () ->
     Log.print_state logger raft_state
   )
-  >>=(fun () ->
+  >>=(fun () -> 
+    Log.print_msg_received logger msg raft_state.Raft_pb.id
+  )
+  >|=(fun () ->
     Server_stats.tick_raft_msg_recv stats;
     begin match msg with
     | Raft_pb.Append_entries_response {Raft_pb.result = Raft_pb.Log_failure  _ ; _}
@@ -95,8 +98,7 @@ let handle_raft_message ~logger ~stats ~now (raft_state, connection_state) msg =
     in 
     (* TODO: handle notifications *)
 
-    Log.print_msg_received logger msg raft_state.Raft_pb.id
-    >|=(fun () -> ((raft_state, connection_state) , responses, client_responses))
+    ((raft_state, connection_state) , responses, client_responses)
   )
 
 let handle_timeout ~logger ~stats ~now (raft_state, connection_state) timeout_type = 
