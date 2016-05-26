@@ -12,10 +12,20 @@ type client_request = Pb.client_request * handle
 
 type send_response_f = (Pb.client_response * handle) option -> unit 
 
+module Event = struct 
+  type e = 
+    | Failure of string  
+    | New_client_connection of Lwt_unix.file_descr  
+    | Client_connection_read_ok of client_request
+    | Client_connection_read_closed
+    | Client_connection_write_ok of U.file_descr
+    | Client_connection_write_closed
+end 
+
 let get_next_client_connection_f logger configuration server_id =
 
   match Conf.sockaddr_of_server_id `Client configuration server_id with
-  | None    -> (fun () -> Lwt.return `Failure)
+  | None    -> (fun () -> Lwt.return (Event.Failure "invalid server id"))
   | Some ad ->
 
     let make_acccept_f fd =  fun () ->
@@ -23,7 +33,7 @@ let get_next_client_connection_f logger configuration server_id =
         U.accept fd
         >>=(fun (fd2, ad) ->
           log ~logger ~level:Notice "[ClientIPC] New client connection accepted"
-          >|=(fun () -> `New_client_connection fd2)
+          >|=(fun () -> Event.New_client_connection fd2)
         )
       ) (* with *) (fun exn ->
 
@@ -33,7 +43,7 @@ let get_next_client_connection_f logger configuration server_id =
         log_f ~logger ~level:Fatal
           "[ClientIPC] Error when accepting new client connection, details: %s"
           (Printexc.to_string exn)
-        >|=(fun () -> `Failure)
+        >|=(fun () -> Event.Failure "Accept failure")
       )
     in
 
@@ -50,21 +60,14 @@ let get_next_client_connection_f logger configuration server_id =
         "[ClientIPC] Error initializing TCP listen connection for client IPC. details: %s"
         (Printexc.to_string exn)
 
-      >|=(fun () -> `Failure)
+      >|=(fun () -> Event.Failure "bind/listen failure")
     )
-
-type client_connection_event =
-  | Read_ok of client_request
-  | Read_closed
-  | Write_ok of U.file_descr
-  | Write_closed
-  | Write_none
 
 let close_client_connection fd () =
   U.close fd 
-  >|= (fun () -> Read_closed)
+  >|= (fun () -> Event.Client_connection_read_closed)
 
-let read_from_client_connection logger fd : client_connection_event Lwt.t =
+let read_from_client_connection logger fd : Event.e  Lwt.t =
   let buffer = Bytes.create 1024 in
 
   Lwt.catch (fun () ->
@@ -97,7 +100,7 @@ let read_from_client_connection logger fd : client_connection_event Lwt.t =
       let decoder = Pbrt.Decoder.of_bytes buffer in
       begin match Pb.decode_client_request decoder with
       | req ->
-        Lwt.return (Read_ok (req, fd))
+        Lwt.return (Event.Client_connection_read_ok (req, fd))
 
       | exception exn ->
         log_f ~logger ~level:Error
@@ -122,14 +125,13 @@ let read_from_client_connection logger fd : client_connection_event Lwt.t =
     >>=(close_client_connection fd)
   )
 
-
 let process_response_stream logger res_stream =
   let close_connection ~logger fd () =
     U.close fd
     >>=(fun () ->
       log ~logger ~level:Notice "[ClientIPC] Client connection closed"
     )
-    >|= (fun () -> `Existing_client_connection Write_closed )
+    >|= (fun () -> Event.Client_connection_write_closed)
   in
   Lwt_stream.map_s(fun (response, fd) ->
 
@@ -151,7 +153,7 @@ let process_response_stream logger res_stream =
 
           else
             log ~logger ~level:Notice "[ClientIPC] Response successfully sent"
-            >|= (fun () -> `Existing_client_connection (Write_ok fd))
+            >|= (fun () -> Event.Client_connection_write_ok fd)
         )
 
       ) (* with *) (fun exn ->
@@ -179,7 +181,7 @@ let client_request_stream logger configuration stats server_id =
   let next_response () =
     Lwt_stream.get res_stream
     >|=(function
-      | None ->   `Existing_client_connection Write_none
+      | None   -> Event.Failure "Response stream closed"
       | Some x -> x
     )
   in
@@ -202,15 +204,15 @@ let client_request_stream logger configuration stats server_id =
       let next_threads, is_failure =
         List.fold_left (fun (next_threads, is_failure) event ->
           match event with
-          | `Failure ->
+          | Event.Failure context ->
+            Printf.eprintf "[ClientIPC] Failure, context: %s\n" context;
             (next_threads, true)
 
-          | `New_client_connection fd ->
+          | Event.New_client_connection fd ->
             Server_stats.tick_new_client_connection stats;
 
             let recv_thread =
               read_from_client_connection logger fd
-              >|=(fun x -> `Existing_client_connection x)
             in
             let next_threads =
               recv_thread::(next_client_connection_f ())::next_threads
@@ -221,15 +223,15 @@ let client_request_stream logger configuration stats server_id =
             in
             (next_threads, is_failure)
 
-          | `Existing_client_connection Read_closed ->
+          | Event.Client_connection_read_closed -> 
             (next_threads, is_failure)
 
-          | `Existing_client_connection (Read_ok ((client_request, handle) as r)) ->
+          | Event.Client_connection_read_ok ((client_request, handle) as r) ->
             Server_stats.tick_client_requests stats;
             req_push (Some r);
             (next_threads, is_failure)
 
-          | `Existing_client_connection (Write_ok fd)->
+          | Event.Client_connection_write_ok fd->
             (*
              * After this server write to the client connection, it's
              * expected that the client will send another message, therefore
@@ -237,12 +239,10 @@ let client_request_stream logger configuration stats server_id =
              *)
             let recv_thread =
               read_from_client_connection logger fd
-              >|=(fun x -> `Existing_client_connection x)
             in
             ((next_response ())::recv_thread::next_threads, is_failure)
 
-          | `Existing_client_connection (Write_closed)
-          | `Existing_client_connection (Write_none) ->
+          | Event.Client_connection_write_closed -> 
             ((next_response ())::next_threads, is_failure)
              
         ) (non_terminated_threads, false) events
