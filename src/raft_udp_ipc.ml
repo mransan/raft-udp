@@ -4,15 +4,18 @@ module Pb   = Raft_udp_pb
 
 open Lwt.Infix 
 
-type 'a next_raft_message_f = 
-  unit -> 
-  ([> `Raft_message of RPb.message | `Failure] as 'a) Lwt.t  
+type event = 
+  | Raft_message of Raft_pb.message
+  | Failure 
+
+type next_raft_message_f = unit -> event Lwt.t  
 
 let get_next_raft_message_f_for_server configuration server_id =
   
   match Conf.sockaddr_of_server_id `Raft configuration server_id with
   | None ->
-    (fun () -> Lwt.return `Failure)
+    (fun () -> Lwt.return Failure)
+
   | Some ad ->
 
     let module U = Lwt_unix in
@@ -26,7 +29,7 @@ let get_next_raft_message_f_for_server configuration server_id =
       U.recvfrom fd buffer 0 buffer_size []
       >|= (fun (nb_of_bytes_received, _) ->
         let decoder = Pbrt.Decoder.of_bytes buffer in
-        `Raft_message (RPb.decode_message decoder)
+        Raft_message (RPb.decode_message decoder)
       )
     in
     receive_loop
