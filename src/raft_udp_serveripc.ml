@@ -6,6 +6,7 @@ module Server_stats = Raft_udp_serverstats
 module Counter      = Raft_udp_counter
 module Client_ipc   = Raft_udp_clientipc 
 module Log          = Raft_udp_log 
+module RState       = Raft_state
 
 type raft_message    = Raft_pb.message * int 
 
@@ -136,7 +137,7 @@ let handle_client_request ~logger ~stats ~now (raft_state, connection_state) (cl
   | Pb.Ping {Pb.request_id; } -> 
     let client_response = Pb.(Pong {
       request_id; 
-      leader_id = Raft_helper.State.current_leader raft_state;
+      leader_id = RState.current_leader raft_state;
     }) in 
 
     let client_response = (client_response, handle) in 
@@ -156,7 +157,7 @@ let handle_client_request ~logger ~stats ~now (raft_state, connection_state) (cl
       >|= (fun () ->
 
         let client_response = Pb.(Add_log_not_a_leader {
-          leader_id = Raft_helper.State.current_leader raft_state;
+          leader_id = RState.current_leader raft_state;
         }) in 
 
         let client_response = (client_response, handle) in 

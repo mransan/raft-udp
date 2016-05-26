@@ -1,5 +1,6 @@
 module RPb = Raft_pb
 module RHelper = Raft_helper
+module RRole = Raft_role
 
 module Pb = Raft_udp_pb
 module Conf = Raft_udp_conf
@@ -28,7 +29,7 @@ let run_server configuration id logger print_header =
     )
   in
   
-  let initial_raft_state = RHelper.Follower.create
+  let initial_raft_state = RRole.Follower.create
     ~configuration:configuration.Pb.raft_configuration ~now:(get_now ()) ~id () in
 
   let stats = 
@@ -72,14 +73,9 @@ let run_server configuration id logger print_header =
     List.iter (fun res -> send_response (Some res)) client_responses 
   in
 
-  let next_raft_message_or_timeout timeout timeout_type = 
-    Lwt.catch (fun () ->
-      Lwt.pick [get_next_raft_message (); Lwt.no_cancel @@ Lwt_unix.timeout timeout]
-    ) (* with *) (function
-      | Lwt_unix.Timeout -> Lwt.return (`Timeout timeout_type) 
-      | _                -> Lwt.return `Failure
-    )
-  in
+  let get_next_timeout timeout timeout_type = 
+    Lwt_unix.sleep timeout >|= (fun () -> `Timeout timeout_type)
+  in 
 
   let rec server_loop threads ((raft_state, _ ) as state)=
     (*
@@ -89,21 +85,30 @@ let run_server configuration id logger print_header =
      *
      *)
 
-    Lwt.nchoose_split threads 
+    let (
+      next_client_request_t, 
+      next_raft_message_t, 
+      timeout_t
+    ) = threads in  
 
-    >>=(fun (events, non_terminated_threads) ->
+    Lwt.nchoose [next_client_request_t; next_raft_message_t; timeout_t]
 
-      let handle_follow_up_action ((raft_state, _ ) as state) = 
+    >>=(fun events -> 
+
+      let handle_follow_up_action threads ((raft_state, _ ) as state) = 
         let now = get_now () in
         let {RPb.timeout; timeout_type } = RHelper.Timeout_event.next raft_state now in
-        let threads =
-          if List.exists (function | `Client_request _ -> true  | _ -> false) events
-          then [
-            get_next_client_request (); 
-            next_raft_message_or_timeout timeout timeout_type
-          ]
-          else (next_raft_message_or_timeout timeout timeout_type)::non_terminated_threads
-        in  
+        let (
+          next_client_request_t,
+          next_raft_message_t, 
+          timeout_t 
+        ) = threads in 
+        Lwt.cancel timeout_t;
+        let threads = (
+          next_client_request_t,
+          next_raft_message_t, 
+          get_next_timeout timeout timeout_type
+        ) in
         server_loop threads state 
       in
       
@@ -111,14 +116,25 @@ let run_server configuration id logger print_header =
       
       Server_stats.set_log_count stats raft_state.RPb.log_size;
 
-      let state = Lwt_list.fold_left_s (fun state event ->
+      Lwt_list.fold_left_s (fun (state, threads) event -> 
+        let (
+          next_client_request_t,
+          next_raft_message_t, 
+          timeout_t 
+        ) = threads in 
         match event with
         | `Raft_message msg -> (
           Server_ipc.handle_raft_message ~logger ~stats ~now state msg 
           >>=(fun (state, msg_to_send, client_responses) ->
             send_responses client_responses;
             send_raft_messages msg_to_send
-            >|=(fun () -> state)
+            >|=(fun () -> 
+              let threads = (
+                next_client_request_t, 
+                get_next_raft_message (), 
+                timeout_t
+              ) in 
+              (state, threads))
           )
         )
 
@@ -127,7 +143,7 @@ let run_server configuration id logger print_header =
           >>=(fun (state, msg_to_send, client_responses) ->
             send_responses client_responses;
             send_raft_messages msg_to_send 
-            >|=(fun () -> state)
+            >|=(fun () -> (state, threads))
           )
         )
 
@@ -137,7 +153,14 @@ let run_server configuration id logger print_header =
 
         | `Client_request None -> (
           log ~logger ~level:Notice "None receive from stream"
-          >|=(fun () -> state)
+          >|=(fun () -> 
+            let threads = (
+              get_next_client_request (), 
+              next_raft_message_t, 
+              timeout_t
+            ) in 
+            (state, threads)
+          )
         )
 
         | `Client_request (Some client_request) -> (
@@ -145,11 +168,17 @@ let run_server configuration id logger print_header =
           >>=(fun (state, msg_to_send, client_responses) ->
             send_responses client_responses;
             send_raft_messages msg_to_send 
-            >|=(fun () -> state)
+            >|=(fun () -> 
+              let threads = (
+                get_next_client_request (), 
+                next_raft_message_t, 
+                timeout_t
+              ) in 
+              (state, threads))
           )
         )
-        ) state  events in 
-        state >>= handle_follow_up_action 
+      ) (state, threads) events 
+      >>= (fun (state, threads) -> handle_follow_up_action threads state) 
     )
   in
 
@@ -158,10 +187,11 @@ let run_server configuration id logger print_header =
     timeout_type
   } = RHelper.Timeout_event.next initial_raft_state (get_now ()) in 
 
-  let initial_threads = [
-    get_next_client_request (); 
-    next_raft_message_or_timeout timeout timeout_type;
-  ] in 
+  let initial_threads = (
+    get_next_client_request (),
+    get_next_raft_message (), 
+    get_next_timeout timeout timeout_type
+  ) in 
 
   server_loop initial_threads (initial_raft_state, Server_ipc.initialize())
 
