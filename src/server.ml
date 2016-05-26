@@ -40,7 +40,6 @@ let run_server configuration id logger print_header =
       ~id ()
   in
 
-
   let send_raft_message =
     let ipc_handle, f = Ipc.get_send_raft_message_f configuration in 
     fun ((msg, server_id) as msg_to_send) -> 
@@ -68,6 +67,15 @@ let run_server configuration id logger print_header =
       next_client_request_t : e Lwt.t;
       next_timeout_t : e Lwt.t;
     }
+
+    let list_of_threads threads =
+      let {
+        next_raft_message_t;
+        next_client_request_t;
+        next_timeout_t;
+      } = threads in 
+      next_raft_message_t::next_client_request_t::next_timeout_t::[]
+
   end in
   
   let get_next_raft_message =
@@ -110,13 +118,7 @@ let run_server configuration id logger print_header =
      *
      *)
 
-    let {
-      Event.next_client_request_t;
-      Event.next_raft_message_t;
-      Event.next_timeout_t 
-    } = threads in  
-
-    Lwt.nchoose [next_client_request_t; next_raft_message_t; next_timeout_t ]
+    Lwt.nchoose (Event.list_of_threads threads) 
 
     >>=(fun events -> 
 
