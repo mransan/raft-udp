@@ -9,6 +9,7 @@ module Server_stats = Raft_udp_serverstats
 module Ipc = Raft_udp_ipc
 module Server_ipc = Raft_udp_serveripc
 module Client_ipc = Raft_udp_clientipc
+module Compaction = Raft_udp_compaction
 
 open Lwt.Infix
 
@@ -61,11 +62,14 @@ let run_server configuration id logger print_header =
       | Raft_message   of Raft_pb.message 
       | Client_request of Client_ipc.client_request
       | Timeout        of Raft_pb.timeout_event_time_out_type  
+      | Compaction_initiate
+      | Compaction_update  of RPb.log_interval list 
 
     type threads = {
       next_raft_message_t : e Lwt.t;
       next_client_request_t : e Lwt.t;
       next_timeout_t : e Lwt.t;
+      compaction_t : e Lwt.t;
     }
 
     let list_of_threads threads =
@@ -73,8 +77,12 @@ let run_server configuration id logger print_header =
         next_raft_message_t;
         next_client_request_t;
         next_timeout_t;
+        compaction_t;
       } = threads in 
-      next_raft_message_t::next_client_request_t::next_timeout_t::[]
+      next_raft_message_t   :: 
+      next_client_request_t ::
+      next_timeout_t        ::
+      compaction_t          :: []
 
   end in
   
@@ -109,6 +117,11 @@ let run_server configuration id logger print_header =
   let get_next_timeout timeout timeout_type = 
     Lwt_unix.sleep timeout >|= (fun () -> Event.Timeout timeout_type)
   in 
+
+  let get_next_compaction () = 
+    Lwt_unix.sleep 4.0 
+    >|=(fun () -> Event.Compaction_initiate)
+  in
 
   let rec server_loop threads ((raft_state, _ ) as state)=
     (*
@@ -177,6 +190,23 @@ let run_server configuration id logger print_header =
               (state, threads))
           )
         )
+        | Event.Compaction_initiate -> (
+          let (raft_state, _) = state in 
+          let compaction_t = 
+            Compaction.perform_compaction raft_state  
+            >|=(fun compacted_intervals -> 
+              Event.Compaction_update compacted_intervals
+            )
+          in
+          let threads = { threads with Event.compaction_t } in 
+          Lwt.return (state, threads)
+        )
+        | Event.Compaction_update compacted_intervals -> (
+          let (raft_state, connection_state ) = state in 
+          let raft_state = Compaction.update_state compacted_intervals raft_state in
+          let threads = {threads with Event.compaction_t = get_next_compaction ()} in 
+          Lwt.return ((raft_state, connection_state), threads)
+        ) 
       ) (state, threads) events 
       >>= (fun (state, threads) -> handle_follow_up_action threads state) 
     )
@@ -191,6 +221,7 @@ let run_server configuration id logger print_header =
     next_client_request_t = get_next_client_request ();
     next_raft_message_t = get_next_raft_message ();
     next_timeout_t = get_next_timeout timeout timeout_type;
+    compaction_t = get_next_compaction ();
   }) in 
 
   server_loop initial_threads (initial_raft_state, Server_ipc.initialize())
@@ -199,7 +230,9 @@ let run_server configuration id logger print_header =
 let run configuration id print_header = 
   let t = 
     let file_name = Printf.sprintf "raft_upd_%i.log" id in 
-    Lwt_log.file ~mode:`Truncate ~file_name () 
+    (* Lwt_log.file ~mode:`Truncate ~file_name () 
+     *)
+    Lwt.return Lwt_log_core.null 
     >>=(fun logger -> 
       run_server configuration id logger print_header 
     ) 
