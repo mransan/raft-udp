@@ -10,7 +10,7 @@ module Udp  = Raft_udp_pb
 
 let () = 
 
-  let nb_of_childrend = 100 in 
+  let nb_of_childrend = 50 in 
 
   for i = 1 to nb_of_childrend do
     match Unix.fork () with
