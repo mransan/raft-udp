@@ -10,6 +10,8 @@ message configuration {
     // Note that there is an invariant that this  [servers_udp_configuration] 
     // field should the length of the [nb_of_server] field in the 
     // raft configuration.
+
+  required double compaction_period = 3; 
 }
 
 message ServerUdpConfiguration {
