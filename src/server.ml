@@ -119,7 +119,7 @@ let run_server configuration id logger print_header =
   in 
 
   let get_next_compaction () = 
-    Lwt_unix.sleep 4000000.0 
+    Lwt_unix.sleep configuration.Pb.compaction_period
     >|=(fun () -> Event.Compaction_initiate)
   in
 
@@ -193,7 +193,7 @@ let run_server configuration id logger print_header =
         | Event.Compaction_initiate -> (
           let (raft_state, _) = state in 
           let compaction_t = 
-            Compaction.perform_compaction raft_state  
+            Compaction.perform_compaction logger raft_state  
             >|=(fun compacted_intervals -> 
               Event.Compaction_update compacted_intervals
             )
@@ -203,9 +203,11 @@ let run_server configuration id logger print_header =
         )
         | Event.Compaction_update compacted_intervals -> (
           let (raft_state, connection_state ) = state in 
-          let raft_state = Compaction.update_state compacted_intervals raft_state in
-          let threads = {threads with Event.compaction_t = get_next_compaction ()} in 
-          Lwt.return ((raft_state, connection_state), threads)
+          Compaction.update_state logger compacted_intervals raft_state 
+          >|=(fun raft_state -> 
+            let threads = {threads with Event.compaction_t = get_next_compaction ()} in 
+            ((raft_state, connection_state), threads)
+          )
         ) 
       ) (state, threads) events 
       >>= (fun (state, threads) -> handle_follow_up_action threads state) 
@@ -229,10 +231,10 @@ let run_server configuration id logger print_header =
 
 let run configuration id print_header = 
   let t = 
-    (* 
+    (*
     let file_name = Printf.sprintf "raft_upd_%i.log" id in 
     Lwt_log.file ~mode:`Truncate ~file_name () 
-    *)
+     *)
     Lwt.return Lwt_log_core.null 
     >>=(fun logger -> 
       run_server configuration id logger print_header 

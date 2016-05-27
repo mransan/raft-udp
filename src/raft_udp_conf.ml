@@ -24,6 +24,7 @@ let default_configuration () = Pb.({
     {raft_id = 8; inet4_address = "127.0.0.1"; raft_port = 34763; client_port = 34863};
     *)
   ];
+  compaction_period = 1.;
 })
 
 let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port} =

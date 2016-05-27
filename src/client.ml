@@ -52,7 +52,7 @@ let send_log ad n' () =
         | 0 -> Lwt.return_unit
         | n ->
           begin
-            if n mod 20 = 0
+            if n mod 1000 = 0
             then Lwt_io.printlf "[%4i]" (n' - n)
             else Lwt.return_unit
           end
@@ -67,7 +67,7 @@ let send_log ad n' () =
                 (*
                 Format.(fprintf std_formatter "%a\n%!" Pb.pp_client_response client_response);
                 *)
-                U.sleep 0.00 >>= (fun () ->aux (n -1))
+                U.sleep 0.000 >>= (fun () ->aux (n -1))
               | Pb.Add_log_replication_failure
               | Pb.Pong _
               | Pb.Add_log_not_a_leader _ ->
