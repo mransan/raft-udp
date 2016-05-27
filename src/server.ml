@@ -119,7 +119,7 @@ let run_server configuration id logger print_header =
   in 
 
   let get_next_compaction () = 
-    Lwt_unix.sleep 4.0 
+    Lwt_unix.sleep 4000000.0 
     >|=(fun () -> Event.Compaction_initiate)
   in
 
@@ -229,9 +229,10 @@ let run_server configuration id logger print_header =
 
 let run configuration id print_header = 
   let t = 
+    (* 
     let file_name = Printf.sprintf "raft_upd_%i.log" id in 
-    (* Lwt_log.file ~mode:`Truncate ~file_name () 
-     *)
+    Lwt_log.file ~mode:`Truncate ~file_name () 
+    *)
     Lwt.return Lwt_log_core.null 
     >>=(fun logger -> 
       run_server configuration id logger print_header 

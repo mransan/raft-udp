@@ -11,7 +11,7 @@ let perform_compaction state =
     RPb.to_be_compacted;
   } = RState.compaction state in 
 
-  Lwt_list.fold_left_s (fun acc log_interval -> 
+  Lwt_list.fold_left_s (fun compacter_intervals log_interval -> 
     let encoder = Pbrt.Encoder.create () in 
     RPb.encode_log_interval log_interval encoder; 
     let filename = 
@@ -28,17 +28,13 @@ let perform_compaction state =
     )
     >|=(fun () -> 
       {log_interval with 
-       RPb.rev_log_entries = RPb.Compacted {RPb.record_id = filename} }::acc
+       RPb.rev_log_entries = RPb.Compacted {RPb.record_id = filename} }::compacter_intervals
     )
   ) [] to_be_compacted
 
-
-let update_state compacted_intervals state = 
+let update_state compacter_intervalss state = 
   let global_cache = List.fold_left (fun global_cache log_interval ->
-      RRev_log_cache.replace 
-        ~prev_index:log_interval.RPb.prev_index
-        ~f:(fun _ -> log_interval) 
-        global_cache
-    ) state.RPb.global_cache compacted_intervals
+      RRev_log_cache.replace log_interval global_cache  
+    ) state.RPb.global_cache compacter_intervalss
   in
   {state with RPb.global_cache}
