@@ -4,6 +4,14 @@ module RPb = Raft_pb
 open Lwt.Infix 
 open Lwt_log_core
 
+let string_of_log_interval {RPb.prev_index;last_index; rev_log_entries} = 
+  let status = match rev_log_entries with
+    | RPb.Compacted _ -> "Compacted"
+    | RPb.Expanded  _ -> "Expanded"
+  in
+  Printf.sprintf
+    "%10s ]%10i;%10i]" status prev_index last_index
+
 let string_of_message_type = function
   | RPb.Request_vote_request  _   -> "Request Vote Request" 
   | RPb.Request_vote_response _   -> "Request Vote Response"
@@ -30,13 +38,15 @@ let print_msg_details logger msg () =
   | RPb.Append_entries_request r-> 
     begin match r.RPb.rev_log_entries with
     | [] -> 
-      log_f ~logger ~level:Notice "\t Heartbeat - prev index: %10i, leader commit: %10i"
+      log_f ~logger ~level:Notice "\t Heartbeat - prev index: %10i, prev term: %10i leader commit: %10i"
         r.RPb.prev_log_index 
+        r.RPb.prev_log_term
         r.RPb.leader_commit
     | _ -> 
-      log_f ~logger ~level:Notice "\t New entries - nb: %4i, prev index: %10i, leader commit: %10i"
+      log_f ~logger ~level:Notice "\t New entries - nb: %4i, prev index: %10i, prev term: %10i, leader commit: %10i"
         (List.length r.RPb.rev_log_entries) 
         r.RPb.prev_log_index
+        r.RPb.prev_log_term
         r.RPb.leader_commit
     end 
   
@@ -44,8 +54,8 @@ let print_msg_details logger msg () =
     begin match r.RPb.result with
     | RPb.Success {RPb.receiver_last_log_index} -> 
       log_f ~logger ~level:Notice "\t Success - last log index: %10i" receiver_last_log_index
-    | RPb.Log_failure {RPb.receiver_last_log_index; _ } -> 
-      log_f ~logger ~level:Notice "\t Failure(Log) - last log index: %10i" receiver_last_log_index 
+    | RPb.Log_failure {RPb.receiver_commit_index; _ } -> 
+      log_f ~logger ~level:Notice "\t Failure(Log) - receiver commit index: %10i" receiver_commit_index
     | RPb.Term_failure -> 
       log_f ~logger ~level:Notice "\t Failure(Term) - sender term: %i" r.RPb.receiver_term 
     end
@@ -76,7 +86,7 @@ let print_msg_received logger msg receiver_id =
 
 let print_follower () follower_state = 
   let {
-    Raft_pb.voted_for;
+    RPb.voted_for;
     current_leader;
     election_deadline;} = follower_state in 
 
@@ -104,20 +114,22 @@ let print_leader () leader_state =
     | [] -> ""
     | server_index::tl -> 
       let {
-        Raft_pb.server_id : int;
+        RPb.server_id : int;
         next_index : int;
         outstanding_request : bool;
+        local_cache;
       } = server_index in 
 
-      Printf.sprintf "\t\t\t\t server index: (id: %i, next: %i, out req.: %b)\n%a" 
+      Printf.sprintf "\t\t\t\t server index: (id: %3i, next: %10i, out req.: %b, cache: %s)\n%a" 
         server_id
         next_index
         outstanding_request
+        (string_of_log_interval local_cache)
         aux tl 
   in
   Printf.sprintf "\t\t %15s: Leader\n%a"
     "role"
-    aux leader_state.Raft_pb.indices
+    aux leader_state.RPb.indices
 
 let print_candidate () candidate_state = 
   let fmt = 
@@ -126,8 +138,8 @@ let print_candidate () candidate_state =
     "\t\t\t %15s: %f\n" 
   in
   let {
-    Raft_pb.vote_count; 
-    Raft_pb.election_deadline;
+    RPb.vote_count; 
+    RPb.election_deadline;
   } = candidate_state in
   Printf.sprintf fmt 
     "role"
@@ -136,7 +148,7 @@ let print_candidate () candidate_state =
 
 let print_state logger state = 
   let {
-    Raft_pb.id;
+    RPb.id;
     current_term;
     log;
     log_size;
@@ -147,9 +159,9 @@ let print_state logger state =
   } = state in
 
   let print_role (oc:unit) = function
-    | Raft_pb.Follower x -> print_follower oc x 
-    | Raft_pb.Leader x -> print_leader oc x 
-    | Raft_pb.Candidate x -> print_candidate oc x 
+    | RPb.Follower x -> print_follower oc x 
+    | RPb.Leader x -> print_leader oc x 
+    | RPb.Candidate x -> print_candidate oc x 
   in 
 
   let fmt = 

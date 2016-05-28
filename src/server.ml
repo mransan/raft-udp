@@ -17,7 +17,7 @@ open Lwt_log_core
 
 (* -- Server -- *)
 
-let run_server configuration id logger print_header =
+let run_server configuration id logger print_header slow =
 
   let get_now =
     (* 
@@ -152,7 +152,12 @@ let run_server configuration id logger print_header =
       Lwt_list.fold_left_s (fun (state, threads) event -> 
         match event with
         | Event.Raft_message msg -> (
-          Server_ipc.handle_raft_message ~logger ~stats ~now state msg 
+          if slow 
+          then Lwt_unix.sleep  0.1
+          else Lwt.return_unit 
+          >>=(fun () ->
+            Server_ipc.handle_raft_message ~logger ~stats ~now state msg 
+          )
           >>=(fun (state, msg_to_send, client_responses) ->
             send_responses client_responses;
             send_raft_messages msg_to_send
@@ -229,15 +234,15 @@ let run_server configuration id logger print_header =
   server_loop initial_threads (initial_raft_state, Server_ipc.initialize())
 
 
-let run configuration id print_header = 
+let run configuration id print_header slow = 
   let t = 
-    (*
     let file_name = Printf.sprintf "raft_upd_%i.log" id in 
     Lwt_log.file ~mode:`Truncate ~file_name () 
-     *)
+    (*
     Lwt.return Lwt_log_core.null 
+    *)
     >>=(fun logger -> 
-      run_server configuration id logger print_header 
+      run_server configuration id logger print_header slow 
     ) 
   in
   Lwt_main.run t 
@@ -263,10 +268,14 @@ let () =
 
   let print_header = ref false in 
   let print_header_spec = Arg.Set print_header in
+  
+  let slow = ref false in 
+  let slow_spec = Arg.Set slow  in
 
   Arg.parse [
     ("--id", id_spec , " : server raft id");
     ("--print-header", print_header_spec, " : enable header printing");
+    ("--slow", slow_spec, " : make server slow");
   ] (fun _ -> ()) "test.ml";
 
-  run configuration !id !print_header
+  run configuration !id !print_header !slow
