@@ -12,6 +12,8 @@ message configuration {
     // raft configuration.
 
   required double compaction_period = 3; 
+  required string log_record_directory = 4;
+  required string compaction_directory = 5;
 }
 
 message ServerUdpConfiguration {
@@ -59,7 +61,7 @@ message ClientResponse {
   }
 
   oneof t {
-    Pong                     pong                    = 1;
+    Pong                     pong                        = 1;
     AddLogSuccess            add_log_success             = 2;
     AddLogReplicationFailure add_log_replication_failure = 3;
     AddLogNotALeader         add_log_not_a_leader        = 4;

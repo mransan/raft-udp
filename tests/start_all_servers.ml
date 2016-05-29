@@ -3,6 +3,7 @@ let arg_of_server i =
     "./server.native";
     "--id";
     string_of_int i;
+    "--log";
     "";
   |] in 
   begin 
@@ -15,7 +16,6 @@ let arg_of_server i =
 module Conf = Raft_udp_conf
 module Udp  = Raft_udp_pb
    
-
 let () = 
 
   let {Udp.servers_udp_configuration ;_  } = Conf.default_configuration () in 
@@ -28,7 +28,6 @@ let () =
     | 0 -> Unix.execv "./server.native" (arg_of_server i)
     | _ -> Unix.sleep !sleep; sleep := 0
   done;
-
 
   for i = 0 to nb_of_servers - 1  do
     let pid, process_status = Unix.wait () in 

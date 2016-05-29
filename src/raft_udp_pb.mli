@@ -13,6 +13,8 @@ type configuration = {
   raft_configuration : Raft_pb.configuration;
   servers_udp_configuration : server_udp_configuration list;
   compaction_period : float;
+  log_record_directory : string;
+  compaction_directory : string;
 }
 
 type client_request_ping = {
@@ -59,6 +61,8 @@ val default_configuration :
   ?raft_configuration:Raft_pb.configuration ->
   ?servers_udp_configuration:server_udp_configuration list ->
   ?compaction_period:float ->
+  ?log_record_directory:string ->
+  ?compaction_directory:string ->
   unit ->
   configuration
 (** [default_configuration ()] is the default value for type [configuration] *)

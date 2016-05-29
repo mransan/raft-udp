@@ -6,9 +6,13 @@ module Server_stats = Raft_udp_serverstats
 module Counter      = Raft_udp_counter
 module Client_ipc   = Raft_udp_clientipc 
 module Log          = Raft_udp_log 
+module Log_record   = Raft_udp_logrecord
+
 module RState       = Raft_state
 
-type raft_message    = Raft_pb.message * int 
+module RPb = Raft_pb 
+
+type raft_message    = RPb.message * int 
 
 type raft_messages   = raft_message list 
 
@@ -18,7 +22,7 @@ type client_response = Raft_udp_pb.client_response * Raft_udp_clientipc.handle
 
 type client_responses = client_response list 
 
-type notifications = Raft_pb.notification list
+type notifications = RPb.notification list
   
 module StringMap = Map.Make(struct
   type t = string
@@ -46,46 +50,59 @@ end (* Pending_requests *)
   
 type connection_state = Pending_requests.t  
 
-type state = Raft_pb.state * connection_state 
+type state = {
+  raft_state: RPb.state; 
+  connection_state: connection_state; 
+  log_record_handle : Log_record.t;
+}
 
 let initialize () = Pending_requests.empty
 
-let handle_notifications connection_state notifications = 
+let handle_notifications logger connection_state compaction_handle notifications = 
 
-  List.fold_left (fun acc notification ->
+  let connection_state, client_responses = List.fold_left (fun acc notification ->
 
-    match notification with
-    | Raft_pb.Committed_data {Raft_pb.ids} -> 
-      List.fold_left (fun (connection_state, client_responses) id -> 
-          let connection_state, handle = Pending_requests.get connection_state id in 
-          match handle with
-          | None -> 
-            (connection_state, client_responses) 
-          | Some handle -> 
-            (connection_state, ((Pb.Add_log_success, handle)::client_responses))
-      ) acc ids 
+      match notification with
+      | RPb.Committed_data {RPb.rev_log_entries} -> 
+        let ids = List.map (fun ({RPb.id; _ }:RPb.log_entry) -> id) rev_log_entries in 
+        List.fold_left (fun (connection_state, client_responses) id -> 
+            let connection_state, handle = Pending_requests.get connection_state id in 
+            match handle with
+            | None -> 
+              (connection_state, client_responses) 
+            | Some handle -> 
+              (connection_state, ((Pb.Add_log_success, handle)::client_responses))
+        ) acc ids 
 
-    | Raft_pb.New_leader _
-    | Raft_pb.No_leader  -> 
-        (* TODO need to go through all the pending requests. 
-         *)
-      acc
-  ) (connection_state, []) notifications
+      | RPb.New_leader _
+      | RPb.No_leader  -> 
+          (* TODO need to go through all the pending requests. 
+           *)
+        acc
+    ) (connection_state, []) notifications
+  in
+  Lwt_list.iter_s (function
+    | RPb.Committed_data {RPb.rev_log_entries} -> 
+      Log_record.append_commited_data logger rev_log_entries compaction_handle 
+    | _ -> Lwt.return_unit
+  ) notifications
+  >|=(fun () -> (connection_state, client_responses))
 
 
-let handle_raft_message ~logger ~stats ~now (raft_state, connection_state) msg = 
+let handle_raft_message ~logger ~stats ~now state msg = 
+  let { raft_state; connection_state; log_record_handle; } = state in 
   log ~logger ~level:Notice "[ServerIPC] Raft Message Received"
   >>=(fun () ->
     Log.print_state logger raft_state
   )
   >>=(fun () -> 
-    Log.print_msg_received logger msg raft_state.Raft_pb.id
+    Log.print_msg_received logger msg raft_state.RPb.id
   )
-  >|=(fun () ->
+  >>=(fun () ->
     Server_stats.tick_raft_msg_recv stats;
     begin match msg with
-    | Raft_pb.Append_entries_response {Raft_pb.result = Raft_pb.Log_failure  _ ; _}
-    | Raft_pb.Append_entries_response {Raft_pb.result = Raft_pb.Term_failure ; _} ->
+    | RPb.Append_entries_response {RPb.result = RPb.Log_failure  _ ; _}
+    | RPb.Append_entries_response {RPb.result = RPb.Term_failure ; _} ->
       Server_stats.tick_append_entries_failure stats; 
     | _ -> ()
     end;
@@ -94,17 +111,17 @@ let handle_raft_message ~logger ~stats ~now (raft_state, connection_state) msg =
       Raft_logic.handle_message raft_state msg now
     in
 
-    let connection_state, client_responses = 
-      handle_notifications connection_state notifications 
-    in 
-    (* TODO: handle notifications *)
+    handle_notifications logger  connection_state log_record_handle notifications 
+    >|=(fun (connection_state, client_responses) ->
 
-    ((raft_state, connection_state) , responses, client_responses)
+      ({state with raft_state; connection_state} , responses, client_responses)
+    )
   )
 
-let handle_timeout ~logger ~stats ~now (raft_state, connection_state) timeout_type = 
+let handle_timeout ~logger ~stats ~now state timeout_type = 
+  let { raft_state; connection_state; log_record_handle ; } = state in 
   begin match timeout_type with
-  | Raft_pb.Heartbeat -> (
+  | RPb.Heartbeat -> (
     Server_stats.tick_heartbeat stats;
     log ~logger ~level:Notice "[ServerIPC] Heartbeat timeout" 
     >|= (fun () ->
@@ -114,7 +131,7 @@ let handle_timeout ~logger ~stats ~now (raft_state, connection_state) timeout_ty
     >|= (fun (raft_state, msgs) -> (raft_state, msgs, []))
   )
 
-  | Raft_pb.New_leader_election -> (
+  | RPb.New_leader_election -> (
     print_endline "NEW LEADER ELECTION%!";
     log ~logger ~level:Notice "[ServerIPC] Leader Election timeout"
     >|= (fun () ->
@@ -123,15 +140,17 @@ let handle_timeout ~logger ~stats ~now (raft_state, connection_state) timeout_ty
   )
   end
 
-  >|=(fun (raft_state, msgs, notifications) ->
+  >>=(fun (raft_state, msgs, notifications) ->
 
-    let connection_state, client_responses = 
-      handle_notifications connection_state notifications
-    in 
-    ((raft_state, connection_state), msgs, client_responses)
+    handle_notifications logger connection_state log_record_handle notifications
+    >|=(fun (connection_state, client_responses) ->
+      ({state with raft_state; connection_state}, msgs, client_responses)
+    )
   ) 
 
-let handle_client_request ~logger ~stats ~now (raft_state, connection_state) (client_request, handle) = 
+let handle_client_request ~logger ~stats ~now  state (client_request, handle) = 
+
+  let { raft_state; connection_state; _ } = state in 
 
   match client_request with
   | Pb.Ping {Pb.request_id; } -> 
@@ -141,7 +160,7 @@ let handle_client_request ~logger ~stats ~now (raft_state, connection_state) (cl
     }) in 
 
     let client_response = (client_response, handle) in 
-    Lwt.return ((raft_state, connection_state), [], [client_response])
+    Lwt.return (state, [], [client_response])
 
   | Pb.Add_log {Pb.request_id; data;} -> 
 
@@ -161,13 +180,13 @@ let handle_client_request ~logger ~stats ~now (raft_state, connection_state) (cl
         }) in 
 
         let client_response = (client_response, handle) in 
-        ((raft_state, connection_state), [], [client_response])
+        (state, [], [client_response])
       )
 
     | Raft_logic.Appended (raft_state, msgs) -> 
-      log_f ~logger ~level:Notice "[ServerIPC] Log Added (log size: %i)" raft_state.Raft_pb.log_size 
+      log_f ~logger ~level:Notice "[ServerIPC] Log Added (log size: %i)" raft_state.RPb.log_size 
       >|= (fun () ->
         let connection_state = Pending_requests.add connection_state request_id handle in 
-        ((raft_state, connection_state) , msgs, [])
+        ({state with raft_state; connection_state} , msgs, [])
       )
     end

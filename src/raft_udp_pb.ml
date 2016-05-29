@@ -18,12 +18,16 @@ type configuration = {
   raft_configuration : Raft_pb.configuration;
   servers_udp_configuration : server_udp_configuration list;
   compaction_period : float;
+  log_record_directory : string;
+  compaction_directory : string;
 }
 
 and configuration_mutable = {
   mutable raft_configuration : Raft_pb.configuration;
   mutable servers_udp_configuration : server_udp_configuration list;
   mutable compaction_period : float;
+  mutable log_record_directory : string;
+  mutable compaction_directory : string;
 }
 
 type client_request_ping = {
@@ -95,16 +99,22 @@ let rec default_configuration
   ?raft_configuration:((raft_configuration:Raft_pb.configuration) = Raft_pb.default_configuration ())
   ?servers_udp_configuration:((servers_udp_configuration:server_udp_configuration list) = [])
   ?compaction_period:((compaction_period:float) = 0.)
+  ?log_record_directory:((log_record_directory:string) = "")
+  ?compaction_directory:((compaction_directory:string) = "")
   () : configuration  = {
   raft_configuration;
   servers_udp_configuration;
   compaction_period;
+  log_record_directory;
+  compaction_directory;
 }
 
 and default_configuration_mutable () : configuration_mutable = {
   raft_configuration = Raft_pb.default_configuration ();
   servers_udp_configuration = [];
   compaction_period = 0.;
+  log_record_directory = "";
+  compaction_directory = "";
 }
 
 let rec default_client_request_ping 
@@ -224,6 +234,20 @@ let rec decode_configuration d =
     )
     | Some (3, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(configuration), field(3)", pk))
+    )
+    | Some (4, Pbrt.Bytes) -> (
+      v.log_record_directory <- Pbrt.Decoder.string d;
+      loop ()
+    )
+    | Some (4, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(configuration), field(4)", pk))
+    )
+    | Some (5, Pbrt.Bytes) -> (
+      v.compaction_directory <- Pbrt.Decoder.string d;
+      loop ()
+    )
+    | Some (5, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(configuration), field(5)", pk))
     )
     | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
@@ -373,6 +397,10 @@ let rec encode_configuration (v:configuration) encoder =
   ) v.servers_udp_configuration;
   Pbrt.Encoder.key (3, Pbrt.Bits64) encoder; 
   Pbrt.Encoder.float_as_bits64 v.compaction_period encoder;
+  Pbrt.Encoder.key (4, Pbrt.Bytes) encoder; 
+  Pbrt.Encoder.string v.log_record_directory encoder;
+  Pbrt.Encoder.key (5, Pbrt.Bytes) encoder; 
+  Pbrt.Encoder.string v.compaction_directory encoder;
   ()
 
 let rec encode_client_request_ping (v:client_request_ping) encoder = 
@@ -458,6 +486,8 @@ let rec pp_configuration fmt (v:configuration) =
     Pbrt.Pp.pp_record_field "raft_configuration" Raft_pb.pp_configuration fmt v.raft_configuration;
     Pbrt.Pp.pp_record_field "servers_udp_configuration" (Pbrt.Pp.pp_list pp_server_udp_configuration) fmt v.servers_udp_configuration;
     Pbrt.Pp.pp_record_field "compaction_period" Pbrt.Pp.pp_float fmt v.compaction_period;
+    Pbrt.Pp.pp_record_field "log_record_directory" Pbrt.Pp.pp_string fmt v.log_record_directory;
+    Pbrt.Pp.pp_record_field "compaction_directory" Pbrt.Pp.pp_string fmt v.compaction_directory;
     Format.pp_close_box fmt ()
   in
   Pbrt.Pp.pp_brk pp_i fmt ()
