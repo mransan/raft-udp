@@ -123,7 +123,7 @@ let run_server configuration id logger print_header slow =
     >|=(fun () -> Event.Compaction_initiate)
   in
 
-  let rec server_loop threads ((raft_state, _ ) as state)=
+  let rec server_loop threads ((raft_state, _, _ ) as state)=
     (*
      * [now'] is the time associated with [timeout] meanding that the
      * time deadline at which the [Timeout] exception will be raised should be
@@ -135,7 +135,7 @@ let run_server configuration id logger print_header slow =
 
     >>=(fun events -> 
 
-      let handle_follow_up_action threads ((raft_state, _ ) as state) = 
+      let handle_follow_up_action threads ((raft_state, _, _ ) as state) = 
         let now = get_now () in
         let {RPb.timeout; timeout_type } = RHelper.Timeout_event.next raft_state now in
         Lwt.cancel threads.Event.next_timeout_t;
@@ -152,9 +152,11 @@ let run_server configuration id logger print_header slow =
       Lwt_list.fold_left_s (fun (state, threads) event -> 
         match event with
         | Event.Raft_message msg -> (
-          if slow 
-          then Lwt_unix.sleep  0.1
-          else Lwt.return_unit 
+          begin 
+            if slow 
+            then Lwt_unix.sleep  0.1
+            else Lwt.return_unit 
+          end
           >>=(fun () ->
             Server_ipc.handle_raft_message ~logger ~stats ~now state msg 
           )
@@ -196,7 +198,7 @@ let run_server configuration id logger print_header slow =
           )
         )
         | Event.Compaction_initiate -> (
-          let (raft_state, _) = state in 
+          let (raft_state, _, _ ) = state in 
           let compaction_t = 
             Compaction.perform_compaction logger raft_state  
             >|=(fun compacted_intervals -> 
@@ -207,11 +209,11 @@ let run_server configuration id logger print_header slow =
           Lwt.return (state, threads)
         )
         | Event.Compaction_update compacted_intervals -> (
-          let (raft_state, connection_state ) = state in 
+          let (raft_state, connection_state, compaction_handle) = state in 
           Compaction.update_state logger compacted_intervals raft_state 
           >|=(fun raft_state -> 
             let threads = {threads with Event.compaction_t = get_next_compaction ()} in 
-            ((raft_state, connection_state), threads)
+            ((raft_state, connection_state, compaction_handle), threads)
           )
         ) 
       ) (state, threads) events 
@@ -231,16 +233,20 @@ let run_server configuration id logger print_header slow =
     compaction_t = get_next_compaction ();
   }) in 
 
-  server_loop initial_threads (initial_raft_state, Server_ipc.initialize())
+  
+  Compaction.initiate initial_raft_state
+  >>=(fun handle ->
+    server_loop initial_threads (initial_raft_state, Server_ipc.initialize(), handle)
+  )
 
 
 let run configuration id print_header slow = 
   let t = 
+    (*
     let file_name = Printf.sprintf "raft_upd_%i.log" id in 
     Lwt_log.file ~mode:`Truncate ~file_name () 
-    (*
-    Lwt.return Lwt_log_core.null 
     *)
+    Lwt.return Lwt_log_core.null 
     >>=(fun logger -> 
       run_server configuration id logger print_header slow 
     ) 

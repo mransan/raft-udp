@@ -59,7 +59,7 @@ message ClientResponse {
   }
 
   oneof t {
-    Pong                     pong                    = 1;
+    Pong                     pong                        = 1;
     AddLogSuccess            add_log_success             = 2;
     AddLogReplicationFailure add_log_replication_failure = 3;
     AddLogNotALeader         add_log_not_a_leader        = 4;

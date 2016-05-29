@@ -27,7 +27,7 @@ type connection_state
     and some kind of state needs to be kept. 
   *)
 
-type state = Raft_pb.state * connection_state 
+type state = Raft_pb.state * connection_state * Raft_udp_compaction.handle  
 
 (** {2 Event handling} *)
 
