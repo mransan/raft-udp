@@ -10,6 +10,7 @@ module Ipc = Raft_udp_ipc
 module Server_ipc = Raft_udp_serveripc
 module Client_ipc = Raft_udp_clientipc
 module Compaction = Raft_udp_compaction
+module Log_record = Raft_udp_logrecord
 
 open Lwt.Infix
 
@@ -123,7 +124,7 @@ let run_server configuration id logger print_header slow =
     >|=(fun () -> Event.Compaction_initiate)
   in
 
-  let rec server_loop threads ((raft_state, _, _ ) as state)=
+  let rec server_loop threads state =
     (*
      * [now'] is the time associated with [timeout] meanding that the
      * time deadline at which the [Timeout] exception will be raised should be
@@ -135,7 +136,7 @@ let run_server configuration id logger print_header slow =
 
     >>=(fun events -> 
 
-      let handle_follow_up_action threads ((raft_state, _, _ ) as state) = 
+      let handle_follow_up_action threads  ({Server_ipc.raft_state;_} as state) = 
         let now = get_now () in
         let {RPb.timeout; timeout_type } = RHelper.Timeout_event.next raft_state now in
         Lwt.cancel threads.Event.next_timeout_t;
@@ -147,7 +148,7 @@ let run_server configuration id logger print_header slow =
       
       let now = get_now () in
       
-      Server_stats.set_log_count stats raft_state.RPb.log_size;
+      Server_stats.set_log_count stats state.Server_ipc.raft_state.RPb.log_size;
 
       Lwt_list.fold_left_s (fun (state, threads) event -> 
         match event with
@@ -198,9 +199,9 @@ let run_server configuration id logger print_header slow =
           )
         )
         | Event.Compaction_initiate -> (
-          let (raft_state, _, _ ) = state in 
+          let {Server_ipc.raft_state; _ } = state in 
           let compaction_t = 
-            Compaction.perform_compaction logger raft_state  
+            Compaction.perform_compaction logger configuration raft_state  
             >|=(fun compacted_intervals -> 
               Event.Compaction_update compacted_intervals
             )
@@ -209,11 +210,11 @@ let run_server configuration id logger print_header slow =
           Lwt.return (state, threads)
         )
         | Event.Compaction_update compacted_intervals -> (
-          let (raft_state, connection_state, compaction_handle) = state in 
+          let {Server_ipc.raft_state; _ } = state in 
           Compaction.update_state logger compacted_intervals raft_state 
           >|=(fun raft_state -> 
             let threads = {threads with Event.compaction_t = get_next_compaction ()} in 
-            ((raft_state, connection_state, compaction_handle), threads)
+            ({state with Server_ipc.raft_state}, threads)
           )
         ) 
       ) (state, threads) events 
@@ -232,21 +233,27 @@ let run_server configuration id logger print_header slow =
     next_timeout_t = get_next_timeout timeout timeout_type;
     compaction_t = get_next_compaction ();
   }) in 
-
   
-  Compaction.initiate initial_raft_state
+  Log_record.make logger configuration
   >>=(fun handle ->
-    server_loop initial_threads (initial_raft_state, Server_ipc.initialize(), handle)
+    server_loop initial_threads Server_ipc.({
+      raft_state = initial_raft_state; 
+      connection_state = initialize();
+      log_record_handle = handle;
+    })
   )
 
 
-let run configuration id print_header slow = 
+let run configuration id print_header slow log = 
   let t = 
-    (*
-    let file_name = Printf.sprintf "raft_upd_%i.log" id in 
-    Lwt_log.file ~mode:`Truncate ~file_name () 
-    *)
-    Lwt.return Lwt_log_core.null 
+    begin 
+      if log
+      then 
+        let file_name = Printf.sprintf "raft_upd_%i.log" id in 
+        Lwt_log.file ~mode:`Truncate ~file_name () 
+      else 
+        Lwt.return Lwt_log_core.null 
+    end
     >>=(fun logger -> 
       run_server configuration id logger print_header slow 
     ) 
@@ -277,11 +284,15 @@ let () =
   
   let slow = ref false in 
   let slow_spec = Arg.Set slow  in
+  
+  let log = ref false in 
+  let log_spec = Arg.Set log  in
 
   Arg.parse [
     ("--id", id_spec , " : server raft id");
     ("--print-header", print_header_spec, " : enable header printing");
     ("--slow", slow_spec, " : make server slow");
+    ("--log", log_spec, " : enable logging");
   ] (fun _ -> ()) "test.ml";
 
-  run configuration !id !print_header !slow
+  run configuration !id !print_header !slow !log

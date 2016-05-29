@@ -12,6 +12,8 @@ message configuration {
     // raft configuration.
 
   required double compaction_period = 3; 
+  required string log_record_directory = 4;
+  required string compaction_directory = 5;
 }
 
 message ServerUdpConfiguration {

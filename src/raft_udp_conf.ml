@@ -25,6 +25,8 @@ let default_configuration () = Pb.({
     *)
   ];
   compaction_period = 1.;
+  log_record_directory = "/tmp/";
+  compaction_directory = "/tmp/";
 })
 
 let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port} =
