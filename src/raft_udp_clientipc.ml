@@ -38,12 +38,36 @@ module Event = struct
       (* An error occured while attempting to write to a client connection, 
        * that connection is now closed. 
        *)
+
+  let failure context () = 
+    Failure context 
+  
+  let failure_lwt context () = 
+    Lwt.return (Failure context)
+  
+  let new_client_connection fd () = 
+    New_client_connection fd
+
+  let client_connection_write_ok fd () = 
+    Client_connection_write_ok fd 
+  
+  let client_connection_read_closed fd () =
+    U.close fd 
+    >|= (fun () -> Client_connection_read_closed)
+
+  let client_connection_write_closed logger fd () =
+    U.close fd
+    >>=(fun () ->
+      log ~logger ~level:Notice "[ClientIPC] Client connection closed"
+    )
+    >|= (fun () -> Client_connection_write_closed) 
+
 end 
 
 let get_next_client_connection_f logger configuration server_id =
 
   match Conf.sockaddr_of_server_id `Client configuration server_id with
-  | None    -> (fun () -> Lwt.return (Event.Failure "invalid server id"))
+  | None    -> Event.failure_lwt "invalid server id"
   | Some ad ->
 
     let make_acccept_f fd =  fun () ->
@@ -66,7 +90,6 @@ let get_next_client_connection_f logger configuration server_id =
     in
 
     try
-
       let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in
       U.setsockopt fd U.SO_REUSEADDR true;
       U.bind fd ad;
@@ -78,76 +101,70 @@ let get_next_client_connection_f logger configuration server_id =
         "[ClientIPC] Error initializing TCP listen connection for client IPC. details: %s"
         (Printexc.to_string exn)
 
-      >|=(fun () -> Event.Failure "bind/listen failure")
+      >|= Event.failure "bind/listen failure"
     )
 
-let close_client_connection fd () =
-  U.close fd 
-  >|= (fun () -> Event.Client_connection_read_closed)
 
-let read_from_client_connection logger fd : Event.e  Lwt.t =
+let get_next_client_request_f logger = 
   let buffer = Bytes.create 1024 in
 
-  Lwt.catch (fun () ->
+  fun fd  -> 
+    Lwt.catch (fun () ->
 
-  U.read fd buffer 0 1024
-  >>=(fun nb_bytes_received ->
+    U.read fd buffer 0 1024
+    >>=(fun nb_bytes_received ->
 
-    log_f ~logger ~level:Notice
-      "[ClientIPC] New Client message received, nb of bytes: %i" nb_bytes_received
-    >|=(fun () -> nb_bytes_received)
-  )
-  >>=(function
-    | 0 ->
-      log ~logger ~level:Warning
-        "[ClientIPC] Client terminated connection early"
-      >>=(close_client_connection fd)
-
-    | nb_bytes_received when nb_bytes_received = 1024 ->
-
-      log ~logger ~level:Error
-        "[ClientIPC] Client message is too large... closing connection"
-      >>=(close_client_connection fd)
-
-    | nb_bytes_received -> begin
-      let decoder = Pbrt.Decoder.of_bytes buffer in
-      begin match Pb.decode_client_request decoder with
-      | req ->
-        Lwt.return (Event.Client_connection_read_ok (req, fd))
-
-      | exception exn ->
-        log_f ~logger ~level:Error
-          "[ClientIPC] Error decoding client request, details: %s"
-          (Printexc.to_string exn)
-        >>=(close_client_connection fd)
-      end
-    end
-  )
-  ) (* try *) (fun exn  ->
-
-    log_f ~logger ~level:Error
-      "[ClientIPC] Error when reading client data from connection, details: %s"
-      (Printexc.to_string exn)
-    
-    >>=(close_client_connection fd)
-  )
-
-let process_response_stream logger response_stream =
-  let close_connection ~logger fd () =
-    U.close fd
-    >>=(fun () ->
-      log ~logger ~level:Notice "[ClientIPC] Client connection closed"
+      log_f ~logger ~level:Notice
+        "[ClientIPC] New Client message received, nb of bytes: %i" nb_bytes_received
+      >|=(fun () -> nb_bytes_received)
     )
-    >|= (fun () -> Event.Client_connection_write_closed)
-  in
-  Lwt_stream.map_s(fun (response, fd) ->
+    >>=(function
+      | 0 ->
+        log ~logger ~level:Warning
+          "[ClientIPC] Client terminated connection early"
+        >>=(Event.client_connection_read_closed fd)
 
-    let encoder = Pbrt.Encoder.create () in
-    Pb.encode_client_response response encoder;
-    let buffer = Pbrt.Encoder.to_bytes encoder in
-    let buffer_len = Bytes.length buffer in
+      | nb_bytes_received when nb_bytes_received = 1024 ->
 
-    begin
+        log ~logger ~level:Error
+          "[ClientIPC] Client message is too large... closing connection"
+        >>=(Event.client_connection_read_closed fd)
+
+      | nb_bytes_received -> begin
+        let decoder = Pbrt.Decoder.of_bytes buffer in
+        begin match Pb.decode_client_request decoder with
+        | req ->
+          Lwt.return (Event.Client_connection_read_ok (req, fd))
+
+        | exception exn ->
+          log_f ~logger ~level:Error
+            "[ClientIPC] Error decoding client request, details: %s"
+            (Printexc.to_string exn)
+          >>=(Event.client_connection_read_closed fd)
+        end
+      end
+    )
+    ) (* try *) (fun exn  ->
+
+      log_f ~logger ~level:Error
+        "[ClientIPC] Error when reading client data from connection, details: %s"
+        (Printexc.to_string exn)
+      
+      >>=(Event.client_connection_read_closed fd)
+    )
+
+let create_response_stream logger () =
+
+  let response_stream, response_push = Lwt_stream.create () in  
+
+  let response_stream = 
+    Lwt_stream.map_s (fun (response, fd) ->
+
+      let encoder = Pbrt.Encoder.create () in
+      Pb.encode_client_response response encoder;
+      let buffer = Pbrt.Encoder.to_bytes encoder in
+      let buffer_len = Bytes.length buffer in
+
       Lwt.catch (fun () ->
         Lwt_unix.write fd buffer 0 buffer_len
         >>=(fun nb_byte_written ->
@@ -156,42 +173,51 @@ let process_response_stream logger response_stream =
             log_f ~logger ~level:Error
               "[ClientIPC] Error sending client response, byte written: %i, len: %i"
               nb_byte_written buffer_len
-            >>= close_connection ~logger fd
+            >>= Event.client_connection_write_closed logger fd
 
           else
             log ~logger ~level:Notice "[ClientIPC] Response successfully sent"
-            >|= (fun () -> Event.Client_connection_write_ok fd)
+            >|= Event.client_connection_write_ok fd 
         )
 
       ) (* with *) (fun exn ->
         log_f ~logger ~level:Error
           "[ClientIPC] Error sending client response, detail: %s"
           (Printexc.to_string exn)
-        >>=(close_connection ~logger fd)
+        >>= Event.client_connection_write_closed logger fd
       )
-    end
-  ) response_stream
-
-let client_request_stream logger configuration stats server_id =
-
-  let next_client_connection_f =
-    get_next_client_connection_f logger configuration server_id
-  in
-
-  let request_stream, request_push, set_request_ref = Lwt_stream.create_with_reference () in
-  let response_stream, response_push = 
-    let s, push = Lwt_stream.create () in
-    let s = process_response_stream logger s in
-    (s, push)
+    ) response_stream
   in 
-
-  let next_response () =
+  let next_response = fun () -> 
     Lwt_stream.get response_stream
-    >|=(function
-      | None   -> Event.Failure "Response stream closed"
-      | Some x -> x
+    >>=(function
+      | None   -> (
+        log ~logger ~level:Error "[ClientIPC] Response stream is closed"
+        >|= Event.failure "Response stream closed"
+      )
+      | Some x -> Lwt.return x
     )
   in
+  (next_response, response_push)
+
+type t = client_request Lwt_stream.t * send_response_f 
+
+let make logger configuration stats server_id =
+
+  let next_client_connection = get_next_client_connection_f logger configuration server_id in
+  
+  let next_client_request = get_next_client_request_f logger in  
+
+  let (
+    request_stream, 
+    request_push, 
+    set_request_ref
+  ) = Lwt_stream.create_with_reference () in
+
+  let (
+    next_response, 
+    response_push
+  ) = create_response_stream logger  () in 
 
   (*
    * This is the main client IPC loop.
@@ -221,11 +247,9 @@ let client_request_stream logger configuration stats server_id =
           | Event.New_client_connection fd ->
             Server_stats.tick_new_client_connection stats;
 
-            let recv_thread =
-              read_from_client_connection logger fd
-            in
+            let recv_thread  = next_client_request fd in
             let next_threads =
-              recv_thread::(next_client_connection_f ())::next_threads
+              recv_thread::(next_client_connection ())::next_threads
               (* This is where the fundamental logic of handling a TCP
                * connection is. Each new connection can then be processed
                * concurently with the the next iteration of accept.
@@ -236,9 +260,16 @@ let client_request_stream logger configuration stats server_id =
           | Event.Client_connection_read_closed -> 
             (next_threads, is_failure)
 
-          | Event.Client_connection_read_ok ((client_request, handle) as r) ->
+          | Event.Client_connection_read_ok r ->
             Server_stats.tick_client_requests stats;
             request_push (Some r);
+            (* Since we just got a request from the connection, 
+             * we do not read the next request until a response has been
+             * sent. (This is the design of the protocol). 
+             *
+             * The next request thread will be re-added upon the 
+             * [Client_connection_write_ok] event. 
+             *)
             (next_threads, is_failure)
 
           | Event.Client_connection_write_ok fd->
@@ -247,9 +278,7 @@ let client_request_stream logger configuration stats server_id =
              * expected that the client will send another message, therefore
              * we can now read from that connection.
              *)
-            let recv_thread =
-              read_from_client_connection logger fd
-            in
+            let recv_thread = next_client_request fd in
             ((next_response ())::recv_thread::next_threads, is_failure)
 
           | Event.Client_connection_write_closed -> 
@@ -266,7 +295,7 @@ let client_request_stream logger configuration stats server_id =
          * will be accepted by closing the stream.
          *)
         request_push None;
-        Lwt.return `Failure
+        log ~logger ~level:Error "[ClientIPC] Closing request stream" 
       end
       else loop next_threads ()
     )
@@ -274,8 +303,12 @@ let client_request_stream logger configuration stats server_id =
 
   let initial_threads = [
     next_response (); 
-    next_client_connection_f ();
+    next_client_connection ();
   ] in 
+
   set_request_ref @@ loop initial_threads ();
+    (* We must attach the loop threads to the stream so that the garbage collector
+     * does not reclaim the thread. 
+     *)
 
   (request_stream, response_push)

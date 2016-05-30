@@ -114,9 +114,9 @@ let print_leader () leader_state =
     | [] -> ""
     | server_index::tl -> 
       let {
-        RPb.server_id : int;
-        next_index : int;
-        outstanding_request : bool;
+        RPb.server_id;
+        next_index;
+        outstanding_request;
         local_cache;
       } = server_index in 
 

@@ -22,13 +22,14 @@ let get_next_raft_message_f_for_server configuration server_id =
     let fd = U.socket U.PF_INET U.SOCK_DGRAM 0 in
     U.bind fd ad;
 
-    let buffer_size = 1024 * 1024 in
+    let buffer_size = (1024 * 1024 / 2)  in
     let buffer = Bytes.create buffer_size in
+    Printf.eprintf "Create buffer\n%!";
 
     let rec receive_loop () =
       U.recvfrom fd buffer 0 buffer_size []
       >|= (fun (nb_of_bytes_received, _) ->
-        let decoder = Pbrt.Decoder.of_bytes buffer in
+        let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 nb_of_bytes_received) in
         Raft_message (RPb.decode_message decoder)
       )
     in
@@ -66,7 +67,11 @@ let get_send_raft_message_f configuration =
 
   let res_stream, res_push, res_set_ref = Lwt_stream.create_with_reference () in 
 
-  let res_stream' : unit Lwt.t = Lwt_stream.iter_p (fun (msg, server_id) ->
+  let res_stream' : unit Lwt.t = Lwt_stream.iter_s (fun (msg, server_id) ->
+    (* IMPORTANT : DO NOT USE Lwt_stream.iter_p, this caused 
+     * large increase in memory usage. It looks like the memory
+     * is not garbage collected.
+     *)
     match List.assq server_id server_addresses with
     | (ad, fd) -> (
       let encoder = Pbrt.Encoder.create () in

@@ -43,9 +43,9 @@ let print_stats_t t =
       if counter = 0 && print_header 
       then 
         Lwt_io.printf 
-          "[id] | %10s | %10s | %10s | %8s | %4s | %5s | %6s | %6s | %10s | %10s | \n" 
-          "recv msg/s"
-          "sent msg/s" 
+          "[id] | %7s | %7s | %6s | %8s | %4s | %5s | %6s | %6s | %10s | %10s | \n" 
+          "r rcv/s"
+          "r snt/s" 
           "log/s"
           "log nb"
           "hb/s"
@@ -59,7 +59,7 @@ let print_stats_t t =
         Lwt.return counter 
     )
     >>=(fun counter ->
-      Lwt_io.printf "[%2i] | %10.0f | %10.0f | %10.3f | %8i | %4.1f | %5.1f | %6.0f | %6.1f | %10.1f | %10.1f | \n"
+      Lwt_io.printf "[%2i] | %7.0f | %7.0f | %6.0f | %8i | %4.1f | %5.1f | %6.0f | %6.1f | %10.1f | %10.1f | \n"
         id
         (Counter.rate raft_msg_recv)
         (Counter.rate raft_msg_send)
