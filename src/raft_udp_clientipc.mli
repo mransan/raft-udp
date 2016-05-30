@@ -21,12 +21,22 @@ type send_response_f = (Raft_udp_pb.client_response * handle) option -> unit
 (** Sender function for the caller to send a response 
  *)
 
-val client_request_stream : 
+
+type t = client_request Lwt_stream.t * send_response_f 
+(** Client IPC type. The Client IPC consists in 2 parts:
+    
+    {ul
+    {- A stream of request which the application should iterate over}
+    {- A function to send back responses.}  
+    }
+  *)
+
+val make : 
   Lwt_log_core.logger -> 
   Raft_udp_pb.configuration ->
   Raft_udp_serverstats.t ->
   int -> 
-  client_request Lwt_stream.t * send_response_f 
+  t
 (** [client_request_stream ~logger configuration server_id] initialize the 
     TCP based client IPC to process incoming client request to the RAFT
     server. 

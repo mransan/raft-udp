@@ -31,9 +31,13 @@ end
 
 type t = Lwt_io.output_channel  
 
-let make logger {Pb.log_record_directory; _ }  = 
-  let filename = Filename.concat log_record_directory "record.data" in 
-  Lwt_io.open_file Lwt_io.output filename  
+let filename {Pb.log_record_directory; _} server_id  = 
+  Filename.concat log_record_directory (Printf.sprintf "record_%03i.data" server_id)
+
+
+let make logger configuration server_id = 
+  let filename = filename configuration  server_id in 
+  Lwt_io.open_file ~flags:[Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND] ~mode:Lwt_io.output filename  
   >>=(fun file -> 
     log_f ~logger ~level:Notice "[Log Record] creating log record file: %s\n" filename
     >|=(fun () -> file)
@@ -65,6 +69,53 @@ let append_commited_data logger log_entries handle =
       log_f ~logger ~level:Notice "[Log Record] log_entry appended (index: %10i, id: %s)" 
         index id)
   ) log_entries
-  >>=(fun () ->
-   Lwt_io.flush handle
-  ) 
+  >>=(fun () -> Lwt_io.flush handle) 
+
+(*
+ * Read a single [log_entry] record from the file. 
+ *
+ * return [None] if no [log_entry] could be read. 
+ *
+ * Note that we have no way to know before invoking [read]
+ * that the file does not contain a valid [log_entry]. We 
+ * therefore rely on [read] failing to detect the end of the 
+ * file. 
+ *)
+let read_log_entry_from_file size_bytes file = 
+  Lwt.catch (fun () -> 
+    Lwt_io.read_into_exactly file size_bytes 0 4 
+    >>=(fun () ->
+      let data_len = Int32_encoding.decode_int 0 size_bytes in 
+      let data = Bytes.create data_len in 
+      Lwt_io.read_into_exactly file data 0 data_len
+      >|=(fun () ->
+        let decoder = Pbrt.Decoder.of_bytes data in 
+        Some (RPb.decode_log_entry decoder)
+      )
+    ) 
+  ) (* with *) (fun exn -> 
+    Lwt_io.eprintlf "Error reading log records: %s" (Printexc.to_string exn)
+    >>=(fun () -> Lwt_io.close file)
+    >|=(fun () -> None) 
+  )
+
+let read_log_records configuration server_id f e0 =
+
+  let filename = filename configuration server_id in 
+  Lwt.catch (fun () ->
+    Lwt_io.open_file Lwt_io.input filename
+    >>=(fun file ->
+      let bytes = Bytes.create 4 in 
+      let rec aux acc = 
+        read_log_entry_from_file bytes file 
+        >>=(function
+          | None -> Lwt.return acc
+          | Some x -> aux (f acc x)
+        ) 
+      in
+      aux e0 
+    ) 
+  ) (* with *) (function
+    | Unix.Unix_error (Unix.ENOENT, _, _) -> Lwt.return e0
+    | _ -> Lwt.fail_with "Error reading log record file" 
+  )

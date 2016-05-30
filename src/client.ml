@@ -87,7 +87,7 @@ let main () =
      Lwt_io.eprintl "No address know for server 0"
 
   | Some ad ->
-    let send_log_f = send_log ad 100000 () in
+    let send_log_f = send_log ad 200_000 () in
     send_log_f ()
 
 let () =
