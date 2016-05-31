@@ -12,6 +12,8 @@ type client_request = Pb.client_request * handle
 
 type send_response_f = (Pb.client_response * handle) option -> unit 
 
+let section = Section.make (Printf.sprintf "%10s" "ClientIPC")
+
 module Event = struct 
   type e = 
     | Failure of string  
@@ -58,7 +60,7 @@ module Event = struct
   let client_connection_write_closed logger fd () =
     U.close fd
     >>=(fun () ->
-      log ~logger ~level:Notice "[ClientIPC] Client connection closed"
+      log ~logger ~level:Notice ~section "Client connection closed"
     )
     >|= (fun () -> Client_connection_write_closed) 
 
@@ -74,7 +76,7 @@ let get_next_client_connection_f logger configuration server_id =
       Lwt.catch (fun () ->
         U.accept fd
         >>=(fun (fd2, ad) ->
-          log ~logger ~level:Notice "[ClientIPC] New client connection accepted"
+          log ~logger ~level:Notice ~section "New client connection accepted"
           >|=(fun () -> Event.New_client_connection fd2)
         )
       ) (* with *) (fun exn ->
@@ -83,7 +85,7 @@ let get_next_client_connection_f logger configuration server_id =
          * so best to return a fatale `Failure.
          *)
         log_f ~logger ~level:Fatal
-          "[ClientIPC] Error when accepting new client connection, details: %s"
+          ~section "Error when accepting new client connection, details: %s"
           (Printexc.to_string exn)
         >|=(fun () -> Event.Failure "Accept failure")
       )
@@ -98,7 +100,7 @@ let get_next_client_connection_f logger configuration server_id =
     with exn -> (fun () ->
 
       log_f ~logger ~level:Fatal
-        "[ClientIPC] Error initializing TCP listen connection for client IPC. details: %s"
+        ~section "Error initializing TCP listen connection for client IPC. details: %s"
         (Printexc.to_string exn)
 
       >|= Event.failure "bind/listen failure"
@@ -115,19 +117,19 @@ let get_next_client_request_f logger =
     >>=(fun nb_bytes_received ->
 
       log_f ~logger ~level:Notice
-        "[ClientIPC] New Client message received, nb of bytes: %i" nb_bytes_received
+        ~section "New Client message received, nb of bytes: %i" nb_bytes_received
       >|=(fun () -> nb_bytes_received)
     )
     >>=(function
       | 0 ->
         log ~logger ~level:Warning
-          "[ClientIPC] Client terminated connection early"
+          ~section "Client terminated connection early"
         >>=(Event.client_connection_read_closed fd)
 
       | nb_bytes_received when nb_bytes_received = 1024 ->
 
         log ~logger ~level:Error
-          "[ClientIPC] Client message is too large... closing connection"
+          ~section "Client message is too large... closing connection"
         >>=(Event.client_connection_read_closed fd)
 
       | nb_bytes_received -> begin
@@ -138,7 +140,7 @@ let get_next_client_request_f logger =
 
         | exception exn ->
           log_f ~logger ~level:Error
-            "[ClientIPC] Error decoding client request, details: %s"
+            ~section "Error decoding client request, details: %s"
             (Printexc.to_string exn)
           >>=(Event.client_connection_read_closed fd)
         end
@@ -147,7 +149,7 @@ let get_next_client_request_f logger =
     ) (* try *) (fun exn  ->
 
       log_f ~logger ~level:Error
-        "[ClientIPC] Error when reading client data from connection, details: %s"
+        ~section "Error when reading client data from connection, details: %s"
         (Printexc.to_string exn)
       
       >>=(Event.client_connection_read_closed fd)
@@ -171,18 +173,18 @@ let create_response_stream logger () =
           if nb_byte_written <> buffer_len
           then
             log_f ~logger ~level:Error
-              "[ClientIPC] Error sending client response, byte written: %i, len: %i"
+              ~section "Error sending client response, byte written: %i, len: %i"
               nb_byte_written buffer_len
             >>= Event.client_connection_write_closed logger fd
 
           else
-            log ~logger ~level:Notice "[ClientIPC] Response successfully sent"
+            log ~logger ~level:Notice ~section "Response successfully sent"
             >|= Event.client_connection_write_ok fd 
         )
 
       ) (* with *) (fun exn ->
         log_f ~logger ~level:Error
-          "[ClientIPC] Error sending client response, detail: %s"
+          ~section "Error sending client response, detail: %s"
           (Printexc.to_string exn)
         >>= Event.client_connection_write_closed logger fd
       )
@@ -192,7 +194,7 @@ let create_response_stream logger () =
     Lwt_stream.get response_stream
     >>=(function
       | None   -> (
-        log ~logger ~level:Error "[ClientIPC] Response stream is closed"
+        log ~logger ~level:Error ~section "Response stream is closed"
         >|= Event.failure "Response stream closed"
       )
       | Some x -> Lwt.return x
@@ -241,7 +243,7 @@ let make logger configuration stats server_id =
         List.fold_left (fun (next_threads, is_failure) event ->
           match event with
           | Event.Failure context ->
-            Printf.eprintf "[ClientIPC] Failure, context: %s\n" context;
+            Printf.eprintf "Client IPC Failure, context: %s\n" context;
             (next_threads, true)
 
           | Event.New_client_connection fd ->
@@ -295,7 +297,7 @@ let make logger configuration stats server_id =
          * will be accepted by closing the stream.
          *)
         request_push None;
-        log ~logger ~level:Error "[ClientIPC] Closing request stream" 
+        log ~logger ~level:Error ~section "Closing request stream" 
       end
       else loop next_threads ()
     )

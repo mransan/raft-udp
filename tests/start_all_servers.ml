@@ -3,8 +3,7 @@ let arg_of_server i =
     "./server.native";
     "--id";
     string_of_int i;
-    (*"--log";
-     *)
+    "--log";
     "";
   |] in 
   begin 

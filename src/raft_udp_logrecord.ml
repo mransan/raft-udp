@@ -4,6 +4,8 @@ open Lwt_log_core
 module RPb = Raft_pb
 module Pb  = Raft_udp_pb
 
+let section = Section.make (Printf.sprintf "%10s" "LogRecord")
+
 module Int32_encoding = struct 
   
   let byte pos bytes = 
@@ -39,7 +41,7 @@ let make logger configuration server_id =
   let filename = filename configuration  server_id in 
   Lwt_io.open_file ~flags:[Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND] ~mode:Lwt_io.output filename  
   >>=(fun file -> 
-    log_f ~logger ~level:Notice "[Log Record] creating log record file: %s\n" filename
+    log_f ~logger ~level:Notice ~section "Creating log record file: %s\n" filename
     >|=(fun () -> file)
   ) 
 
@@ -66,7 +68,7 @@ let append_commited_data logger log_entries handle =
   Lwt_list.iter_s (fun ({RPb.index; id; _} as log_entry) -> 
     append size_bytes log_entry handle
     >>=(fun () -> 
-      log_f ~logger ~level:Notice "[Log Record] log_entry appended (index: %10i, id: %s)" 
+      log_f ~logger ~level:Notice ~section "log_entry appended (index: %10i, id: %s)" 
         index id)
   ) log_entries
   >>=(fun () -> Lwt_io.flush handle) 

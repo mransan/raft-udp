@@ -16,6 +16,7 @@ module Client_ipc = Raft_udp_clientipc
 module Compaction = Raft_udp_compaction
 module Log_record = Raft_udp_logrecord
 
+let section = Section.make (Printf.sprintf "%10s" "server")
 
 (* -- Server -- *)
   
@@ -64,7 +65,7 @@ let get_send_raft_messages_f logger stats configuration id =
   fun requests -> 
     Lwt_list.map_p (fun ((msg, server_id) as msg_to_send) ->
       Server_stats.tick_raft_msg_send stats; 
-      Raft_udp_log.print_msg_to_send logger id msg server_id 
+      Raft_udp_log.print_msg_to_send logger section id msg server_id 
       >|= (fun () -> f ipc_handle msg_to_send)
     ) requests
     >|= ignore
@@ -242,8 +243,9 @@ let run_server configuration id logger print_header slow =
     RRev_log_cache.from_list log_intervals 
   ) 
   >>=(fun global_cache -> 
+    let section = Section.make (Printf.sprintf "%10s" "Recovery") in 
     let from = RRev_log_cache.last_cached_index global_cache in 
-    log_f ~logger ~level:Notice "[Recovery] Global cache done, last cached index: %i" from 
+    log_f ~logger ~level:Notice ~section "Global cache done, last cached index: %i" from 
     >>=(fun () ->
       Log_record.read_log_records configuration id (fun (log, log_size) ({RPb.index; _ } as log_entry) -> 
         if index >= from 
@@ -256,7 +258,7 @@ let run_server configuration id logger print_header slow =
         | [] -> 0 
         | {RPb.index; _ } :: _ -> index 
       in 
-      log_f ~logger ~level:Notice "[Recovery] Log read done, commit index: %i" commit_index
+      log_f ~logger ~level:Notice ~section "Log read done, commit index: %i" commit_index
       >|=(fun () ->
         {initial_raft_state with RPb.log; log_size; global_cache;commit_index}
       )
@@ -279,7 +281,8 @@ let run configuration id print_header slow log =
       if log
       then 
         let file_name = Printf.sprintf "raft_upd_%i.log" id in 
-        Lwt_log.file ~mode:`Truncate ~file_name () 
+        let template  = "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" in
+        Lwt_log.file ~mode:`Truncate ~template ~file_name () 
       else 
         Lwt.return Lwt_log_core.null 
     end

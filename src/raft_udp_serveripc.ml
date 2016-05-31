@@ -23,6 +23,8 @@ type client_response = Raft_udp_pb.client_response * Raft_udp_clientipc.handle
 type client_responses = client_response list 
 
 type notifications = RPb.notification list
+
+let section = Section.make (Printf.sprintf "%10s" "ServerIPC")
   
 module StringMap = Map.Make(struct
   type t = string
@@ -91,12 +93,12 @@ let handle_notifications logger connection_state compaction_handle notifications
 
 let handle_raft_message ~logger ~stats ~now state msg = 
   let { raft_state; connection_state; log_record_handle; } = state in 
-  log ~logger ~level:Notice "[ServerIPC] Raft Message Received"
+  log ~logger ~level:Notice ~section "Raft Message Received"
   >>=(fun () ->
-    Log.print_state logger raft_state
+    Log.print_state logger section raft_state
   )
   >>=(fun () -> 
-    Log.print_msg_received logger msg raft_state.RPb.id
+    Log.print_msg_received logger section msg raft_state.RPb.id
   )
   >>=(fun () ->
     Server_stats.tick_raft_msg_recv stats;
@@ -123,7 +125,7 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
   begin match timeout_type with
   | RPb.Heartbeat -> (
     Server_stats.tick_heartbeat stats;
-    log ~logger ~level:Notice "[ServerIPC] Heartbeat timeout" 
+    log ~logger ~section ~level:Notice "Heartbeat timeout" 
     >|= (fun () ->
       Counter.Perf.f2 (Server_stats.hb_processing stats)
         Raft_logic.handle_heartbeat_timeout raft_state now
@@ -133,7 +135,7 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
 
   | RPb.New_leader_election -> (
     print_endline "NEW LEADER ELECTION%!";
-    log ~logger ~level:Notice "[ServerIPC] Leader Election timeout"
+    log ~logger ~level:Notice ~section "Leader Election timeout"
     >|= (fun () ->
       Raft_logic.handle_new_election_timeout raft_state now
     )
@@ -172,7 +174,7 @@ let handle_client_request ~logger ~stats ~now  state (client_request, handle) =
     begin match new_log_response with
     | Raft_logic.Delay
     | Raft_logic.Forward_to_leader _ -> 
-      log ~logger ~level:Notice "[ServerIPC] Log Rejected "
+      log ~logger ~level:Notice ~section "Log Rejected "
       >|= (fun () ->
 
         let client_response = Pb.(Add_log_not_a_leader {
@@ -184,7 +186,7 @@ let handle_client_request ~logger ~stats ~now  state (client_request, handle) =
       )
 
     | Raft_logic.Appended (raft_state, msgs) -> 
-      log_f ~logger ~level:Notice "[ServerIPC] Log Added (log size: %i)" raft_state.RPb.log_size 
+      log_f ~logger ~level:Notice ~section "Log Added (log size: %i)" raft_state.RPb.log_size 
       >|= (fun () ->
         let connection_state = Pending_requests.add connection_state request_id handle in 
         ({state with raft_state; connection_state} , msgs, [])

@@ -7,6 +7,8 @@ module RRev_log_cache = Raft_revlogcache
 
 module Pb = Raft_udp_pb
 
+let section = Section.make (Printf.sprintf "%10s" "Compaction")
+
 let compaction_filename ~server_id ~prev_index ~configuration () = 
   let filename = Printf.sprintf "log_interval_%03i_%012i.data" 
     server_id 
@@ -33,7 +35,7 @@ let compact logger server_id configuration to_be_compacted =
       ()
     in  
 
-    log_f ~logger ~level:Notice "[Compaction] Compacting to file: %s" filename 
+    log_f ~logger ~level:Notice ~section "Compacting to file: %s" filename 
     >>=(fun () -> 
       Lwt_io.open_file Lwt_io.output filename  
     )
@@ -50,7 +52,7 @@ let compact logger server_id configuration to_be_compacted =
 
 let read_from_file ~logger ~server_id ~configuration ~prev_index () = 
   let filename = compaction_filename ~server_id ~prev_index ~configuration () in  
-  log_f ~logger ~level:Notice "[Compaction] De-Compacting from file: %s" filename 
+  log_f ~logger ~level:Notice ~section "De-Compacting from file: %s" filename 
   >>=(fun () -> Lwt_io.open_file Lwt_io.input filename) 
   >>=(fun file ->
     Lwt_io.length file
@@ -106,7 +108,7 @@ let perform_compaction logger configuration state =
   )
 
 let update_state logger modified_intervals state = 
-  log_f ~logger ~level:Notice "[Compaction] Updating state with %i modified intervals"
+  log_f ~logger ~level:Notice ~section "Updating state with %i modified intervals"
     (List.length modified_intervals)
   >|=(fun () ->
     let global_cache = List.fold_left (fun global_cache log_interval ->
