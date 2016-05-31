@@ -22,9 +22,8 @@ let get_next_raft_message_f_for_server configuration server_id =
     let fd = U.socket U.PF_INET U.SOCK_DGRAM 0 in
     U.bind fd ad;
 
-    let buffer_size = (1024 * 1024 / 2)  in
+    let buffer_size = (1024 * 1024)  in
     let buffer = Bytes.create buffer_size in
-    Printf.eprintf "Create buffer\n%!";
 
     let rec receive_loop () =
       U.recvfrom fd buffer 0 buffer_size []
@@ -103,7 +102,6 @@ let get_send_raft_message_f configuration =
   in  
 
   res_set_ref res_stream'; 
-  
   (* In order to keep alive the [res_stream] (ie not being garbage collected), we 
    * return the stream as an abstract type to the caller and impose the requirement 
    * to give it as an argument to the [send] function. 
