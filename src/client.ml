@@ -176,9 +176,6 @@ let rec server_loop state count e =
     send_request state test_add_log_request  
     >>= server_loop state count
 
-  | Event.Response Pb.Pong _ -> 
-    server_loop state count @@ Event.failure "Pong response" () 
-
   | Event.Response Pb.Add_log_success -> 
     begin if (count mod 1000) = 0
     then 
@@ -194,7 +191,6 @@ let rec server_loop state count e =
   
   | Event.Response Pb.Add_log_replication_failure -> 
     server_loop state count @@ Event.failure "Replication failure" ()
-
 
   | Event.Response Pb.Add_log_not_a_leader {Pb.leader_id;} -> 
     Lwt_io.printlf "Not a leader received: %s"
