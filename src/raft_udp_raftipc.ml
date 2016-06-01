@@ -295,7 +295,7 @@ let handle_client_request ~logger ~stats ~now  state (client_request, handle) =
       )
 
     | Raft_logic.Appended (raft_state, outgoing_messages) -> 
-      log_f ~logger ~level:Notice ~section "Log Added (log size: %i)" raft_state.RPb.log_size 
+      log_f ~logger ~level:Notice ~section "Log Added (log size: %i)" raft_state.RPb.log.RPb.log_size 
       >>= (fun () ->
         let {pending_requests; _ } = connection_state in 
         let connection_state = {connection_state with

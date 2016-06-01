@@ -4,7 +4,7 @@ open Lwt_log_core
 module RPb = Raft_pb
 module RHelper = Raft_helper
 module RRole = Raft_role
-module RRev_log_cache = Raft_revlogcache 
+module RLog = Raft_log
 
 module Pb = Raft_udp_pb
 module Conf = Raft_udp_conf
@@ -134,7 +134,7 @@ let run_server configuration id logger print_header slow =
       
       let now = get_now () in
       
-      Server_stats.set_log_count stats state.Raft_ipc.raft_state.RPb.log_size;
+      Server_stats.set_log_count stats state.Raft_ipc.raft_state.RPb.log.RPb.log_size;
 
       Lwt_list.fold_left_s (fun (state, threads) event -> 
         match event with
@@ -222,28 +222,29 @@ let run_server configuration id logger print_header slow =
 
   Compaction.load_previous_log_intervals logger configuration id 
   >|=(fun log_intervals ->
-    RRev_log_cache.from_list log_intervals 
+    let builder1 = RLog.Builder.make_t1 () in 
+    List.fold_left (fun builder1 log_interval -> 
+      RLog.Builder.add_interval builder1 log_interval 
+    ) builder1 log_intervals 
   ) 
-  >>=(fun global_cache -> 
+  >>=(fun builder1 -> 
     let section = Section.make (Printf.sprintf "%10s" "Recovery") in 
-    let from = RRev_log_cache.last_cached_index global_cache in 
-    log_f ~logger ~level:Notice ~section "Global cache done, last cached index: %i" from 
+
+    let builder2 = RLog.Builder.t2_of_t1 builder1 in 
+    log ~logger ~level:Notice ~section "Global cache done..."
     >>=(fun () ->
-      Log_record.read_log_records configuration id (fun (log, log_size) ({RPb.index; _ } as log_entry) -> 
-        if index >= from 
-        then (log_entry::log, log_size + 1) 
-        else (log, log_size + 1)
-      ) ([], 0)
+      Log_record.read_log_records configuration id (fun builder2 log_entry ->
+        RLog.Builder.add_log_entry builder2 log_entry
+      ) builder2 
+      >|= RLog.Builder.log_of_t2 
     )
-    >>= (fun (log, log_size) -> 
-      let commit_index = match log with
-        | [] -> 0 
-        | {RPb.index; _ } :: _ -> index 
-      in 
+    >>= (fun log -> 
+      let initial_raft_state = {initial_raft_state with RPb.log } in 
+      let commit_index  = RLog.last_log_index initial_raft_state in 
+      let initial_raft_state = {initial_raft_state with RPb.commit_index; } in 
+      
       log_f ~logger ~level:Notice ~section "Log read done, commit index: %i" commit_index
-      >|=(fun () ->
-        {initial_raft_state with RPb.log; log_size; global_cache;commit_index}
-      )
+      >|=(fun () -> initial_raft_state)
     )
   )
   >>=(fun initial_raft_state ->

@@ -117,14 +117,12 @@ let print_leader () leader_state =
         RPb.server_id;
         next_index;
         outstanding_request;
-        local_cache;
       } = server_index in 
 
-      Printf.sprintf "\t\t\t\t server index: (id: %3i, next: %10i, out req.: %b, cache: %s)\n%a" 
+      Printf.sprintf "\t\t\t\t server index: (id: %3i, next: %10i, out req.: %b)\n%a" 
         server_id
         next_index
         outstanding_request
-        (string_of_log_interval local_cache)
         aux tl 
   in
   Printf.sprintf "\t\t %15s: Leader\n%a"
@@ -150,12 +148,10 @@ let print_state logger section state =
   let {
     RPb.id;
     current_term;
-    log;
-    log_size;
+    log = {RPb.log_size; _ };
     commit_index;
     role;
     configuration;
-    global_cache;
   } = state in
 
   let print_role (oc:unit) = function
