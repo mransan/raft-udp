@@ -3,7 +3,7 @@ let arg_of_server i =
     "./server.native";
     "--id";
     string_of_int i;
-     "--log";
+    "--log";
     "";
   |] in 
   begin 
@@ -22,22 +22,37 @@ let () =
 
   let nb_of_servers = List.length servers_udp_configuration in 
 
-  let sleep = ref 1 in 
-  for i = 0 to nb_of_servers - 1  do
-    match Unix.fork () with
-    | 0 -> Unix.execv "./server.native" (arg_of_server i)
-    | _ -> Unix.sleep !sleep; sleep := 0
-  done;
+  let rec aux acc = function
+    | 0 -> acc 
+    | i -> 
+      let i = i - 1 in 
+      match Unix.fork () with
+      | 0   -> Unix.execv "./server.native" (arg_of_server i)
+      | pid -> aux ((i, pid)::acc) i  
+  in
 
-  for i = 0 to nb_of_servers - 1  do
-    let pid, process_status = Unix.wait () in 
-    Printf.eprintf "Process [%5i] died with status %s\n%!"
-      pid
-      ((function 
-        | Unix.WEXITED i -> Printf.sprintf "WEXITED(%i)" i
-        | Unix.WSIGNALED i -> Printf.sprintf "WSIGNALED(%i)" i 
-        | Unix.WSTOPPED i -> Printf.sprintf "WSTOPPED(%i)" i
-      ) process_status) 
-  done;
+  let processes = aux [] nb_of_servers in 
 
-  ()
+  let rec aux processes = 
+    Unix.sleep 30; 
+    let server_to_kill = Random.int 3 in 
+    let processes = List.map (fun (server_id, pid) -> 
+      if server_to_kill  = server_id
+      then begin 
+        Printf.printf "Killing server id: %i, PID: %i\n%!" server_id pid; 
+        Unix.kill pid Sys.sigkill;
+        Unix.sleep 8;  
+        match Unix.fork () with
+        | 0   -> Unix.execv "./server.native" (arg_of_server server_id)
+        | pid ->
+          begin  
+            Printf.printf "Restarted server id: %i, PID: %i\n%!" server_id pid; 
+            (server_id, pid)
+          end
+      end 
+      else 
+        (server_id, pid)
+    ) processes in 
+    aux processes
+  in 
+  aux processes   

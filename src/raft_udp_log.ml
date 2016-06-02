@@ -1,8 +1,14 @@
 
 module RPb = Raft_pb
+module RState = Raft_state
+module RLog = Raft_log
 
 open Lwt.Infix 
 open Lwt_log_core
+
+let print_of_pp f_pp () v =
+  Format.fprintf Format.str_formatter "@[%a@]" f_pp v;
+  Format.flush_str_formatter ()
 
 let string_of_log_interval {RPb.prev_index;last_index; rev_log_entries} = 
   let status = match rev_log_entries with
@@ -146,9 +152,9 @@ let print_candidate () candidate_state =
 
 let print_state logger section state = 
   let {
-    RPb.id;
+    RState.id;
     current_term;
-    log = {RPb.log_size; _ };
+    log = {RLog.log_size; term_tree ; _  };
     commit_index;
     role;
     configuration;
@@ -166,6 +172,7 @@ let print_state logger section state =
     "\t\t%15s : %i \n" ^^ 
     "\t\t%15s : %i \n" ^^ 
     "\t\t%15s : %i \n" ^^ 
+    "\t\t%15s : %a \n" ^^ 
     "%a"
   in
   log_f ~logger ~section ~level:Notice fmt 
@@ -173,4 +180,5 @@ let print_state logger section state =
     "current term" current_term
     "commit index" commit_index
     "log size " log_size 
+    "term tree" (print_of_pp  RLog.pp_term_tree) term_tree
     print_role role 

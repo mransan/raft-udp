@@ -5,6 +5,7 @@ module RPb = Raft_pb
 module RHelper = Raft_helper
 module RRole = Raft_role
 module RLog = Raft_log
+module RState = Raft_state
 
 module Pb = Raft_udp_pb
 module Conf = Raft_udp_conf
@@ -134,7 +135,7 @@ let run_server configuration id logger print_header slow =
       
       let now = get_now () in
       
-      Server_stats.set_log_count stats state.Raft_ipc.raft_state.RPb.log.RPb.log_size;
+      Server_stats.set_log_count stats state.Raft_ipc.raft_state.RState.log.RLog.log_size;
 
       Lwt_list.fold_left_s (fun (state, threads) event -> 
         match event with
@@ -239,9 +240,9 @@ let run_server configuration id logger print_header slow =
       >|= RLog.Builder.log_of_t2 
     )
     >>= (fun log -> 
-      let initial_raft_state = {initial_raft_state with RPb.log } in 
-      let commit_index  = RLog.last_log_index initial_raft_state in 
-      let initial_raft_state = {initial_raft_state with RPb.commit_index; } in 
+      let initial_raft_state = {initial_raft_state with RState.log } in 
+      let commit_index  = RLog.last_log_index initial_raft_state.RState.log in 
+      let initial_raft_state = {initial_raft_state with RState.commit_index; } in 
       
       log_f ~logger ~level:Notice ~section "Log read done, commit index: %i" commit_index
       >|=(fun () -> initial_raft_state)

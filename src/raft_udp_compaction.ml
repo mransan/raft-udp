@@ -97,7 +97,7 @@ let perform_compaction logger configuration state =
     RPb.to_be_compacted;
   } = RState.compaction state in 
 
-  let id = state.RPb.id in 
+  let id = state.RState.id in 
 
   compact logger id configuration to_be_compacted
   >>=(fun modified_intervals1 -> 
@@ -112,10 +112,10 @@ let update_state logger modified_intervals state =
     (List.length modified_intervals)
   >|=(fun () ->
     let log = List.fold_left (fun global_cache log_interval ->
-        RLog.Past_interval.replace log_interval global_cache  
-      ) state.RPb.log modified_intervals
+        RLog.Past_entries.replace log_interval global_cache  
+      ) state.RState.log modified_intervals
     in
-    {state with RPb.log}
+    {state with RState.log}
   ) 
 
 let load_previous_log_intervals logger configuration server_id = 
