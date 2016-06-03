@@ -3,12 +3,12 @@ let arg_of_server i =
     "./server.native";
     "--id";
     string_of_int i;
-    "--log";
+    (*"--log"; *)
     "";
   |] in 
   begin 
     if i = 1 
-    then arg.(3) <- "--print-header" 
+    then arg.(Array.length arg - 1) <- "--print-header" 
     else ();
   end;
   arg

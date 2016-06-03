@@ -241,10 +241,10 @@ let run_server configuration id logger print_header slow =
     )
     >>= (fun log -> 
       let initial_raft_state = {initial_raft_state with RState.log } in 
-      let commit_index  = RLog.last_log_index initial_raft_state.RState.log in 
-      let initial_raft_state = {initial_raft_state with RState.commit_index; } in 
+      let commit_index, current_term = RLog.last_log_index_and_term initial_raft_state.RState.log in 
+      let initial_raft_state = {initial_raft_state with RState.commit_index; current_term} in 
       
-      log_f ~logger ~level:Notice ~section "Log read done, commit index: %i" commit_index
+      log_f ~logger ~level:Notice ~section "Log read done, commit index: %i, current term: %i" commit_index current_term
       >|=(fun () -> initial_raft_state)
     )
   )

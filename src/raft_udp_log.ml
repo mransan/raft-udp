@@ -60,8 +60,8 @@ let print_msg_details logger section msg () =
     begin match r.RPb.result with
     | RPb.Success {RPb.receiver_last_log_index} -> 
       log_f ~logger ~section ~level:Notice "\t Success - last log index: %10i" receiver_last_log_index
-    | RPb.Log_failure {RPb.receiver_commit_index; _ } -> 
-      log_f ~logger ~section ~level:Notice "\t Failure(Log) - receiver commit index: %10i" receiver_commit_index
+    | RPb.Log_failure {RPb.receiver_last_log_index; _ } -> 
+      log_f ~logger ~section ~level:Notice "\t Failure(Log) - receiver last log index: %10i" receiver_last_log_index
     | RPb.Term_failure -> 
       log_f ~logger ~section ~level:Notice "\t Failure(Term) - sender term: %i" r.RPb.receiver_term 
     end
