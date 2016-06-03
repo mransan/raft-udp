@@ -27,22 +27,20 @@ message ServerUdpConfiguration {
     // Port number. 
 }
 
-message ClientRequest {
-
-  // Add log request allows a client to append a log 
-  // to the RAFT state machine. 
-  message AddLog {
+message LogEntry {
     required string request_id = 1; 
     required bytes  data       = 2;
-  }
+}
+
+message ClientRequest {
   oneof t {
-    AddLog  add_log = 1;
+    LogEntry add_log = 1;
   }
 }
 
 message ClientResponse {
 
-  message AddLogSuccess  {}
+  message AddLogSuccess {}
   message AddLogReplicationFailure {}
   message AddLogNotALeader {
     optional int32 leader_id = 1;
@@ -52,5 +50,24 @@ message ClientResponse {
     AddLogSuccess            add_log_success             = 1;
     AddLogReplicationFailure add_log_replication_failure = 2;
     AddLogNotALeader         add_log_not_a_leader        = 3;
+  }
+}
+
+message AppRequest {
+  oneof t {
+    LogEntry validate_log = 1; 
+    LogEntry commit_log = 2; 
+  }
+}
+
+message AppResponse {
+  message Success {}
+  message Failure {
+    required string error_message = 1; 
+    required int32  error_code    = 2;
+  }
+  oneof t {
+    Success success = 1; 
+    Failure failure = 2; 
   }
 }
