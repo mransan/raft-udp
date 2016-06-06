@@ -10,6 +10,7 @@ module Log_record   = Raft_udp_logrecord
 module Conf         = Raft_udp_conf
 
 module RState = Raft_state
+module RLog = Raft_log
 module RPb = Raft_pb 
 
 type raft_message     = RPb.message * int 
@@ -152,7 +153,7 @@ let initialize configuration =
   }
     
 type state = {
-  raft_state: RPb.state; 
+  raft_state: RState.t; 
   connection_state: connection_state; 
   log_record_handle : Log_record.t;
 }
@@ -217,7 +218,7 @@ let handle_raft_message ~logger ~stats ~now state msg =
 
   log ~logger ~level:Notice ~section "Raft Message Received"
   >>=(fun () -> Log.print_state logger section raft_state)
-  >>=(fun () -> Log.print_msg_received logger section msg raft_state.RPb.id)
+  >>=(fun () -> Log.print_msg_received logger section msg raft_state.RState.id)
   >>=(fun () ->
     Server_stats.tick_raft_msg_recv stats;
 
@@ -228,7 +229,7 @@ let handle_raft_message ~logger ~stats ~now state msg =
 
     handle_notifications logger  connection_state log_record_handle notifications 
     >>=(fun (connection_state, client_responses) ->
-      send_raft_messages ~logger ~stats (raft_state.RPb.id) connection_state outgoing_messages
+      send_raft_messages ~logger ~stats (raft_state.RState.id) connection_state outgoing_messages
       >|= (fun () -> 
         ({state with raft_state; connection_state}, client_responses)
       ) 
@@ -260,7 +261,7 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
 
     handle_notifications logger  connection_state log_record_handle notifications 
     >>=(fun (connection_state, client_responses) ->
-      send_raft_messages ~logger ~stats (raft_state.RPb.id) connection_state outgoing_messages
+      send_raft_messages ~logger ~stats (raft_state.RState.id) connection_state outgoing_messages
       >|= (fun () -> 
         ({state with raft_state; connection_state}, client_responses)
       ) 
@@ -295,14 +296,14 @@ let handle_client_request ~logger ~stats ~now  state (client_request, handle) =
       )
 
     | Raft_logic.Appended (raft_state, outgoing_messages) -> 
-      log_f ~logger ~level:Notice ~section "Log Added (log size: %i)" raft_state.RPb.log_size 
+      log_f ~logger ~level:Notice ~section "Log Added (log size: %i)" raft_state.RState.log.RLog.log_size 
       >>= (fun () ->
         let {pending_requests; _ } = connection_state in 
         let connection_state = {connection_state with
           pending_requests = Pending_requests.add pending_requests request_id handle;
         } in 
 
-        send_raft_messages ~logger ~stats (raft_state.RPb.id) connection_state outgoing_messages
+        send_raft_messages ~logger ~stats (raft_state.RState.id) connection_state outgoing_messages
         >|= (fun () -> 
           ({state with raft_state; connection_state}, [])
         ) 

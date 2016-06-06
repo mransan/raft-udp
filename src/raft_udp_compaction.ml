@@ -3,7 +3,7 @@ open Lwt_log_core
 
 module RState = Raft_state 
 module RPb    = Raft_pb
-module RRev_log_cache = Raft_revlogcache
+module RLog = Raft_log
 
 module Pb = Raft_udp_pb
 
@@ -97,7 +97,7 @@ let perform_compaction logger configuration state =
     RPb.to_be_compacted;
   } = RState.compaction state in 
 
-  let id = state.RPb.id in 
+  let id = state.RState.id in 
 
   compact logger id configuration to_be_compacted
   >>=(fun modified_intervals1 -> 
@@ -111,11 +111,11 @@ let update_state logger modified_intervals state =
   log_f ~logger ~level:Notice ~section "Updating state with %i modified intervals"
     (List.length modified_intervals)
   >|=(fun () ->
-    let global_cache = List.fold_left (fun global_cache log_interval ->
-        RRev_log_cache.replace log_interval global_cache  
-      ) state.RPb.global_cache modified_intervals
+    let log = List.fold_left (fun global_cache log_interval ->
+        RLog.Past_entries.replace log_interval global_cache  
+      ) state.RState.log modified_intervals
     in
-    {state with RPb.global_cache}
+    {state with RState.log}
   ) 
 
 let load_previous_log_intervals logger configuration server_id = 
