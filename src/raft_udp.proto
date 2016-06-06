@@ -61,13 +61,22 @@ message AppRequest {
 }
 
 message AppResponse {
-  message Success {}
-  message Failure {
+  required string request_id = 1;
+
+  message ValidateSuccess { 
+  }
+
+  message ValidateFailure {
     required string error_message = 1; 
     required int32  error_code    = 2;
   }
-  oneof t {
-    Success success = 1; 
-    Failure failure = 2; 
+
+  message CommitLogAck {}
+
+  oneof result {
+    ValidateSuccess validate_success = 2; 
+    ValidateFailure validate_failure = 3; 
+    CommitLogAck    commit_log_ack   = 4;
   }
+
 }

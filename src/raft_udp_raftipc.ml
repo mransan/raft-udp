@@ -57,16 +57,16 @@ end)
 
 module Pending_requests = struct 
 
-  type t = Client_ipc.handle StringMap.t
+  type t = client_request StringMap.t
   
-  let add t request_id handle  = 
-    StringMap.add request_id handle t
+  let add t request_id client_request = 
+    StringMap.add request_id client_request t
   
   let get t request_id =
     match StringMap.find request_id t with
-    | handle ->
+    | client_request ->
       let t = StringMap.remove request_id t  in
-      (t, Some handle)
+      (t, Some client_request)
     | exception Not_found ->
       (t, None)
 
@@ -158,6 +158,8 @@ type state = {
   log_record_handle : Log_record.t;
 }
 
+type result = (state * client_responses) 
+
 let handle_notifications logger connection_state compaction_handle notifications = 
 
   (* 
@@ -171,12 +173,12 @@ let handle_notifications logger connection_state compaction_handle notifications
       let ids = List.map (fun ({RPb.id; _ }:RPb.log_entry) -> id) rev_log_entries in 
       List.fold_left (fun (connection_state, client_responses) id -> 
         let {pending_requests; _ }   = connection_state in 
-        let pending_requests, handle = Pending_requests.get pending_requests id in 
+        let pending_requests, client_request = Pending_requests.get pending_requests id in 
         let connection_state = {connection_state with pending_requests } in 
-        match handle with
+        match client_request with
         | None -> 
           (connection_state, client_responses) 
-        | Some handle -> 
+        | Some (_, handle) -> 
           (connection_state, ((Pb.Add_log_success, handle)::client_responses))
       ) acc ids 
 
@@ -300,7 +302,7 @@ let handle_client_request ~logger ~stats ~now  state (client_request, handle) =
       >>= (fun () ->
         let {pending_requests; _ } = connection_state in 
         let connection_state = {connection_state with
-          pending_requests = Pending_requests.add pending_requests request_id handle;
+          pending_requests = Pending_requests.add pending_requests request_id (client_request, handle) ;
         } in 
 
         send_raft_messages ~logger ~stats (raft_state.RState.id) connection_state outgoing_messages

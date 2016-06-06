@@ -35,6 +35,8 @@ type state = {
   log_record_handle: Raft_udp_logrecord.t
 }
 
+type result = (state * client_responses) 
+
 (** {2 Event handling} *)
 
 val get_next_raft_message_f_for_server : 
@@ -54,7 +56,7 @@ val handle_raft_message :
   now   : float -> 
   state -> 
   Raft_pb.message ->
-  (state * client_responses) Lwt.t  
+  result Lwt.t  
 (** [handle_raft_message ~logger ~stats ~now state msg] handles RAFT protocol 
     messages from other servers. 
   *)
@@ -65,7 +67,7 @@ val handle_timeout :
   now   : float -> 
   state ->
   Raft_pb.timeout_event_time_out_type ->
-  (state * client_responses) Lwt.t  
+  result Lwt.t  
 (** [handle_raft_message ~logger ~stats ~now state msg] handles RAFT protocol 
     timeout event. 
   *)
@@ -76,7 +78,7 @@ val handle_client_request :
   now   : float -> 
   state ->
   client_request ->
-  (state * client_responses) Lwt.t  
+  result Lwt.t  
 (** [handle_client_request ~logger ~stats ~now state msg] handles RAFT protocol 
     client requests. 
   *)

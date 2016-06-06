@@ -60,19 +60,30 @@ type app_request =
   | Validate_log of log_entry
   | Commit_log of log_entry
 
-type app_response_failure = {
+type app_response_validate_failure = {
   error_message : string;
   error_code : int;
 }
 
-and app_response_failure_mutable = {
+and app_response_validate_failure_mutable = {
   mutable error_message : string;
   mutable error_code : int;
 }
 
-type app_response =
-  | Success
-  | Failure of app_response_failure
+type app_response_result =
+  | Validate_success
+  | Validate_failure of app_response_validate_failure
+  | Commit_log_ack
+
+and app_response = {
+  request_id : string;
+  result : app_response_result;
+}
+
+and app_response_mutable = {
+  mutable request_id : string;
+  mutable result : app_response_result;
+}
 
 let rec default_server_udp_configuration 
   ?raft_id:((raft_id:int) = 0)
@@ -144,20 +155,33 @@ let rec default_client_response (): client_response = Add_log_success
 
 let rec default_app_request () : app_request = Validate_log (default_log_entry ())
 
-let rec default_app_response_failure 
+let rec default_app_response_validate_failure 
   ?error_message:((error_message:string) = "")
   ?error_code:((error_code:int) = 0)
-  () : app_response_failure  = {
+  () : app_response_validate_failure  = {
   error_message;
   error_code;
 }
 
-and default_app_response_failure_mutable () : app_response_failure_mutable = {
+and default_app_response_validate_failure_mutable () : app_response_validate_failure_mutable = {
   error_message = "";
   error_code = 0;
 }
 
-let rec default_app_response (): app_response = Success
+let rec default_app_response_result (): app_response_result = Validate_success
+
+and default_app_response 
+  ?request_id:((request_id:string) = "")
+  ?result:((result:app_response_result) = Validate_success)
+  () : app_response  = {
+  request_id;
+  result;
+}
+
+and default_app_response_mutable () : app_response_mutable = {
+  request_id = "";
+  result = Validate_success;
+}
 
 let rec decode_server_udp_configuration d =
   let v = default_server_udp_configuration_mutable () in
@@ -337,8 +361,8 @@ let rec decode_app_request d =
   in
   loop ()
 
-let rec decode_app_response_failure d =
-  let v = default_app_response_failure_mutable () in
+let rec decode_app_response_validate_failure d =
+  let v = default_app_response_validate_failure_mutable () in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
@@ -348,27 +372,28 @@ let rec decode_app_response_failure d =
       loop ()
     )
     | Some (1, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_failure), field(1)", pk))
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validate_failure), field(1)", pk))
     )
     | Some (2, Pbrt.Varint) -> (
       v.error_code <- Pbrt.Decoder.int_as_varint d;
       loop ()
     )
     | Some (2, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_failure), field(2)", pk))
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validate_failure), field(2)", pk))
     )
     | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
-  let v:app_response_failure = Obj.magic v in
+  let v:app_response_validate_failure = Obj.magic v in
   v
 
-let rec decode_app_response d = 
+let rec decode_app_response_result d = 
   let rec loop () = 
-    let ret:app_response = match Pbrt.Decoder.key d with
+    let ret:app_response_result = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
-      | Some (1, _) -> (Pbrt.Decoder.empty_nested d ; Success)
-      | Some (2, _) -> Failure (decode_app_response_failure (Pbrt.Decoder.nested d))
+      | Some (2, _) -> (Pbrt.Decoder.empty_nested d ; Validate_success)
+      | Some (3, _) -> Validate_failure (decode_app_response_validate_failure (Pbrt.Decoder.nested d))
+      | Some (4, _) -> (Pbrt.Decoder.empty_nested d ; Commit_log_ack)
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
         loop () 
@@ -377,6 +402,48 @@ let rec decode_app_response d =
     ret
   in
   loop ()
+
+and decode_app_response d =
+  let v = default_app_response_mutable () in
+  let rec loop () = 
+    match Pbrt.Decoder.key d with
+    | None -> (
+    )
+    | Some (1, Pbrt.Bytes) -> (
+      v.request_id <- Pbrt.Decoder.string d;
+      loop ()
+    )
+    | Some (1, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response), field(1)", pk))
+    )
+    | Some (2, Pbrt.Bytes) -> (
+      Pbrt.Decoder.empty_nested d;
+      v.result <- Validate_success;
+      loop ()
+    )
+    | Some (2, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response), field(2)", pk))
+    )
+    | Some (3, Pbrt.Bytes) -> (
+      v.result <- Validate_failure (decode_app_response_validate_failure (Pbrt.Decoder.nested d));
+      loop ()
+    )
+    | Some (3, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response), field(3)", pk))
+    )
+    | Some (4, Pbrt.Bytes) -> (
+      Pbrt.Decoder.empty_nested d;
+      v.result <- Commit_log_ack;
+      loop ()
+    )
+    | Some (4, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response), field(4)", pk))
+    )
+    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+  in
+  loop ();
+  let v:app_response = Obj.magic v in
+  v
 
 let rec encode_server_udp_configuration (v:server_udp_configuration) encoder = 
   Pbrt.Encoder.key (1, Pbrt.Varint) encoder; 
@@ -455,23 +522,47 @@ let rec encode_app_request (v:app_request) encoder =
     Pbrt.Encoder.nested (encode_log_entry x) encoder;
   )
 
-let rec encode_app_response_failure (v:app_response_failure) encoder = 
+let rec encode_app_response_validate_failure (v:app_response_validate_failure) encoder = 
   Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
   Pbrt.Encoder.string v.error_message encoder;
   Pbrt.Encoder.key (2, Pbrt.Varint) encoder; 
   Pbrt.Encoder.int_as_varint v.error_code encoder;
   ()
 
-let rec encode_app_response (v:app_response) encoder = 
+let rec encode_app_response_result (v:app_response_result) encoder = 
   match v with
-  | Success -> (
-    Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
+  | Validate_success -> (
+    Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.empty_nested encoder
   )
-  | Failure x -> (
-    Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.nested (encode_app_response_failure x) encoder;
+  | Validate_failure x -> (
+    Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
+    Pbrt.Encoder.nested (encode_app_response_validate_failure x) encoder;
   )
+  | Commit_log_ack -> (
+    Pbrt.Encoder.key (4, Pbrt.Bytes) encoder; 
+    Pbrt.Encoder.empty_nested encoder
+  )
+
+and encode_app_response (v:app_response) encoder = 
+  Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
+  Pbrt.Encoder.string v.request_id encoder;
+  (
+    match v.result with
+    | Validate_success -> (
+      Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
+      Pbrt.Encoder.empty_nested encoder
+    )
+    | Validate_failure x -> (
+      Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
+      Pbrt.Encoder.nested (encode_app_response_validate_failure x) encoder;
+    )
+    | Commit_log_ack -> (
+      Pbrt.Encoder.key (4, Pbrt.Bytes) encoder; 
+      Pbrt.Encoder.empty_nested encoder
+    )
+  );
+  ()
 
 let rec pp_server_udp_configuration fmt (v:server_udp_configuration) = 
   let pp_i fmt () =
@@ -528,7 +619,7 @@ let rec pp_app_request fmt (v:app_request) =
   | Validate_log x -> Format.fprintf fmt "@[Validate_log(%a)@]" pp_log_entry x
   | Commit_log x -> Format.fprintf fmt "@[Commit_log(%a)@]" pp_log_entry x
 
-let rec pp_app_response_failure fmt (v:app_response_failure) = 
+let rec pp_app_response_validate_failure fmt (v:app_response_validate_failure) = 
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
     Pbrt.Pp.pp_record_field "error_message" Pbrt.Pp.pp_string fmt v.error_message;
@@ -537,7 +628,17 @@ let rec pp_app_response_failure fmt (v:app_response_failure) =
   in
   Pbrt.Pp.pp_brk pp_i fmt ()
 
-let rec pp_app_response fmt (v:app_response) =
+let rec pp_app_response_result fmt (v:app_response_result) =
   match v with
-  | Success  -> Format.fprintf fmt "Success"
-  | Failure x -> Format.fprintf fmt "@[Failure(%a)@]" pp_app_response_failure x
+  | Validate_success  -> Format.fprintf fmt "Validate_success"
+  | Validate_failure x -> Format.fprintf fmt "@[Validate_failure(%a)@]" pp_app_response_validate_failure x
+  | Commit_log_ack  -> Format.fprintf fmt "Commit_log_ack"
+
+and pp_app_response fmt (v:app_response) = 
+  let pp_i fmt () =
+    Format.pp_open_vbox fmt 1;
+    Pbrt.Pp.pp_record_field "request_id" Pbrt.Pp.pp_string fmt v.request_id;
+    Pbrt.Pp.pp_record_field "result" pp_app_response_result fmt v.result;
+    Format.pp_close_box fmt ()
+  in
+  Pbrt.Pp.pp_brk pp_i fmt ()

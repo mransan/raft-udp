@@ -46,12 +46,21 @@ let get_next_request fd =
 let handle_app_request = function  
   | Pb.Validate_log {Pb.request_id; data; } -> 
     if Bytes.length data > 10 
-    then Pb.(Failure {
-      error_message = "Data is too big"; 
-      error_code = 1;
+    then Pb.({
+      request_id; 
+      result = Validate_failure {
+        error_message = "Data is too big"; 
+        error_code = 1;
+      }
     }) 
-    else Pb.Success
-  | Pb.Commit_log _ -> Pb.Success
+    else Pb.({
+      request_id; 
+      result = Validate_success
+    }) 
+  | Pb.Commit_log {Pb.request_id; _ } -> Pb.({
+    request_id; 
+    result  = Commit_log_ack
+  })
 
 let bytes_of_response app_response = 
   let encoder = Pbrt.Encoder.create () in 

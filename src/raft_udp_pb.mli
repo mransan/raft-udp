@@ -38,14 +38,20 @@ type app_request =
   | Validate_log of log_entry
   | Commit_log of log_entry
 
-type app_response_failure = {
+type app_response_validate_failure = {
   error_message : string;
   error_code : int;
 }
 
-type app_response =
-  | Success
-  | Failure of app_response_failure
+type app_response_result =
+  | Validate_success
+  | Validate_failure of app_response_validate_failure
+  | Commit_log_ack
+
+and app_response = {
+  request_id : string;
+  result : app_response_result;
+}
 
 
 (** {2 Default values} *)
@@ -91,14 +97,21 @@ val default_client_response : unit -> client_response
 val default_app_request : unit -> app_request
 (** [default_app_request ()] is the default value for type [app_request] *)
 
-val default_app_response_failure : 
+val default_app_response_validate_failure : 
   ?error_message:string ->
   ?error_code:int ->
   unit ->
-  app_response_failure
-(** [default_app_response_failure ()] is the default value for type [app_response_failure] *)
+  app_response_validate_failure
+(** [default_app_response_validate_failure ()] is the default value for type [app_response_validate_failure] *)
 
-val default_app_response : unit -> app_response
+val default_app_response_result : unit -> app_response_result
+(** [default_app_response_result ()] is the default value for type [app_response_result] *)
+
+val default_app_response : 
+  ?request_id:string ->
+  ?result:app_response_result ->
+  unit ->
+  app_response
 (** [default_app_response ()] is the default value for type [app_response] *)
 
 
@@ -125,8 +138,11 @@ val decode_client_response : Pbrt.Decoder.t -> client_response
 val decode_app_request : Pbrt.Decoder.t -> app_request
 (** [decode_app_request decoder] decodes a [app_request] value from [decoder] *)
 
-val decode_app_response_failure : Pbrt.Decoder.t -> app_response_failure
-(** [decode_app_response_failure decoder] decodes a [app_response_failure] value from [decoder] *)
+val decode_app_response_validate_failure : Pbrt.Decoder.t -> app_response_validate_failure
+(** [decode_app_response_validate_failure decoder] decodes a [app_response_validate_failure] value from [decoder] *)
+
+val decode_app_response_result : Pbrt.Decoder.t -> app_response_result
+(** [decode_app_response_result decoder] decodes a [app_response_result] value from [decoder] *)
 
 val decode_app_response : Pbrt.Decoder.t -> app_response
 (** [decode_app_response decoder] decodes a [app_response] value from [decoder] *)
@@ -155,8 +171,11 @@ val encode_client_response : client_response -> Pbrt.Encoder.t -> unit
 val encode_app_request : app_request -> Pbrt.Encoder.t -> unit
 (** [encode_app_request v encoder] encodes [v] with the given [encoder] *)
 
-val encode_app_response_failure : app_response_failure -> Pbrt.Encoder.t -> unit
-(** [encode_app_response_failure v encoder] encodes [v] with the given [encoder] *)
+val encode_app_response_validate_failure : app_response_validate_failure -> Pbrt.Encoder.t -> unit
+(** [encode_app_response_validate_failure v encoder] encodes [v] with the given [encoder] *)
+
+val encode_app_response_result : app_response_result -> Pbrt.Encoder.t -> unit
+(** [encode_app_response_result v encoder] encodes [v] with the given [encoder] *)
 
 val encode_app_response : app_response -> Pbrt.Encoder.t -> unit
 (** [encode_app_response v encoder] encodes [v] with the given [encoder] *)
@@ -185,8 +204,11 @@ val pp_client_response : Format.formatter -> client_response -> unit
 val pp_app_request : Format.formatter -> app_request -> unit 
 (** [pp_app_request v] formats v *)
 
-val pp_app_response_failure : Format.formatter -> app_response_failure -> unit 
-(** [pp_app_response_failure v] formats v *)
+val pp_app_response_validate_failure : Format.formatter -> app_response_validate_failure -> unit 
+(** [pp_app_response_validate_failure v] formats v *)
+
+val pp_app_response_result : Format.formatter -> app_response_result -> unit 
+(** [pp_app_response_result v] formats v *)
 
 val pp_app_response : Format.formatter -> app_response -> unit 
 (** [pp_app_response v] formats v *)
