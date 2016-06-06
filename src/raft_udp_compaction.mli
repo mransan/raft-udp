@@ -3,7 +3,7 @@
 val perform_compaction : 
   Lwt_log_core.logger -> 
   Raft_udp_pb.configuration ->
-  Raft_pb.state -> 
+  Raft_state.t -> 
   Raft_pb.log_interval list Lwt.t 
 (** [perform_compaction logger state] compact or expands the required 
     log intervals. (As returned by Raft_state.compaction_report). 
@@ -14,8 +14,8 @@ val perform_compaction :
 val update_state : 
   Lwt_log_core.logger ->
   Raft_pb.log_interval list -> 
-  Raft_pb.state -> 
-  Raft_pb.state Lwt.t 
+  Raft_state.t -> 
+  Raft_state.t Lwt.t 
 (** [update_state logger modified_log_intervals state] replace the [modified_log_intervals]
     in [state] and returns the new state. 
   *)

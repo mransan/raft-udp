@@ -30,7 +30,7 @@ type connection_state
   *)
 
 type state = {
-  raft_state: Raft_pb.state; 
+  raft_state: Raft_state.t; 
   connection_state: connection_state; 
   log_record_handle: Raft_udp_logrecord.t
 }
