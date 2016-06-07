@@ -13,6 +13,7 @@ endif
 test: 
 	$(OCB) server.native
 	$(OCB) client.native
+	$(OCB) app.native
 	$(OCB) start_all_servers.native
 	$(OCB) start_all_clients.native
 
