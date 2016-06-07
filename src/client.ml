@@ -1,4 +1,5 @@
 open Lwt.Infix
+open Lwt_log_core 
 
 module Conf = Raft_udp_conf
 module U    = Lwt_unix
@@ -54,6 +55,12 @@ module State = struct
     configuration : Pb.configuration; 
     leader : leader;
   }
+
+  let string_of_state {leader; _ } = 
+    match leader with 
+    | No -> "No"
+    | Potential i -> Printf.sprintf "Potential(%i)" i
+    | Established (i, _) -> Printf.sprintf "Potential(%i)" i 
 
   let make () = {
     configuration = Conf.default_configuration ();
@@ -124,45 +131,56 @@ let new_connection ~to_ state =
  * The function expects the leader to be established, if not [Failure] event
  * is returned. 
  *)
-let send_request {State.leader; _ } client_request = 
-  let server_id, fd = match leader with 
-    | State.Established (i, fd) -> (i, fd) 
-    | _ -> failwith "Error, requests can only be sent to an establish leader"
-  in 
-  let encoder = Pbrt.Encoder.create () in
-  Pb.encode_client_request client_request encoder;
-  let buffer     = Pbrt.Encoder.to_bytes encoder in
-  let buffer_len = Bytes.length buffer in
+let send_request logger ({State.leader; _ } as state) client_request = 
+  match leader with
+  | State.No | State.Potential _ -> 
+     Lwt.return (Event.Failure "Internal error, requests can only be sent to established leader") 
+  | State.Established (server_id, fd) -> 
+    let encoder = Pbrt.Encoder.create () in
+    Pb.encode_client_request client_request encoder;
+    let buffer     = Pbrt.Encoder.to_bytes encoder in
+    let buffer_len = Bytes.length buffer in
 
-  Lwt.catch (fun () ->
-    U.write fd buffer 0 buffer_len
-    >>= (fun nb_byte_written ->
-      if nb_byte_written <>  buffer_len
-      then Event.connection_closed ~fd () 
-      else
-        let buffer = Bytes.create 1024 in
-        U.read fd buffer 0 1024
-        >>= (fun bytes_read ->
-          if bytes_read <> 0 && bytes_read <> 1024
-          then
-            let decoder = Pbrt.Decoder.of_bytes buffer in
-            Event.response_lwt (Pb.decode_client_response decoder) ()
-          else
-            Event.connection_closed ~fd () 
-        )
+    Lwt.catch (fun () ->
+      U.write fd buffer 0 buffer_len
+      >>= (fun nb_byte_written ->
+        if nb_byte_written <>  buffer_len
+        then Event.connection_closed ~fd () 
+        else
+          log_f ~logger ~level:Notice "Request sent to state: %s" (State.string_of_state state) 
+          >>=(fun () -> 
+            let buffer = Bytes.create 1024 in
+            U.read fd buffer 0 1024
+            >>= (fun bytes_read ->
+              log_f ~logger ~level:Notice "Response received (size: %i)" bytes_read
+              >>=(fun () -> 
+                if bytes_read <> 0 && bytes_read <> 1024
+                then
+                  let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 bytes_read) in
+                  Event.response_lwt (Pb.decode_client_response decoder) ()
+                else
+                  Event.connection_closed ~fd () 
+              )
+            )
+          )
+      )
+    ) (* with *) (fun exn ->
+      Lwt_io.eprintlf "Error in IPC with RAFT server, details: %s" 
+        (Printexc.to_string exn) 
+        >>= Event.connection_closed ~fd
     )
-  ) (* with *) (fun exn ->
-    Lwt_io.eprintlf "Error in IPC with RAFT server, details: %s" 
-      (Printexc.to_string exn) 
-      >>= Event.connection_closed ~fd
-  )
 
-let test_add_log_request = Pb.(Add_log {
-  request_id = string_of_int (Unix.getpid());
-    data = Bytes.of_string "Hi";
+
+let unique_request_id = ref 0 
+
+let test_add_log_request () = 
+  incr unique_request_id; 
+  Pb.(Add_log {
+    request_id = Printf.sprintf "%i|%i" (Unix.getpid()) !unique_request_id;
+    data = Bytes.of_string (String.make (Random.int 10) 'a');
   })
 
-let rec server_loop state count e =
+let rec server_loop logger state count e =
 
   match e with 
   | Event.Failure context -> (
@@ -173,8 +191,11 @@ let rec server_loop state count e =
 
   | Event.Connection_established fd ->
     let state = State.establish state fd in 
-    send_request state test_add_log_request  
-    >>= server_loop state count
+    log_f ~logger ~level:Notice "Connection established, %s" (State.string_of_state state) 
+    >>=(fun () ->
+      send_request logger state @@ test_add_log_request () 
+      >>= server_loop logger state count
+    ) 
 
   | Event.Response Pb.Add_log_success -> 
     begin if (count mod 1000) = 0
@@ -185,19 +206,19 @@ let rec server_loop state count e =
     end
     >>=(fun () -> U.sleep 0.0)
     >>=(fun () ->
-      send_request state test_add_log_request
-      >>= server_loop state (count + 1)
+      send_request logger state @@ test_add_log_request ()
+      >>= server_loop logger state (count + 1)
     ) 
   
-  | Event.Response Pb.Add_log_replication_failure -> 
-    server_loop state count @@ Event.failure "Replication failure" ()
+  | Event.Response Pb.Add_log_validation_failure -> 
+    server_loop logger state count @@ Event.failure "Validation failure" ()
 
   | Event.Response Pb.Add_log_not_a_leader {Pb.leader_id;} -> 
     Lwt_io.printlf "Not a leader received: %s"
       @@ (function | Some x -> string_of_int x | None -> "None") leader_id
     >>=(fun () -> 
       begin match State.fd state with
-      | None -> server_loop state count @@ Event.failure "No connection (invariant violation)"  ()
+      | None -> server_loop logger state count @@ Event.failure "No connection (invariant violation)"  ()
       | Some fd -> 
         U.close fd 
         >>=(fun () ->
@@ -209,7 +230,7 @@ let rec server_loop state count e =
           in
 
           new_connection ~to_:leader_id state 
-          >>= server_loop state count 
+          >>= server_loop logger state count 
         ) 
       end
     )
@@ -218,12 +239,32 @@ let rec server_loop state count e =
     let state, leader_id = State.next state in  
     U.sleep 0.25
     >>=(fun () -> new_connection ~to_:leader_id state )
-    >>= server_loop state count 
+    >>= server_loop logger state count 
 
   | Event.Init ->
     let state, leader_id = State.next state in 
     new_connection ~to_:leader_id state 
-    >>= server_loop state count 
+    >>= server_loop logger state count 
+
+let main log () = 
+  begin 
+    if log 
+    then 
+      let file_name = Printf.sprintf "client%i.log" (Unix.getpid ()) in 
+      let template  = "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" in
+      Lwt_log.file ~mode:`Truncate ~template ~file_name ()
+    else 
+      Lwt.return Lwt_log_core.null 
+  end 
+  >>=(fun logger -> server_loop logger (State.make ()) 0 Event.Init)
 
 let () =
-  Lwt_main.run (server_loop (State.make ()) 0 Event.Init)
+  let log = ref false in 
+  let log_spec = Arg.Set log  in
+  
+  Arg.parse [
+    ("--log", log_spec, " : enable logging");
+  ] (fun _ -> ()) "client.ml";
+
+  Random.self_init ();
+  Lwt_main.run (main !log ())

@@ -31,12 +31,26 @@ type client_response_add_log_not_aleader = {
 
 type client_response =
   | Add_log_success
-  | Add_log_replication_failure
+  | Add_log_validation_failure
   | Add_log_not_a_leader of client_response_add_log_not_aleader
 
-type app_request =
-  | Validate_log of log_entry
+type app_ipc_debug = {
+  raft_server_id : int;
+  debug_id : int;
+}
+
+type app_request_validate_logs = {
+  log_entry : log_entry;
+}
+
+type app_request_payload =
+  | Validate_log of app_request_validate_logs
   | Commit_log of log_entry
+
+and app_request = {
+  debug_info : app_ipc_debug;
+  payload : app_request_payload;
+}
 
 type app_response_validate_failure = {
   error_message : string;
@@ -49,6 +63,7 @@ type app_response_result =
   | Commit_log_ack
 
 and app_response = {
+  debug_info : app_ipc_debug;
   request_id : string;
   result : app_response_result;
 }
@@ -94,7 +109,27 @@ val default_client_response_add_log_not_aleader :
 val default_client_response : unit -> client_response
 (** [default_client_response ()] is the default value for type [client_response] *)
 
-val default_app_request : unit -> app_request
+val default_app_ipc_debug : 
+  ?raft_server_id:int ->
+  ?debug_id:int ->
+  unit ->
+  app_ipc_debug
+(** [default_app_ipc_debug ()] is the default value for type [app_ipc_debug] *)
+
+val default_app_request_validate_logs : 
+  ?log_entry:log_entry ->
+  unit ->
+  app_request_validate_logs
+(** [default_app_request_validate_logs ()] is the default value for type [app_request_validate_logs] *)
+
+val default_app_request_payload : unit -> app_request_payload
+(** [default_app_request_payload ()] is the default value for type [app_request_payload] *)
+
+val default_app_request : 
+  ?debug_info:app_ipc_debug ->
+  ?payload:app_request_payload ->
+  unit ->
+  app_request
 (** [default_app_request ()] is the default value for type [app_request] *)
 
 val default_app_response_validate_failure : 
@@ -108,6 +143,7 @@ val default_app_response_result : unit -> app_response_result
 (** [default_app_response_result ()] is the default value for type [app_response_result] *)
 
 val default_app_response : 
+  ?debug_info:app_ipc_debug ->
   ?request_id:string ->
   ?result:app_response_result ->
   unit ->
@@ -134,6 +170,15 @@ val decode_client_response_add_log_not_aleader : Pbrt.Decoder.t -> client_respon
 
 val decode_client_response : Pbrt.Decoder.t -> client_response
 (** [decode_client_response decoder] decodes a [client_response] value from [decoder] *)
+
+val decode_app_ipc_debug : Pbrt.Decoder.t -> app_ipc_debug
+(** [decode_app_ipc_debug decoder] decodes a [app_ipc_debug] value from [decoder] *)
+
+val decode_app_request_validate_logs : Pbrt.Decoder.t -> app_request_validate_logs
+(** [decode_app_request_validate_logs decoder] decodes a [app_request_validate_logs] value from [decoder] *)
+
+val decode_app_request_payload : Pbrt.Decoder.t -> app_request_payload
+(** [decode_app_request_payload decoder] decodes a [app_request_payload] value from [decoder] *)
 
 val decode_app_request : Pbrt.Decoder.t -> app_request
 (** [decode_app_request decoder] decodes a [app_request] value from [decoder] *)
@@ -168,6 +213,15 @@ val encode_client_response_add_log_not_aleader : client_response_add_log_not_ale
 val encode_client_response : client_response -> Pbrt.Encoder.t -> unit
 (** [encode_client_response v encoder] encodes [v] with the given [encoder] *)
 
+val encode_app_ipc_debug : app_ipc_debug -> Pbrt.Encoder.t -> unit
+(** [encode_app_ipc_debug v encoder] encodes [v] with the given [encoder] *)
+
+val encode_app_request_validate_logs : app_request_validate_logs -> Pbrt.Encoder.t -> unit
+(** [encode_app_request_validate_logs v encoder] encodes [v] with the given [encoder] *)
+
+val encode_app_request_payload : app_request_payload -> Pbrt.Encoder.t -> unit
+(** [encode_app_request_payload v encoder] encodes [v] with the given [encoder] *)
+
 val encode_app_request : app_request -> Pbrt.Encoder.t -> unit
 (** [encode_app_request v encoder] encodes [v] with the given [encoder] *)
 
@@ -200,6 +254,15 @@ val pp_client_response_add_log_not_aleader : Format.formatter -> client_response
 
 val pp_client_response : Format.formatter -> client_response -> unit 
 (** [pp_client_response v] formats v *)
+
+val pp_app_ipc_debug : Format.formatter -> app_ipc_debug -> unit 
+(** [pp_app_ipc_debug v] formats v *)
+
+val pp_app_request_validate_logs : Format.formatter -> app_request_validate_logs -> unit 
+(** [pp_app_request_validate_logs v] formats v *)
+
+val pp_app_request_payload : Format.formatter -> app_request_payload -> unit 
+(** [pp_app_request_payload v] formats v *)
 
 val pp_app_request : Format.formatter -> app_request -> unit 
 (** [pp_app_request v] formats v *)

@@ -178,8 +178,9 @@ let run_server configuration id logger print_header slow =
           >>=(fun () -> 
             Raft_ipc.handle_raft_message ~logger ~stats ~now state msg 
           )
-          >|=(fun (state, client_responses) ->
+          >|=(fun (state, client_responses, app_requests) ->
             send_client_responses client_responses;
+            send_app_requests app_requests;
             let threads = {threads with Event.next_raft_message_t = next_raft_message (); } in
             (state, threads)
           )
@@ -187,8 +188,9 @@ let run_server configuration id logger print_header slow =
 
         | Event.Timeout timeout_type -> (
           Raft_ipc.handle_timeout ~logger ~stats ~now state timeout_type
-          >|=(fun (state, client_responses) ->
+          >|=(fun (state, client_responses, app_requests) ->
             send_client_responses client_responses;
+            send_app_requests app_requests;
             (state, threads)
           )
         )
@@ -200,8 +202,9 @@ let run_server configuration id logger print_header slow =
 
         | Event.Client_request client_request -> (
           Raft_ipc.handle_client_request ~logger ~stats ~now state client_request
-          >|=(fun (state, client_responses) ->
+          >|=(fun (state, client_responses, app_requests) ->
             send_client_responses client_responses;
+            send_app_requests app_requests;
             let threads = { threads with
               Event.next_client_request_t = next_client_request  ();
             } in
@@ -230,10 +233,18 @@ let run_server configuration id logger print_header slow =
           )
         ) 
 
-        | Event.App_response _ -> (
-          Printf.eprintf "App response not handled yet\n"; 
-          exit 1
+        | Event.App_response app_response -> (
+          Raft_ipc.handle_app_response ~logger ~stats ~now state app_response
+          >|=(fun (state, client_responses, app_requests) ->
+            send_client_responses client_responses;
+            send_app_requests app_requests;
+            let threads = { threads with
+              Event.next_app_reponse_t = next_app_response ();
+            } in
+            (state, threads)
+          )
         ) 
+
       ) (state, threads) events 
       >>= (fun (state, threads) -> handle_follow_up_action threads state) 
     )

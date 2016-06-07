@@ -18,6 +18,10 @@ type client_response  = Raft_udp_pb.client_response * Raft_udp_clientipc.handle
 
 type client_responses = client_response list 
 
+type app_requests = Raft_udp_pb.app_request list 
+
+type app_response = Raft_udp_pb.app_response 
+
 type connection_state 
 (** Abstract type which internally capture the necessary information to 
     be maintain between all the RAFT events. 
@@ -35,7 +39,7 @@ type state = {
   log_record_handle: Raft_udp_logrecord.t
 }
 
-type result = (state * client_responses) 
+type result = (state * client_responses * app_requests) 
 
 (** {2 Event handling} *)
 
@@ -81,4 +85,15 @@ val handle_client_request :
   result Lwt.t  
 (** [handle_client_request ~logger ~stats ~now state msg] handles RAFT protocol 
     client requests. 
+  *)
+
+val handle_app_response :
+  logger: Lwt_log_core.logger    ->
+  stats : Raft_udp_serverstats.t ->
+  now   : float -> 
+  state ->
+  app_response ->
+  result Lwt.t  
+(** [handle_app_response ~logger ~stats ~now state msg] handles the response received
+    from the application server. 
   *)

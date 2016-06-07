@@ -41,27 +41,40 @@ message ClientRequest {
 message ClientResponse {
 
   message AddLogSuccess {}
-  message AddLogReplicationFailure {}
+  message AddLogValidationFailure{}
   message AddLogNotALeader {
     optional int32 leader_id = 1;
   }
 
   oneof t {
-    AddLogSuccess            add_log_success             = 1;
-    AddLogReplicationFailure add_log_replication_failure = 2;
-    AddLogNotALeader         add_log_not_a_leader        = 3;
+    AddLogSuccess            add_log_success            = 1;
+    AddLogValidationFailure  add_log_validation_failure = 2;
+    AddLogNotALeader         add_log_not_a_leader       = 3;
   }
 }
 
+message AppIpcDebug {
+  required int32 raft_server_id = 1; 
+  required int32 debug_id       = 2;
+}
+
 message AppRequest {
-  oneof t {
-    LogEntry validate_log = 1; 
-    LogEntry commit_log = 2; 
+  
+  required AppIpcDebug debug_info = 1;
+
+  message Validate_logs {
+    required LogEntry log_entry = 1;
+  }
+
+  oneof payload {
+    Validate_logs validate_log = 3; 
+    LogEntry      commit_log   = 4; 
   }
 }
 
 message AppResponse {
-  required string request_id = 1;
+  required AppIpcDebug debug_info  = 1;
+  required string      request_id = 2;
 
   message ValidateSuccess { 
   }
@@ -74,9 +87,8 @@ message AppResponse {
   message CommitLogAck {}
 
   oneof result {
-    ValidateSuccess validate_success = 2; 
-    ValidateFailure validate_failure = 3; 
-    CommitLogAck    commit_log_ack   = 4;
+    ValidateSuccess validate_success = 3; 
+    ValidateFailure validate_failure = 4; 
+    CommitLogAck    commit_log_ack   = 5;
   }
-
 }
