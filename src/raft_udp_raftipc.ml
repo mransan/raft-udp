@@ -18,6 +18,8 @@ type raft_messages    = raft_message list
 type client_request   = Raft_udp_pb.client_request * Raft_udp_clientipc.handle
 type client_response  = Raft_udp_pb.client_response * Raft_udp_clientipc.handle 
 type client_responses = client_response list 
+type app_requests = Raft_udp_pb.app_request list 
+type app_response = Raft_udp_pb.app_response 
 type notifications = RPb.notification list
 
 let section = Section.make (Printf.sprintf "%10s" "RaftIPC")
@@ -57,16 +59,16 @@ end)
 
 module Pending_requests = struct 
 
-  type t = Client_ipc.handle StringMap.t
+  type t = client_request StringMap.t
   
-  let add t request_id handle  = 
-    StringMap.add request_id handle t
+  let add t request_id client_request = 
+    StringMap.add request_id client_request t
   
   let get t request_id =
     match StringMap.find request_id t with
-    | handle ->
+    | client_request ->
       let t = StringMap.remove request_id t  in
-      (t, Some handle)
+      (t, Some client_request)
     | exception Not_found ->
       (t, None)
 
@@ -158,6 +160,8 @@ type state = {
   log_record_handle : Log_record.t;
 }
 
+type result = (state * client_responses * app_requests) 
+
 let handle_notifications logger connection_state compaction_handle notifications = 
 
   (* 
@@ -171,12 +175,12 @@ let handle_notifications logger connection_state compaction_handle notifications
       let ids = List.map (fun ({RPb.id; _ }:RPb.log_entry) -> id) rev_log_entries in 
       List.fold_left (fun (connection_state, client_responses) id -> 
         let {pending_requests; _ }   = connection_state in 
-        let pending_requests, handle = Pending_requests.get pending_requests id in 
+        let pending_requests, client_request = Pending_requests.get pending_requests id in 
         let connection_state = {connection_state with pending_requests } in 
-        match handle with
+        match client_request with
         | None -> 
           (connection_state, client_responses) 
-        | Some handle -> 
+        | Some (_, handle) -> 
           (connection_state, ((Pb.Add_log_success, handle)::client_responses))
       ) acc ids 
 
@@ -231,7 +235,7 @@ let handle_raft_message ~logger ~stats ~now state msg =
     >>=(fun (connection_state, client_responses) ->
       send_raft_messages ~logger ~stats (raft_state.RState.id) connection_state outgoing_messages
       >|= (fun () -> 
-        ({state with raft_state; connection_state}, client_responses)
+        ({state with raft_state; connection_state}, client_responses, [])
       ) 
     )
   )
@@ -263,18 +267,61 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
     >>=(fun (connection_state, client_responses) ->
       send_raft_messages ~logger ~stats (raft_state.RState.id) connection_state outgoing_messages
       >|= (fun () -> 
-        ({state with raft_state; connection_state}, client_responses)
+        ({state with raft_state; connection_state}, client_responses, [])
       ) 
     )
   ) 
 
-let handle_client_request ~logger ~stats ~now  state (client_request, handle) = 
+let debug_id = ref 0 
+
+let handle_client_request ~logger ~stats ~now  state ((client_request, _ ) as r)= 
 
   let { raft_state; connection_state; _ } = state in 
 
   match client_request with
+  | Pb.Add_log ({Pb.request_id;_} as log_entry) -> 
+    let {pending_requests; _ } = connection_state in 
+    let connection_state = {connection_state with
+      pending_requests = Pending_requests.add pending_requests request_id r;
+    } in 
+    incr debug_id; 
+    let app_request = Pb.{
+      debug_info = {
+        raft_server_id = raft_state.RState.id; 
+        debug_id = !debug_id; 
+      }; 
+      payload = Validate_log {log_entry}; 
+    } in 
+    Lwt.return (
+      {state with connection_state; }, 
+      [], 
+      [app_request]
+    )  
 
-  | Pb.Add_log {Pb.request_id; data;} -> 
+let handle_app_response ~logger ~stats ~now state app_response = 
+
+  let { raft_state; connection_state; _ } = state in 
+  let { pending_requests; _} = connection_state in 
+  let { Pb.request_id; result} = app_response in 
+  let pending_requests, client_request = Pending_requests.get pending_requests request_id in 
+
+  match client_request, result with
+  | None, _ -> 
+    (* This is a violation invariant since no pending request should be removed at
+     * this stage. 
+     * However not critical for now. 
+     *)
+    log_f ~logger ~level:Warning ~section "Could not find pending request after validation"
+    >|=(fun () -> 
+      let connection_state = {connection_state with pending_requests} in 
+      ({state with connection_state;}, [], [])
+    ) 
+
+  | Some ((Pb.Add_log {Pb.data; _ }, handle) as r) , Pb.Validate_success -> 
+    (* Validation is successful and the corresponding client request  
+     * has been retrieved, we can insert start the addition of the request
+     * from the RAFT protocol point of view. 
+     *) 
 
     let new_log_response  = 
       let datas = [(data, request_id)] in 
@@ -292,20 +339,35 @@ let handle_client_request ~logger ~stats ~now  state (client_request, handle) =
         }) in 
 
         let client_response = (client_response, handle) in 
-        (state, [client_response])
+        (state, [client_response], [])
       )
 
     | Raft_logic.Appended (raft_state, outgoing_messages) -> 
-      log_f ~logger ~level:Notice ~section "Log Added (log size: %i)" raft_state.RState.log.RLog.log_size 
+      log_f ~logger ~level:Notice ~section "Log Added (log size: %i) (data size: %i)" raft_state.RState.log.RLog.log_size (Bytes.length data)  
       >>= (fun () ->
         let {pending_requests; _ } = connection_state in 
         let connection_state = {connection_state with
-          pending_requests = Pending_requests.add pending_requests request_id handle;
+          pending_requests = Pending_requests.add pending_requests request_id r;
         } in 
 
         send_raft_messages ~logger ~stats (raft_state.RState.id) connection_state outgoing_messages
         >|= (fun () -> 
-          ({state with raft_state; connection_state}, [])
+          ({state with raft_state; connection_state}, [], [])
         ) 
       )
     end
+
+  | Some (_, handle), Pb.Validate_failure {Pb.error_message; error_code}  -> 
+    (* Validation has failed, the log entry is rejected. The failure is propagated 
+     * back to the client which initiated the request and the log entry is never
+     * created in the RAFT consensus. 
+     *)
+    log_f ~logger ~level:Notice ~section "Validation failure from App, code: %i, msg: %s" error_code error_message
+    >|=(fun () -> 
+      let client_response = Pb.Add_log_validation_failure in 
+      let client_response = (client_response, handle) in 
+      (state, [client_response], [])
+    )  
+
+  | Some _, Pb.Commit_log_ack -> assert(false)
+

@@ -77,7 +77,7 @@ let get_next_client_connection_f logger configuration server_id =
         U.accept fd
         >>=(fun (fd2, ad) ->
           log ~logger ~level:Notice ~section "New client connection accepted"
-          >|=(fun () -> Event.New_client_connection fd2)
+          >|= Event.new_client_connection fd2
         )
       ) (* with *) (fun exn ->
 
@@ -133,7 +133,7 @@ let get_next_client_request_f logger =
         >>=(Event.client_connection_read_closed fd)
 
       | nb_bytes_received -> begin
-        let decoder = Pbrt.Decoder.of_bytes buffer in
+        let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 nb_bytes_received) in
         begin match Pb.decode_client_request decoder with
         | req ->
           Lwt.return (Event.Client_connection_read_ok (req, fd))
