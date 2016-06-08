@@ -160,6 +160,16 @@ let make logger configuration stats =
 
   let next_request = get_next_request_f logger request_stream in 
 
+  (* Main loop which after the connection with the 
+   * App server is established keeps on poping the next 
+   * app request from the stream, sends t to the App 
+   * server via the established connection then wait for the response. 
+   *
+   * Once the response comes back it is appended to the response
+   * stream for the client of this module to pick it up. 
+   *
+   * Therefore there is only one main thread in this loop. 
+   *)
   let rec loop fd = function
     | Event.Failure s -> 
       log_f ~logger ~level:Error ~section "Failure in app IPC: %s" s 
