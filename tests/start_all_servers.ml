@@ -56,7 +56,7 @@ let () =
   let processes = aux [] nb_of_servers in 
 
   let rec aux processes = 
-    Unix.sleep 10; 
+    Unix.sleep 20; 
     let server_to_kill = Random.int 3 in 
     let processes = List.map (fun (server_id, pid) -> 
       if server_to_kill  = server_id

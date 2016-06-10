@@ -60,35 +60,46 @@ message AppIpcDebug {
 
 message AppRequest {
   
-  required AppIpcDebug debug_info = 1;
+  required AppIpcDebug app_request_debug_info = 1;
 
   message Validate_logs {
-    required LogEntry log_entry = 1;
+    repeated LogEntry log_entries = 1;
   }
 
-  oneof payload {
+  oneof app_request_payload {
     Validate_logs validate_log = 3; 
     LogEntry      commit_log   = 4; 
   }
 }
 
 message AppResponse {
-  required AppIpcDebug debug_info  = 1;
-  required string      request_id = 2;
+  required AppIpcDebug app_response_debug_info = 1;
 
-  message ValidateSuccess { 
+  message Validation {
+
+    message Success { }
+    message Failure {
+      required string error_message = 1; 
+      required int32  error_code    = 2;
+    }
+
+    required string request_id = 1;
+    oneof result {
+      Success success = 2; 
+      Failure failure = 3;
+    }
   }
 
-  message ValidateFailure {
-    required string error_message = 1; 
-    required int32  error_code    = 2;
+  message Validations {
+    repeated Validation validations = 1; 
   }
 
-  message CommitLogAck {}
+  message CommitLogAck {
+    required string  request_id = 2;
+  }
 
-  oneof result {
-    ValidateSuccess validate_success = 3; 
-    ValidateFailure validate_failure = 4; 
+  oneof app_response_payload {
+    Validations     validations      = 4;
     CommitLogAck    commit_log_ack   = 5;
   }
 }
