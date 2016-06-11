@@ -36,7 +36,6 @@ type t = Lwt_io.output_channel
 let filename {Pb.log_record_directory; _} server_id  = 
   Filename.concat log_record_directory (Printf.sprintf "record_%03i.data" server_id)
 
-
 let make logger configuration server_id = 
   let filename = filename configuration  server_id in 
   Lwt_io.open_file ~flags:[Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND] ~mode:Lwt_io.output filename  
@@ -73,6 +72,14 @@ let append_commited_data logger log_entries handle =
   ) log_entries
   >>=(fun () -> Lwt_io.flush handle) 
 
+type read_result = 
+  | Ok of RPb.log_entry
+    (** The next log entry could be read *)
+  | Done 
+    (** Reached the end of the file *)
+  | Error of string 
+    (** En error occurred (IO or invalid record on disk for instance) *)
+
 (*
  * Read a single [log_entry] record from the file. 
  *
@@ -92,13 +99,17 @@ let read_log_entry_from_file size_bytes file =
       Lwt_io.read_into_exactly file data 0 data_len
       >|=(fun () ->
         let decoder = Pbrt.Decoder.of_bytes data in 
-        Some (RPb.decode_log_entry decoder)
+        Ok (RPb.decode_log_entry decoder)
       )
     ) 
   ) (* with *) (fun exn -> 
-    Lwt_io.eprintlf "Error reading log records: %s" (Printexc.to_string exn)
-    >>=(fun () -> Lwt_io.close file)
-    >|=(fun () -> None) 
+    match exn with
+    | End_of_file -> 
+      Lwt_io.close file >|= (fun () -> Done)  
+    | _ -> 
+      Lwt_io.eprintlf "Error reading log records: %s" (Printexc.to_string exn)
+      >>=(fun () -> Lwt_io.close file)
+      >|=(fun () -> Error (Printf.sprintf "Error reading log records, details: %s" (Printexc.to_string exn))) 
   )
 
 let read_log_records configuration server_id f e0 =
@@ -111,8 +122,9 @@ let read_log_records configuration server_id f e0 =
       let rec aux acc = 
         read_log_entry_from_file bytes file 
         >>=(function
-          | None -> Lwt.return acc
-          | Some x -> aux (f acc x)
+          | Done    -> Lwt.return acc
+          | Ok x    -> aux (f acc x)
+          | Error s -> Lwt.fail_with s
         ) 
       in
       aux e0 

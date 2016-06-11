@@ -274,31 +274,36 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
 
 let debug_id = ref 0 
 
-let handle_client_request ~logger ~stats ~now  state ((client_request, _ ) as r)= 
+let handle_client_requests ~logger ~stats ~now  state client_requests = 
 
   let { raft_state; connection_state; _ } = state in 
+  let {pending_requests; _ } = connection_state in 
 
-  match client_request with
-  | Pb.Add_log ({Pb.request_id;_} as log_entry) -> 
-    let {pending_requests; _ } = connection_state in 
-    let connection_state = {connection_state with
-      pending_requests = Pending_requests.add pending_requests request_id r;
-    } in 
-    incr debug_id; 
-    let app_request = Pb.{
-      app_request_debug_info = {
-        raft_server_id = raft_state.RState.id; 
-        debug_id = !debug_id; 
-      }; 
-      app_request_payload = Validate_logs {log_entries = [log_entry]}; 
-    } in 
-    Lwt.return (
-      {state with connection_state; }, 
-      [], 
-      [app_request]
-    )  
+  let pending_requests, log_entries = List.fold_left (fun (pending_requests, log_entries) ((client_request, _ ) as r) ->
+    match client_request with
+    | Pb.Add_log ({Pb.request_id;_} as log_entry) -> 
+      let pending_requests = Pending_requests.add pending_requests request_id r in 
+      let log_entries = log_entry::log_entries in 
+      (pending_requests, log_entries) 
+  ) (pending_requests, []) client_requests in
+  
+  incr debug_id; 
 
+  let app_request = Pb.{
+    app_request_debug_info = {
+      raft_server_id = raft_state.RState.id; 
+      debug_id = !debug_id; 
+    }; 
+    app_request_payload = Validate_logs {log_entries};
+  } in 
 
+  let connection_state = {connection_state with pending_requests} in 
+  Lwt.return (
+    {state with connection_state; }, 
+    [], 
+    [app_request]
+  )
+      
 let process_validation logger (pending_requests, client_requests, client_responses) validation = 
   let {
     Pb.request_id; 
