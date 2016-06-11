@@ -4,14 +4,6 @@
     log data and to apply the log data to its state. 
   *)
 
-(*
-type t 
-
-val add_validation : Raft_udp_pb.log_entry -> t -> unit   
-
-val get_
-*)
-
 type send_app_request_f  = Raft_udp_pb.app_request option -> unit 
 (** Function to send a request to the APP server. The corresponding response 
     will be returned in the response stream. 

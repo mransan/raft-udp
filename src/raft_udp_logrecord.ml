@@ -102,11 +102,10 @@ let read_log_entry_from_file size_bytes file =
         Ok (RPb.decode_log_entry decoder)
       )
     ) 
-  ) (* with *) (fun exn -> 
-    match exn with
+  ) (* with *) (function
     | End_of_file -> 
       Lwt_io.close file >|= (fun () -> Done)  
-    | _ -> 
+    | exn -> 
       Lwt_io.eprintlf "Error reading log records: %s" (Printexc.to_string exn)
       >>=(fun () -> Lwt_io.close file)
       >|=(fun () -> Error (Printf.sprintf "Error reading log records, details: %s" (Printexc.to_string exn))) 
