@@ -13,20 +13,34 @@ let section = Section.make (Printf.sprintf "%10s" "AppIPC")
 let string_of_debug_info ({Pb.raft_server_id;debug_id} : Pb.app_ipc_debug) =  
   Printf.sprintf "{raft server id: %3i, unique id: %5i}" raft_server_id debug_id
 
-let string_of_app_request {Pb.payload; debug_info = {Pb.debug_id; _ } } = 
-  let payload = match payload with
-    | Pb.Validate_log {Pb.log_entry = {Pb.request_id; _ }}   -> 
+let string_of_app_request {Pb.app_request_payload; app_request_debug_info = {Pb.debug_id; _ } } = 
+  let payload = match app_request_payload with
+    | Pb.Validate_logs {Pb.log_entries} ->
         
-      (* 
       let log_entries = String.concat ", " @@ List.map (fun ({Pb.request_id; _ } : Pb.log_entry) -> 
         request_id
       ) log_entries in 
-      *)
-      Printf.sprintf "Validate_log [%s]" request_id
+      Printf.sprintf "Validate_log [%s]" log_entries
+
     | Pb.Commit_log   {Pb.request_id; _} -> Printf.sprintf "Commit_log(%s)" request_id 
   in
   Printf.sprintf "%s, debug_id: %i" payload debug_id 
 
+let print_app_response logger {Pb.app_response_debug_info; app_response_payload} = 
+  log_f ~logger ~level:Notice ~section "debug info: %s" (string_of_debug_info app_response_debug_info)
+  >>=(fun () ->
+    match app_response_payload with
+    | Pb.Commit_log_ack _ -> log_f ~logger ~level:Notice ~section "Commit log Ack" 
+    | Pb.Validations {Pb.validations} ->  
+      Lwt_list.iter_s (fun {Pb.result;request_id} -> 
+        let result = match result with
+          | Pb.Success -> "Success"
+          | Pb.Failure _-> "Failure"
+        in 
+        log_f ~logger ~level:Notice ~section "%s - %s" request_id result 
+      ) validations 
+  )
+ 
 module Event = struct 
   
   (* Type *)
@@ -83,10 +97,8 @@ let next_response =
          let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 received) in 
          match Pb.decode_app_response decoder with
          | app_response -> (
-           log_f ~logger ~level:Notice ~section "Response decoded with success: request id: %s, debug: %s"
-             (app_response.Pb.request_id) 
-             (string_of_debug_info app_response.Pb.debug_info)
-
+           log_f ~logger ~level:Notice ~section "Response decoded with success: "
+           >>=(fun () -> print_app_response logger app_response) 
            >|= Event.app_response app_response 
          )
          | exception exn -> (
@@ -111,7 +123,7 @@ let send_request logger fd app_request =
     | n -> 
       assert(n = bytes_len); 
       log_f ~logger ~level:Notice ~section "App request successfully sent (%s)" 
-        (string_of_debug_info app_request.Pb.debug_info)
+        (string_of_debug_info app_request.Pb.app_request_debug_info )
 
       >>= next_response logger fd
   )  

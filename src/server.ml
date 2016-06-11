@@ -33,7 +33,7 @@ module Event = struct
   type e  = 
     | Failure        of string  
     | Raft_message   of Raft_pb.message 
-    | Client_request of Client_ipc.client_request
+    | Client_request of Client_ipc.client_request list
     | Timeout        of Raft_pb.timeout_event_time_out_type  
     | Compaction_initiate
     | Compaction_update  of RPb.log_interval list 
@@ -81,8 +81,10 @@ let get_client_ipc_f logger stats configuration id =
   let next_client_request () = 
     Lwt_stream.get req_stream 
      >|= (function 
-       | None   -> Event.Failure "Client IPC" 
-       | Some r -> Event.Client_request r
+       | None -> Event.Failure "Client IPC" 
+       | Some hd -> 
+         let tl = Lwt_stream.get_available req_stream in 
+         Event.Client_request (hd::tl)
      )
   in 
 
@@ -200,8 +202,8 @@ let run_server configuration id logger print_header slow =
           exit 1
         )
 
-        | Event.Client_request client_request -> (
-          Raft_ipc.handle_client_request ~logger ~stats ~now state client_request
+        | Event.Client_request client_requests -> (
+          Raft_ipc.handle_client_requests ~logger ~stats ~now state client_requests
           >|=(fun (state, client_responses, app_requests) ->
             send_client_responses client_responses;
             send_app_requests app_requests;

@@ -76,12 +76,12 @@ val handle_timeout :
     timeout event. 
   *)
 
-val handle_client_request :
+val handle_client_requests :
   logger: Lwt_log_core.logger    ->
   stats : Raft_udp_serverstats.t ->
   now   : float -> 
   state ->
-  client_request ->
+  client_request list ->
   result Lwt.t  
 (** [handle_client_request ~logger ~stats ~now state msg] handles RAFT protocol 
     client requests. 
