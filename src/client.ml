@@ -59,8 +59,8 @@ module State = struct
   let string_of_state {leader; _ } = 
     match leader with 
     | No -> "No"
-    | Potential i -> Printf.sprintf "Potential(%i)" i
-    | Established (i, _) -> Printf.sprintf "Potential(%i)" i 
+    | Potential i -> Printf.sprintf "Potential(%2i)" i
+    | Established (i, _) -> Printf.sprintf "Established(%2i)" i 
 
   let make () = {
     configuration = Conf.default_configuration ();
@@ -200,7 +200,7 @@ let rec server_loop logger state count e =
   | Event.Response Pb.Add_log_success -> 
     begin if (count mod 1000) = 0
     then 
-      Lwt_io.printlf "Success ... [%i]" count 
+      Lwt_io.printlf "Success ... [%10i] [%s]" count (State.string_of_state state) 
     else 
       Lwt.return_unit
     end

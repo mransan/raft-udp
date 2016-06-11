@@ -15,7 +15,7 @@ let string_of_debug_info ({Pb.raft_server_id;debug_id} : Pb.app_ipc_debug) =
 
 let string_of_app_request {Pb.app_request_payload; app_request_debug_info = {Pb.debug_id; _ } } = 
   let payload = match app_request_payload with
-    | Pb.Validate_log {Pb.log_entries} ->
+    | Pb.Validate_logs {Pb.log_entries} ->
         
       let log_entries = String.concat ", " @@ List.map (fun ({Pb.request_id; _ } : Pb.log_entry) -> 
         request_id

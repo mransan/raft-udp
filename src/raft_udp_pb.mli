@@ -44,7 +44,7 @@ type app_request_validate_logs = {
 }
 
 type app_request_app_request_payload =
-  | Validate_log of app_request_validate_logs
+  | Validate_logs of app_request_validate_logs
   | Commit_log of log_entry
 
 and app_request = {

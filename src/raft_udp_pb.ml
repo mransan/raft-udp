@@ -75,7 +75,7 @@ and app_request_validate_logs_mutable = {
 }
 
 type app_request_app_request_payload =
-  | Validate_log of app_request_validate_logs
+  | Validate_logs of app_request_validate_logs
   | Commit_log of log_entry
 
 and app_request = {
@@ -233,11 +233,11 @@ and default_app_request_validate_logs_mutable () : app_request_validate_logs_mut
   log_entries = [];
 }
 
-let rec default_app_request_app_request_payload () : app_request_app_request_payload = Validate_log (default_app_request_validate_logs ())
+let rec default_app_request_app_request_payload () : app_request_app_request_payload = Validate_logs (default_app_request_validate_logs ())
 
 and default_app_request 
   ?app_request_debug_info:((app_request_debug_info:app_ipc_debug) = default_app_ipc_debug ())
-  ?app_request_payload:((app_request_payload:app_request_app_request_payload) = Validate_log (default_app_request_validate_logs ()))
+  ?app_request_payload:((app_request_payload:app_request_app_request_payload) = Validate_logs (default_app_request_validate_logs ()))
   () : app_request  = {
   app_request_debug_info;
   app_request_payload;
@@ -245,7 +245,7 @@ and default_app_request
 
 and default_app_request_mutable () : app_request_mutable = {
   app_request_debug_info = default_app_ipc_debug ();
-  app_request_payload = Validate_log (default_app_request_validate_logs ());
+  app_request_payload = Validate_logs (default_app_request_validate_logs ());
 }
 
 let rec default_app_response_validation_failure 
@@ -524,7 +524,7 @@ let rec decode_app_request_app_request_payload d =
   let rec loop () = 
     let ret:app_request_app_request_payload = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
-      | Some (3, _) -> Validate_log (decode_app_request_validate_logs (Pbrt.Decoder.nested d))
+      | Some (3, _) -> Validate_logs (decode_app_request_validate_logs (Pbrt.Decoder.nested d))
       | Some (4, _) -> Commit_log (decode_log_entry (Pbrt.Decoder.nested d))
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
@@ -549,7 +549,7 @@ and decode_app_request d =
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_request), field(1)", pk))
     )
     | Some (3, Pbrt.Bytes) -> (
-      v.app_request_payload <- Validate_log (decode_app_request_validate_logs (Pbrt.Decoder.nested d));
+      v.app_request_payload <- Validate_logs (decode_app_request_validate_logs (Pbrt.Decoder.nested d));
       loop ()
     )
     | Some (3, pk) -> raise (
@@ -812,7 +812,7 @@ let rec encode_app_request_validate_logs (v:app_request_validate_logs) encoder =
 
 let rec encode_app_request_app_request_payload (v:app_request_app_request_payload) encoder = 
   match v with
-  | Validate_log x -> (
+  | Validate_logs x -> (
     Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.nested (encode_app_request_validate_logs x) encoder;
   )
@@ -826,7 +826,7 @@ and encode_app_request (v:app_request) encoder =
   Pbrt.Encoder.nested (encode_app_ipc_debug v.app_request_debug_info) encoder;
   (
     match v.app_request_payload with
-    | Validate_log x -> (
+    | Validate_logs x -> (
       Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
       Pbrt.Encoder.nested (encode_app_request_validate_logs x) encoder;
     )
@@ -979,7 +979,7 @@ let rec pp_app_request_validate_logs fmt (v:app_request_validate_logs) =
 
 let rec pp_app_request_app_request_payload fmt (v:app_request_app_request_payload) =
   match v with
-  | Validate_log x -> Format.fprintf fmt "@[Validate_log(%a)@]" pp_app_request_validate_logs x
+  | Validate_logs x -> Format.fprintf fmt "@[Validate_logs(%a)@]" pp_app_request_validate_logs x
   | Commit_log x -> Format.fprintf fmt "@[Commit_log(%a)@]" pp_log_entry x
 
 and pp_app_request fmt (v:app_request) = 

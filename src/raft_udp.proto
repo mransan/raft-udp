@@ -62,12 +62,12 @@ message AppRequest {
   
   required AppIpcDebug app_request_debug_info = 1;
 
-  message Validate_logs {
+  message ValidateLogs {
     repeated LogEntry log_entries = 1;
   }
 
   oneof app_request_payload {
-    Validate_logs validate_log = 3; 
+    ValidateLogs validate_logs = 3; 
     LogEntry      commit_log   = 4; 
   }
 }

@@ -79,27 +79,32 @@ let next_request  =
       Event.close_connection fd () 
     ) 
 
-let handle_app_request {Pb.debug_info; payload} = 
-  match payload with 
-  | Pb.Validate_log {Pb.log_entry = {Pb.request_id; data;} } -> 
-    if Bytes.length data > 10 
-    then Pb.({
-      debug_info; 
-      request_id; 
-      result = Validate_failure {
-        error_message = "Data is too big"; 
-        error_code = 1;
-      }
-    }) 
-    else Pb.({
-      debug_info;
-      request_id; 
-      result = Validate_success ;
-    }) 
-  | Pb.Commit_log {Pb.request_id; _ } -> Pb.({
-    debug_info;
+let handle_validate_log {Pb.request_id; data} = 
+  if Bytes.length data > 10 
+  then Pb.({
     request_id; 
-    result  = Commit_log_ack
+    result = Failure {
+      error_message = "Data is too big"; 
+      error_code = 1;
+    }
+  }) 
+  else Pb.({
+    request_id; 
+    result = Success;
+  }) 
+
+let handle_app_request {Pb.app_request_debug_info; app_request_payload} = 
+  match app_request_payload with 
+  | Pb.Validate_logs {Pb.log_entries; } ->
+    let validations = List.map handle_validate_log log_entries in 
+    Pb.({
+      app_response_debug_info = app_request_debug_info; 
+      app_response_payload = Validations {validations}; 
+    })
+
+  | Pb.Commit_log {Pb.request_id; _ } -> Pb.({
+    app_response_debug_info = app_request_debug_info;
+    app_response_payload = Commit_log_ack {request_id;};
   })
 
 let send_app_response logger fd app_response = 
@@ -118,7 +123,7 @@ let send_app_response logger fd app_response =
       | 0 -> Event.close_connection fd () 
       | n -> assert(len = n); 
         log_f ~logger ~level:Notice "Response sent (size: %i) (%s)" n 
-          (string_of_debug_info app_response.Pb.debug_info)
+          (string_of_debug_info app_response.Pb.app_response_debug_info)
         >|= Event.response_sent fd 
     )  
   ) (* with *) (fun exn -> 
@@ -152,7 +157,7 @@ let server_loop logger () =
         | Event.New_request (request, fd) -> 
           let response = handle_app_request request in 
           log_f ~logger ~level:Notice "New request received (%s)" 
-            (string_of_debug_info request.Pb.debug_info) 
+            (string_of_debug_info request.Pb.app_request_debug_info) 
           >|=(fun () -> 
             (send_app_response logger fd response)::non_terminated_threads
           ) 
