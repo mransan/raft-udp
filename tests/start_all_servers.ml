@@ -40,7 +40,7 @@ let () =
       then args.(1) <- "--log"
     end;
     match Unix.fork () with
-    | 0 -> Unix.execv "./app.native" [| "./app.native" |] 
+    | 0 -> Unix.execv "./app.native" args
     | _ -> Unix.sleep 1;
   end;
   

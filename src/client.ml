@@ -176,7 +176,7 @@ let unique_request_id = ref 0
 let test_add_log_request () = 
   incr unique_request_id; 
   Pb.(Add_log {
-    request_id = Printf.sprintf "%i|%i" (Unix.getpid()) !unique_request_id;
+    request_id = Printf.sprintf "%06i|%09i" (Unix.getpid()) !unique_request_id;
     data = Bytes.of_string (String.make (Random.int 10) 'a');
   })
 

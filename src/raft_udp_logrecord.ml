@@ -105,6 +105,7 @@ let read_log_entry_from_file size_bytes file =
   ) (* with *) (function
     | End_of_file -> 
       Lwt_io.close file >|= (fun () -> Done)  
+
     | exn -> 
       Lwt_io.eprintlf "Error reading log records: %s" (Printexc.to_string exn)
       >>=(fun () -> Lwt_io.close file)

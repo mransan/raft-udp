@@ -2,10 +2,17 @@ open Lwt.Infix
 open Lwt_log_core
 
 module Pb = Raft_udp_pb
+module Pb_util = Raft_udp_pbutil
 module U  = Lwt_unix 
 
 let string_of_debug_info ({Pb.raft_server_id;debug_id} : Pb.app_ipc_debug) =  
   Printf.sprintf "{raft server id: %3i, unique id: %5i}" raft_server_id debug_id
+
+let string_of_sockaddr = function
+  | Unix.ADDR_UNIX addr -> 
+    Printf.sprintf "ADDR_UNIX(%s)" addr
+  | Unix.ADDR_INET (addr, port) -> 
+    Printf.sprintf "ADDR_INET(address: %s, port: %i)" (Unix.string_of_inet_addr addr) port
 
 module  Event = struct 
 
@@ -31,9 +38,11 @@ module  Event = struct
   let response_sent fd () = 
     Response_sent fd
 
+  let new_connection fd () = 
+    New_connection fd
 end 
 
-let get_next_connection_f () =
+let get_next_connection_f logger () =
 
   (* Initial, done once, connection setup
    *) 
@@ -48,8 +57,9 @@ let get_next_connection_f () =
   fun () -> 
     Lwt.catch (fun () ->
       U.accept fd
-      >|=(fun (fd2, ad) ->
-        Event.New_connection fd2
+      >>=(fun (fd2, ad) ->
+        log_f ~logger ~level:Notice "New connection accepted, details: %s" (string_of_sockaddr ad)
+        >|= Event.new_connection fd2 
       )
     ) (* with *) (fun exn ->
       let error = Printf.sprintf "Accept failed: %s\n" (Printexc.to_string exn) in 
@@ -72,8 +82,12 @@ let next_request  =
       >>=(function
         | 0 -> Event.close_connection fd () 
         | n -> 
-          log_f ~logger ~level:Notice "Request size: %i" n
-          >|=(fun () -> Event.New_request ((decode_request (Bytes.sub buffer 0 n)), fd))
+          log_f ~logger ~level:Notice "Request received, size: %i" n
+          >>=(fun () -> 
+            let app_request = decode_request (Bytes.sub buffer 0 n) in 
+            log_f ~logger ~level:Notice "Request decoded: %s" (Pb_util.string_of_app_request app_request)
+            >|=(fun () -> Event.New_request (app_request, fd))
+          )
       ) 
     ) (* with *) (fun exn -> 
       Event.close_connection fd () 
@@ -122,8 +136,8 @@ let send_app_response logger fd app_response =
     >>=(function
       | 0 -> Event.close_connection fd () 
       | n -> assert(len = n); 
-        log_f ~logger ~level:Notice "Response sent (size: %i) (%s)" n 
-          (string_of_debug_info app_response.Pb.app_response_debug_info)
+        log_f ~logger ~level:Notice "Response sent (size: %i): %s" n 
+          (Pb_util.string_of_app_response app_response)
         >|= Event.response_sent fd 
     )  
   ) (* with *) (fun exn -> 
@@ -132,7 +146,7 @@ let send_app_response logger fd app_response =
 
 let server_loop logger () =
 
-  let next_connection = get_next_connection_f () in 
+  let next_connection = get_next_connection_f logger () in 
 
   let rec aux threads  = 
     assert([] <> threads); 
@@ -142,37 +156,27 @@ let server_loop logger () =
     Lwt.nchoose_split threads 
     >>=(fun (events, non_terminated_threads)  -> 
 
-      Lwt_list.fold_left_s (fun non_terminated_threads -> function 
+      List.fold_left (fun non_terminated_threads -> function 
         | Event.Failure error -> (
           Printf.eprintf "App.native: Error, details: %s\n%!" error; 
           exit 1
         ) 
 
         | Event.New_connection fd -> 
-          log ~logger ~level:Notice "New connection received" 
-          >|=(fun () -> 
-            (next_connection ())::(next_request logger fd)::non_terminated_threads 
-          ) 
+          (next_connection ())::(next_request logger fd)::non_terminated_threads 
 
         | Event.New_request (request, fd) -> 
           let response = handle_app_request request in 
-          log_f ~logger ~level:Notice "New request received (%s)" 
-            (string_of_debug_info request.Pb.app_request_debug_info) 
-          >|=(fun () -> 
-            (send_app_response logger fd response)::non_terminated_threads
-          ) 
+          (send_app_response logger fd response)::non_terminated_threads
 
         | Event.Connection_close -> 
-          Lwt.return non_terminated_threads
+          non_terminated_threads
         
         | Event.Response_sent fd -> 
-          log ~logger ~level:Notice "Response was sent"
-          >|=(fun () -> 
-            (Lwt_unix.sleep 0. >>= (fun () -> next_request logger fd))::non_terminated_threads
-          ) 
+          (next_request logger fd)::non_terminated_threads
 
       ) non_terminated_threads events
-      >>= aux 
+      |> aux 
     )
   in
   aux [next_connection ()] 
