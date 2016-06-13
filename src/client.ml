@@ -26,10 +26,8 @@ module Event = struct
 
   let failure_lwt context () = Lwt.return (Failure context)
 
-  let connection_closed ?fd () = 
-    match fd with 
-    | None -> Lwt.return Connection_closed 
-    | Some fd -> U.close fd >|= (fun () -> Connection_closed)  
+  let connection_closed fd () = 
+    U.close fd >|= (fun () -> Connection_closed)  
 
   let connection_established fd () = 
     Connection_established fd
@@ -44,6 +42,7 @@ module State = struct
   type leader =
     | No
       (* No known leader *)
+
     | Potential   of int 
       (* One of the server indicated that this server should be a 
          leader 
@@ -109,7 +108,8 @@ let new_connection ~to_ state =
   | Some ad ->
     let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in
     Lwt.catch (fun () ->
-      U.connect fd ad
+      U.sleep 0.25
+      >>=(fun () -> U.connect fd ad)
       >>=(fun () -> 
         Lwt_io.printlf "Connection established successfully with server_id: %i" to_
        >|= Event.connection_established fd
@@ -117,7 +117,7 @@ let new_connection ~to_ state =
     ) (* with *) (fun exn ->
 
       Lwt_io.printlf "Error connecting to server_id: %i" to_
-      >>= Event.connection_closed 
+      >>= Event.connection_closed fd
     )
 
 (* Attempts to send the given [client_request] to the established connection with 
@@ -145,7 +145,7 @@ let send_request logger ({State.leader; _ } as state) client_request =
       U.write fd buffer 0 buffer_len
       >>= (fun nb_byte_written ->
         if nb_byte_written <>  buffer_len
-        then Event.connection_closed ~fd () 
+        then Event.connection_closed fd () 
         else
           log_f ~logger ~level:Notice "Request sent to state: %s" (State.string_of_state state) 
           >>=(fun () -> 
@@ -159,7 +159,7 @@ let send_request logger ({State.leader; _ } as state) client_request =
                   let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 bytes_read) in
                   Event.response_lwt (Pb.decode_client_response decoder) ()
                 else
-                  Event.connection_closed ~fd () 
+                  Event.connection_closed fd () 
               )
             )
           )
@@ -167,7 +167,7 @@ let send_request logger ({State.leader; _ } as state) client_request =
     ) (* with *) (fun exn ->
       Lwt_io.eprintlf "Error in IPC with RAFT server, details: %s" 
         (Printexc.to_string exn) 
-        >>= Event.connection_closed ~fd
+        >>= Event.connection_closed fd
     )
 
 

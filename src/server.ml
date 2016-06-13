@@ -32,12 +32,27 @@ let get_now =
 module Event = struct 
   type e  = 
     | Failure        of string  
+      (** Fatal failure, the server will exit *)
+
     | Raft_message   of Raft_pb.message 
+      (** A RAFT message was received from one of the other RAFT servers *)
+
     | Client_request of Client_ipc.client_request list
+      (** A Client request was received *)
+
     | Timeout        of Raft_pb.timeout_event_time_out_type  
+      (** RAFT Protocol timeout happened *)
+
     | Compaction_initiate
+      (** Notification that the compaction task should start *)
+
     | Compaction_update  of RPb.log_interval list 
+      (** Notification that the compaction task is done with the list 
+          of modified log intervals. 
+        *)
+
     | App_response   of Pb.app_response 
+      (** A response was received from the App server *)
 
   type threads = {
     next_raft_message_t : e Lwt.t;
@@ -316,7 +331,7 @@ let run configuration id print_header slow log =
       then 
         let file_name = Printf.sprintf "raft_upd_%i.log" id in 
         let template  = "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" in
-        Lwt_log.file ~mode:`Truncate ~template ~file_name () 
+        Lwt_log.file ~mode:`Append ~template ~file_name () 
       else 
         Lwt.return Lwt_log_core.null 
     end

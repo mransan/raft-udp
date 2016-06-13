@@ -48,6 +48,23 @@ module Event = struct
 
 end 
 
+let connect logger () = 
+  let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", 40000) in 
+  let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
+  Lwt.catch (fun () -> 
+    U.connect fd ad 
+    >>=(fun () -> 
+      log ~logger ~level:Notice ~section "Connection established with App server"
+    )
+    >|= Event.connection_established fd 
+
+  ) (* with *) (fun exn -> 
+
+    log_f ~logger ~level:Error ~section "Error connecting to App server, %s" 
+      (Printexc.to_string exn) 
+    >|= Event.failure "Error connecting to App server"
+  ) 
+
 let next_response = 
   let buffer = Bytes.create 1024 in 
     (* TODO make the buffer size configurable *)
@@ -56,7 +73,9 @@ let next_response =
    U.read fd buffer 0 1024
    >>=(function
      | 0 ->  
-       Event.failure_lwt "Connection closed by App server"
+       connect logger () 
+       (* Event.failure_lwt "Connection closed by App server"
+        *)
 
      | received when received = 1024 -> 
        Event.failure_lwt "Response by App server is too large"
@@ -99,22 +118,6 @@ let send_request logger fd app_request =
       >>= next_response logger fd
   )  
 
-let connect logger () = 
-  let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", 40000) in 
-  let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
-  Lwt.catch (fun () -> 
-    U.connect fd ad 
-    >>=(fun () -> 
-      log ~logger ~level:Notice ~section "Connection established with App server"
-    )
-    >|= Event.connection_established fd 
-
-  ) (* with *) (fun exn -> 
-
-    log_f ~logger ~level:Error ~section "Error connecting to App server, %s" 
-      (Printexc.to_string exn) 
-    >|= Event.failure "Error connecting to App server"
-  ) 
 
 let get_next_request_f logger request_stream = 
 
