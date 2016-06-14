@@ -110,13 +110,21 @@ let get_client_ipc_f logger stats configuration id =
   in
 
   (next_client_request, send_client_responses)
+
+let set_server_role state stats = 
+  let role = match state.RState.role with
+    | RPb.Follower _ -> Server_stats.Follower  
+    | RPb.Candidate _ -> Server_stats.Candidate
+    | RPb.Leader _ -> Server_stats.Leader
+  in 
+  (Server_stats.set_server_role stats role:unit) 
   
 let next_timeout timeout timeout_type = 
   Lwt_unix.sleep timeout 
   >|= (fun () -> Event.Timeout timeout_type)
 
 let get_next_compaction_f configuration = fun () ->
-  Lwt_unix.sleep configuration.Pb.compaction_period
+  Lwt_unix.sleep configuration.Pb.disk_backup.Pb.compaction_period
   >|=(fun () -> Event.Compaction_initiate)
 
 let get_app_ipc_f logger stats configuration = 
@@ -183,6 +191,7 @@ let run_server configuration id logger print_header slow =
       let now = get_now () in
       
       Server_stats.set_log_count stats state.Raft_ipc.raft_state.RState.log.RLog.log_size;
+      set_server_role state.Raft_ipc.raft_state stats;
 
       Lwt_list.fold_left_s (fun (state, threads) event -> 
         match event with
@@ -273,18 +282,6 @@ let run_server configuration id logger print_header slow =
     ~id () 
   in
 
-  let {
-    RPb.timeout; 
-    timeout_type
-  } = RHelper.Timeout_event.next initial_raft_state (get_now ()) in 
-
-  let initial_threads = Event.({
-    next_client_request_t = next_client_request ();
-    next_raft_message_t = next_raft_message  ();
-    next_timeout_t = next_timeout timeout timeout_type;
-    compaction_t = next_compaction ();
-    next_app_reponse_t  = next_app_response ();
-  }) in 
 
   Compaction.load_previous_log_intervals logger configuration id 
   >|=(fun log_intervals ->
@@ -316,6 +313,20 @@ let run_server configuration id logger print_header slow =
   >>=(fun initial_raft_state ->
     Log_record.make logger configuration id 
     >>=(fun handle ->
+
+      let {
+        RPb.timeout; 
+        timeout_type
+      } = RHelper.Timeout_event.next initial_raft_state (get_now ()) in 
+
+      let initial_threads = Event.({
+        next_client_request_t = next_client_request ();
+        next_raft_message_t = next_raft_message  ();
+        next_timeout_t = next_timeout timeout timeout_type;
+        compaction_t = next_compaction ();
+        next_app_reponse_t  = next_app_response ();
+      }) in 
+
       server_loop initial_threads Raft_ipc.({
         raft_state = initial_raft_state; 
         connection_state = initialize configuration;
@@ -345,7 +356,7 @@ let () =
   Printf.printf ">>PID: %i\n%!" (Unix.getpid ());
   Random.self_init ();
   let configuration = Conf.default_configuration () in
-  let nb_of_servers = List.length configuration.Pb.servers_udp_configuration in 
+  let nb_of_servers = List.length configuration.Pb.servers_ipc_configuration in 
 
   let ids = 
     let rec aux acc = function

@@ -29,9 +29,9 @@ let () =
     ("--log", log_spec, " : enable logging");
   ] (fun _ -> ()) "start_all_server [options]";
 
-  let {Udp.servers_udp_configuration ;_  } = Conf.default_configuration () in 
+  let {Udp.servers_ipc_configuration ;_  } = Conf.default_configuration () in 
 
-  let nb_of_servers = List.length servers_udp_configuration in 
+  let nb_of_servers = List.length servers_ipc_configuration in 
 
   begin 
     let args = [| "./app.native" ; "" |] in 
@@ -56,14 +56,14 @@ let () =
   let processes = aux [] nb_of_servers in 
 
   let rec aux server_to_kill processes = 
-    Unix.sleep 3; 
+    Unix.sleep 1; 
     let server_to_kill = (server_to_kill + 1) mod nb_of_servers in 
     let processes = List.map (fun (server_id, pid) -> 
       if server_to_kill  = server_id
       then begin 
         Printf.printf "Killing server id: %i, PID: %i\n%!" server_id pid; 
         Unix.kill pid Sys.sigkill;
-        Unix.sleep 3;  
+        Unix.sleep 1;  
         match Unix.fork () with
         | 0   -> Unix.execv "./server.native" (arg_of_server !log server_id)
         | pid ->

@@ -33,7 +33,7 @@ end
 
 type t = Lwt_io.output_channel  
 
-let filename {Pb.log_record_directory; _} server_id  = 
+let filename {Pb.disk_backup = {Pb.log_record_directory; _}} server_id  = 
   Filename.concat log_record_directory (Printf.sprintf "record_%03i.data" server_id)
 
 let make logger configuration server_id = 

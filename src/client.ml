@@ -5,6 +5,14 @@ module Conf = Raft_udp_conf
 module U    = Lwt_unix
 module Pb   = Raft_udp_pb
 
+
+module Ext = struct
+
+  let string_of_option f = function
+    | None   -> "None"
+    | Some x -> f x 
+
+end 
 module Event = struct 
 
   type e = 
@@ -78,7 +86,7 @@ module State = struct
     {state with leader}
 
   let next ({configuration; leader} as state) = 
-    let nb_of_servers = List.length (configuration.Pb.servers_udp_configuration) in 
+    let nb_of_servers = List.length (configuration.Pb.servers_ipc_configuration) in 
     let next = match leader with
       | Established (i, _)  -> (i + 1) mod nb_of_servers
       | No                  -> 0
@@ -214,8 +222,8 @@ let rec server_loop logger state count e =
     server_loop logger state count @@ Event.failure "Validation failure" ()
 
   | Event.Response Pb.Add_log_not_a_leader {Pb.leader_id;} -> 
-    Lwt_io.printlf "Not a leader received: %s"
-      @@ (function | Some x -> string_of_int x | None -> "None") leader_id
+    Lwt_io.printlf "Not a leader received, leader hint : %s"
+      @@ (Ext.string_of_option string_of_int leader_id ) 
     >>=(fun () -> 
       begin match State.fd state with
       | None -> server_loop logger state count @@ Event.failure "No connection (invariant violation)"  ()

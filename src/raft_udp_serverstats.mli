@@ -30,3 +30,10 @@ val tick_append_entries_failure : t -> unit
 val msg_processing : t -> Raft_udp_counter.Perf.t 
 
 val hb_processing : t -> Raft_udp_counter.Perf.t 
+
+type server_role =
+  | Leader
+  | Follower
+  | Candidate
+
+val set_server_role : t -> server_role -> unit  

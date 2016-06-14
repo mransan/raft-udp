@@ -48,8 +48,8 @@ module Event = struct
 
 end 
 
-let connect logger () = 
-  let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", 40000) in 
+let connect logger {Pb.app_server_port; _} () = 
+  let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", app_server_port) in 
   let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
   Lwt.catch (fun () -> 
     U.connect fd ad 
@@ -69,11 +69,11 @@ let next_response =
   let buffer = Bytes.create 1024 in 
     (* TODO make the buffer size configurable *)
 
-  fun logger fd () -> 
+  fun logger configuration fd () -> 
    U.read fd buffer 0 1024
    >>=(function
      | 0 ->  
-       connect logger () 
+       connect logger configuration () 
        (* Event.failure_lwt "Connection closed by App server"
         *)
 
@@ -100,7 +100,7 @@ let next_response =
        )
    )
 
-let send_request logger fd app_request = 
+let send_request logger configuration fd app_request = 
   let bytes = 
     let encoder = Pbrt.Encoder.create () in 
     Pb.encode_app_request  app_request encoder; 
@@ -115,7 +115,7 @@ let send_request logger fd app_request =
       log_f ~logger ~level:Notice ~section "App request successfully sent (%s)" 
         (Pb_util.string_of_debug_info app_request.Pb.app_request_debug_info )
 
-      >>= next_response logger fd
+      >>= next_response logger configuration fd
   )  
 
 
@@ -168,7 +168,7 @@ let make logger configuration stats =
       begin match fd with 
       | None -> assert(false) 
       | Some fd2 -> 
-        send_request logger fd2 request >>= loop fd  
+        send_request logger configuration fd2 request >>= loop fd  
       end 
 
     | Event.App_response response -> 
@@ -176,7 +176,7 @@ let make logger configuration stats =
       next_request () >>= loop fd 
   in
 
-  let t : unit Lwt.t  = connect logger () >>= loop None in 
+  let t : unit Lwt.t  = connect logger configuration () >>= loop None in 
   set_response_ref t; 
 
   (push_request_f, response_stream)

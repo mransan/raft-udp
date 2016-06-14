@@ -2,19 +2,24 @@
 
 (** {2 Types} *)
 
-type server_udp_configuration = {
+type server_ipc_configuration = {
   raft_id : int;
   inet4_address : string;
   raft_port : int;
   client_port : int;
 }
 
-type configuration = {
-  raft_configuration : Raft_pb.configuration;
-  servers_udp_configuration : server_udp_configuration list;
+type disk_backup_configuration = {
   compaction_period : float;
   log_record_directory : string;
   compaction_directory : string;
+}
+
+type configuration = {
+  raft_configuration : Raft_pb.configuration;
+  servers_ipc_configuration : server_ipc_configuration list;
+  disk_backup : disk_backup_configuration;
+  app_server_port : int;
 }
 
 type log_entry = {
@@ -86,21 +91,28 @@ and app_response = {
 
 (** {2 Default values} *)
 
-val default_server_udp_configuration : 
+val default_server_ipc_configuration : 
   ?raft_id:int ->
   ?inet4_address:string ->
   ?raft_port:int ->
   ?client_port:int ->
   unit ->
-  server_udp_configuration
-(** [default_server_udp_configuration ()] is the default value for type [server_udp_configuration] *)
+  server_ipc_configuration
+(** [default_server_ipc_configuration ()] is the default value for type [server_ipc_configuration] *)
 
-val default_configuration : 
-  ?raft_configuration:Raft_pb.configuration ->
-  ?servers_udp_configuration:server_udp_configuration list ->
+val default_disk_backup_configuration : 
   ?compaction_period:float ->
   ?log_record_directory:string ->
   ?compaction_directory:string ->
+  unit ->
+  disk_backup_configuration
+(** [default_disk_backup_configuration ()] is the default value for type [disk_backup_configuration] *)
+
+val default_configuration : 
+  ?raft_configuration:Raft_pb.configuration ->
+  ?servers_ipc_configuration:server_ipc_configuration list ->
+  ?disk_backup:disk_backup_configuration ->
+  ?app_server_port:int ->
   unit ->
   configuration
 (** [default_configuration ()] is the default value for type [configuration] *)
@@ -189,8 +201,11 @@ val default_app_response :
 
 (** {2 Protobuf Decoding} *)
 
-val decode_server_udp_configuration : Pbrt.Decoder.t -> server_udp_configuration
-(** [decode_server_udp_configuration decoder] decodes a [server_udp_configuration] value from [decoder] *)
+val decode_server_ipc_configuration : Pbrt.Decoder.t -> server_ipc_configuration
+(** [decode_server_ipc_configuration decoder] decodes a [server_ipc_configuration] value from [decoder] *)
+
+val decode_disk_backup_configuration : Pbrt.Decoder.t -> disk_backup_configuration
+(** [decode_disk_backup_configuration decoder] decodes a [disk_backup_configuration] value from [decoder] *)
 
 val decode_configuration : Pbrt.Decoder.t -> configuration
 (** [decode_configuration decoder] decodes a [configuration] value from [decoder] *)
@@ -243,8 +258,11 @@ val decode_app_response : Pbrt.Decoder.t -> app_response
 
 (** {2 Protobuf Toding} *)
 
-val encode_server_udp_configuration : server_udp_configuration -> Pbrt.Encoder.t -> unit
-(** [encode_server_udp_configuration v encoder] encodes [v] with the given [encoder] *)
+val encode_server_ipc_configuration : server_ipc_configuration -> Pbrt.Encoder.t -> unit
+(** [encode_server_ipc_configuration v encoder] encodes [v] with the given [encoder] *)
+
+val encode_disk_backup_configuration : disk_backup_configuration -> Pbrt.Encoder.t -> unit
+(** [encode_disk_backup_configuration v encoder] encodes [v] with the given [encoder] *)
 
 val encode_configuration : configuration -> Pbrt.Encoder.t -> unit
 (** [encode_configuration v encoder] encodes [v] with the given [encoder] *)
@@ -297,53 +315,56 @@ val encode_app_response : app_response -> Pbrt.Encoder.t -> unit
 
 (** {2 Formatters} *)
 
-val pp_server_udp_configuration : Format.formatter -> server_udp_configuration -> unit 
-(** [pp_server_udp_configuration v] formats v] *)
+val pp_server_ipc_configuration : Format.formatter -> server_ipc_configuration -> unit 
+(** [pp_server_ipc_configuration v] formats v *)
+
+val pp_disk_backup_configuration : Format.formatter -> disk_backup_configuration -> unit 
+(** [pp_disk_backup_configuration v] formats v *)
 
 val pp_configuration : Format.formatter -> configuration -> unit 
-(** [pp_configuration v] formats v] *)
+(** [pp_configuration v] formats v *)
 
 val pp_log_entry : Format.formatter -> log_entry -> unit 
-(** [pp_log_entry v] formats v] *)
+(** [pp_log_entry v] formats v *)
 
 val pp_client_request : Format.formatter -> client_request -> unit 
-(** [pp_client_request v] formats v] *)
+(** [pp_client_request v] formats v *)
 
 val pp_client_response_add_log_not_aleader : Format.formatter -> client_response_add_log_not_aleader -> unit 
-(** [pp_client_response_add_log_not_aleader v] formats v] *)
+(** [pp_client_response_add_log_not_aleader v] formats v *)
 
 val pp_client_response : Format.formatter -> client_response -> unit 
-(** [pp_client_response v] formats v] *)
+(** [pp_client_response v] formats v *)
 
 val pp_app_ipc_debug : Format.formatter -> app_ipc_debug -> unit 
-(** [pp_app_ipc_debug v] formats v] *)
+(** [pp_app_ipc_debug v] formats v *)
 
 val pp_app_request_validate_logs : Format.formatter -> app_request_validate_logs -> unit 
-(** [pp_app_request_validate_logs v] formats v] *)
+(** [pp_app_request_validate_logs v] formats v *)
 
 val pp_app_request_app_request_payload : Format.formatter -> app_request_app_request_payload -> unit 
-(** [pp_app_request_app_request_payload v] formats v] *)
+(** [pp_app_request_app_request_payload v] formats v *)
 
 val pp_app_request : Format.formatter -> app_request -> unit 
-(** [pp_app_request v] formats v] *)
+(** [pp_app_request v] formats v *)
 
 val pp_app_response_validation_failure : Format.formatter -> app_response_validation_failure -> unit 
-(** [pp_app_response_validation_failure v] formats v] *)
+(** [pp_app_response_validation_failure v] formats v *)
 
 val pp_app_response_validation_result : Format.formatter -> app_response_validation_result -> unit 
-(** [pp_app_response_validation_result v] formats v] *)
+(** [pp_app_response_validation_result v] formats v *)
 
 val pp_app_response_validation : Format.formatter -> app_response_validation -> unit 
-(** [pp_app_response_validation v] formats v] *)
+(** [pp_app_response_validation v] formats v *)
 
 val pp_app_response_validations : Format.formatter -> app_response_validations -> unit 
-(** [pp_app_response_validations v] formats v] *)
+(** [pp_app_response_validations v] formats v *)
 
 val pp_app_response_commit_log_ack : Format.formatter -> app_response_commit_log_ack -> unit 
-(** [pp_app_response_commit_log_ack v] formats v] *)
+(** [pp_app_response_commit_log_ack v] formats v *)
 
 val pp_app_response_app_response_payload : Format.formatter -> app_response_app_response_payload -> unit 
-(** [pp_app_response_app_response_payload v] formats v] *)
+(** [pp_app_response_app_response_payload v] formats v *)
 
 val pp_app_response : Format.formatter -> app_response -> unit 
-(** [pp_app_response v] formats v] *)
+(** [pp_app_response v] formats v *)

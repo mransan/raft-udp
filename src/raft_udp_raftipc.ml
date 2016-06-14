@@ -106,7 +106,7 @@ let initialize configuration =
   let server_addresses = List.map (fun ({Pb.raft_id} as server_config) ->
     let fd = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM 0 in
     (raft_id, (Conf.sockaddr_of_server_config `Raft server_config, fd))
-  ) configuration.Pb.servers_udp_configuration in
+  ) configuration.Pb.servers_ipc_configuration in
 
   let (
     outgoing_message_stream, 

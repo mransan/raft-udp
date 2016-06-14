@@ -12,5 +12,5 @@ val sockaddr_of_server_id :
 
 val sockaddr_of_server_config: 
   [< `Client | `Raft ] ->
-  Raft_udp_pb.server_udp_configuration->
+  Raft_udp_pb.server_ipc_configuration->
   Unix.sockaddr

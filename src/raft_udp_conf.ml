@@ -5,13 +5,13 @@ module RPb = Raft_pb
 let default_configuration () = Pb.({
   raft_configuration = RPb.({
     nb_of_server = 9;
-    election_timeout = 1.;
+    election_timeout = 1.00;
     election_timeout_range = 0.25;
     hearbeat_timeout = 0.2;
     max_nb_logs_per_message = 300;
     log_interval_size = 10_000;
   });
-  servers_udp_configuration = [
+  servers_ipc_configuration = [
     {raft_id = 0; inet4_address = "127.0.0.1"; raft_port = 34765; client_port = 34865};
     {raft_id = 1; inet4_address = "127.0.0.1"; raft_port = 34766; client_port = 34866};
     {raft_id = 2; inet4_address = "127.0.0.1"; raft_port = 34767; client_port = 34867};
@@ -22,9 +22,12 @@ let default_configuration () = Pb.({
     {raft_id = 7; inet4_address = "127.0.0.1"; raft_port = 34762; client_port = 34862};
     {raft_id = 8; inet4_address = "127.0.0.1"; raft_port = 34763; client_port = 34863};
   ];
-  compaction_period = 1.;
-  log_record_directory = "/tmp/";
-  compaction_directory = "/tmp/";
+  disk_backup = {
+    compaction_period = 1.;
+    log_record_directory = "/tmp/";
+    compaction_directory = "/tmp/";
+  };
+  app_server_port = 40_000;
 })
 
 let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port} =
@@ -38,6 +41,6 @@ let sockaddr_of_server_id which configuration server_id =
   let is_server {Pb.raft_id; _ } =
     raft_id = server_id
   in
-  match List.find is_server configuration.Pb.servers_udp_configuration with
+  match List.find is_server configuration.Pb.servers_ipc_configuration with
   | server_config -> Some (sockaddr_of_server_config which server_config)
   | exception Not_found -> None

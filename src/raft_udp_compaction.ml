@@ -14,7 +14,7 @@ let compaction_filename ~server_id ~prev_index ~configuration () =
     server_id 
     prev_index
   in
-  Filename.concat configuration.Pb.compaction_directory filename
+  Filename.concat configuration.Pb.disk_backup.Pb.compaction_directory filename
 
 
 (* 

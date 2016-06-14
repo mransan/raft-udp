@@ -3,6 +3,8 @@ open Lwt_log_core
 
 module Pb = Raft_udp_pb
 module Pb_util = Raft_udp_pbutil
+module Conf = Raft_udp_conf
+
 module U  = Lwt_unix 
 
 let string_of_debug_info ({Pb.raft_server_id;debug_id} : Pb.app_ipc_debug) =  
@@ -42,11 +44,11 @@ module  Event = struct
     New_connection fd
 end 
 
-let get_next_connection_f logger () =
+let get_next_connection_f logger {Pb.app_server_port; _} () =
 
   (* Initial, done once, connection setup
    *) 
-  let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", 40000) in 
+  let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", app_server_port) in 
   let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
   U.setsockopt fd U.SO_REUSEADDR true;
   U.bind fd ad; 
@@ -144,9 +146,9 @@ let send_app_response logger fd app_response =
     Event.close_connection fd () 
   ) 
 
-let server_loop logger () =
+let server_loop logger configuration () =
 
-  let next_connection = get_next_connection_f logger () in 
+  let next_connection = get_next_connection_f logger configuration () in 
 
   let rec aux threads  = 
     assert([] <> threads); 
@@ -181,7 +183,7 @@ let server_loop logger () =
   in
   aux [next_connection ()] 
 
-let main log () = 
+let main configuration log () = 
   begin 
     if log 
     then 
@@ -191,9 +193,11 @@ let main log () =
     else 
       Lwt.return Lwt_log_core.null
   end
-  >>=(fun logger -> server_loop logger ())
+  >>=(fun logger -> server_loop logger configuration ())
 
 let () = 
+  let configuration = Conf.default_configuration () in
+
   let log = ref false in 
   let log_spec = Arg.Set log  in
   
@@ -202,4 +206,4 @@ let () =
   ] (fun _ -> ()) "test.ml";
 
   Sys.set_signal Sys.sigpipe Sys.Signal_ignore ; 
-  Lwt_main.run (main !log ())
+  Lwt_main.run (main configuration !log ())
