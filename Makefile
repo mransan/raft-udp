@@ -19,6 +19,7 @@ test:
 
 gen:
 	ocaml-protoc -I ../raft.git/src/ -ml_out src src/raft_udp.proto
+	ocaml-protoc -I ../raft.git/src/ -ml_out src src/raft_app.proto
 
 lib.native:
 	$(OCB) raft_udp.cmxa

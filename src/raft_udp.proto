@@ -12,6 +12,7 @@ message configuration {
     // raft configuration.
 
   required DiskBackupConfiguration disk_backup = 3;
+    // RAFT requires to store permanently some information. 
 
   required int32  app_server_port = 6; 
     // The App server runs on the same machine so address
@@ -20,7 +21,8 @@ message configuration {
 
 message ServerIpcConfiguration {
   required int32  raft_id       = 1;
-    // This is the logical raft identifier for that server. [0 - nb_of_server[.
+    // This is the logical raft identifier for that server. 
+    // [0 - nb_of_server[.
 
   required string inet4_address = 2; 
     // IPv4 Internet Address: aaa.bbb.ccc.ddd
@@ -37,81 +39,4 @@ message DiskBackupConfiguration {
   required double compaction_period    = 1; 
   required string log_record_directory = 2;
   required string compaction_directory = 3;
-}
-
-message LogEntry {
-    required string request_id = 1; 
-    required bytes  data       = 2;
-}
-
-message ClientRequest {
-  oneof t {
-    LogEntry add_log = 1;
-  }
-}
-
-message ClientResponse {
-
-  message AddLogSuccess {}
-  message AddLogValidationFailure{}
-  message AddLogNotALeader {
-    optional int32 leader_id = 1;
-  }
-
-  oneof t {
-    AddLogSuccess            add_log_success            = 1;
-    AddLogValidationFailure  add_log_validation_failure = 2;
-    AddLogNotALeader         add_log_not_a_leader       = 3;
-  }
-}
-
-message AppIpcDebug {
-  required int32 raft_server_id = 1; 
-  required int32 debug_id       = 2;
-}
-
-message AppRequest {
-  
-  required AppIpcDebug app_request_debug_info = 1;
-
-  message ValidateLogs {
-    repeated LogEntry log_entries = 1;
-  }
-
-  oneof app_request_payload {
-    ValidateLogs validate_logs = 3; 
-    LogEntry      commit_log   = 4; 
-  }
-}
-
-message AppResponse {
-  required AppIpcDebug app_response_debug_info = 1;
-
-  message Validation {
-
-    message Success { }
-    message Failure {
-      required string error_message = 1; 
-      required int32  error_code    = 2;
-    }
-
-    required string request_id = 1;
-    oneof result {
-      Success success = 2; 
-      Failure failure = 3;
-    }
-  }
-
-  message Validations {
-    repeated Validation validations = 1; 
-  }
-
-  message CommitLogAck {
-    required string  request_id = 2;
-  }
-
-  oneof app_response_payload {
-    Validations     validations      = 4;
-    CommitLogAck    commit_log_ack   = 5;
-  }
 }

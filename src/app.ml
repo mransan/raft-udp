@@ -1,14 +1,12 @@
 open Lwt.Infix 
 open Lwt_log_core
 
-module Pb = Raft_udp_pb
+module UPb = Raft_udp_pb
+module APb = Raft_app_pb
 module Pb_util = Raft_udp_pbutil
 module Conf = Raft_udp_conf
 
 module U  = Lwt_unix 
-
-let string_of_debug_info ({Pb.raft_server_id;debug_id} : Pb.app_ipc_debug) =  
-  Printf.sprintf "{raft server id: %3i, unique id: %5i}" raft_server_id debug_id
 
 let string_of_sockaddr = function
   | Unix.ADDR_UNIX addr -> 
@@ -25,7 +23,7 @@ module  Event = struct
     | New_connection of Lwt_unix.file_descr 
       (** TCP IPC accepted a new connection *)
 
-    | New_request    of Pb.app_request * Lwt_unix.file_descr  
+    | New_request    of APb.app_request * Lwt_unix.file_descr  
       (** New request successfully received and decoded *)
 
     | Connection_close 
@@ -44,7 +42,7 @@ module  Event = struct
     New_connection fd
 end 
 
-let get_next_connection_f logger {Pb.app_server_port; _} () =
+let get_next_connection_f logger {UPb.app_server_port; _} () =
 
   (* Initial, done once, connection setup
    *) 
@@ -70,7 +68,7 @@ let get_next_connection_f logger {Pb.app_server_port; _} () =
 
 let decode_request bytes = 
   let decoder = Pbrt.Decoder.of_bytes bytes in 
-  Pb.decode_app_request decoder 
+  APb.decode_app_request decoder 
 
 let next_request  =
 
@@ -95,39 +93,32 @@ let next_request  =
       Event.close_connection fd () 
     ) 
 
-let handle_validate_log {Pb.request_id; data} = 
-  if Bytes.length data > 10 
-  then Pb.({
-    request_id; 
+let handle_validate_log {APb.tx_id; tx_data} = 
+  if Bytes.length tx_data > 10 
+  then APb.({
+    tx_id; 
     result = Failure {
       error_message = "Data is too big"; 
       error_code = 1;
     }
   }) 
-  else Pb.({
-    request_id; 
+  else APb.({
+    tx_id;
     result = Success;
   }) 
 
-let handle_app_request {Pb.app_request_debug_info; app_request_payload} = 
-  match app_request_payload with 
-  | Pb.Validate_logs {Pb.log_entries; } ->
-    let validations = List.map handle_validate_log log_entries in 
-    Pb.({
-      app_response_debug_info = app_request_debug_info; 
-      app_response_payload = Validations {validations}; 
-    })
+let handle_app_request = function
+  | APb.Validate_txs {APb.txs} ->
+    let validations = List.map handle_validate_log txs in 
+    APb.(Validations {validations}) 
 
-  | Pb.Commit_log {Pb.request_id; _ } -> Pb.({
-    app_response_debug_info = app_request_debug_info;
-    app_response_payload = Commit_log_ack {request_id;};
-  })
+  | APb.Commit_tx {APb.tx_id; _ } -> APb.(Commit_tx_ack {tx_id})
 
 let send_app_response logger fd app_response = 
   (* Encode to bytes *)
   let bytes = 
     let encoder = Pbrt.Encoder.create () in 
-    Pb.encode_app_response  app_response encoder; 
+    APb.encode_app_response  app_response encoder; 
     Pbrt.Encoder.to_bytes encoder 
   in
   let len   = Bytes.length bytes in 

@@ -7,7 +7,8 @@ module RRole = Raft_role
 module RLog = Raft_log
 module RState = Raft_state
 
-module Pb = Raft_udp_pb
+module UPb = Raft_udp_pb
+module APb = Raft_app_pb
 module Conf = Raft_udp_conf
 module Counter = Raft_udp_counter
 module Server_stats = Raft_udp_serverstats
@@ -51,7 +52,7 @@ module Event = struct
           of modified log intervals. 
         *)
 
-    | App_response   of Pb.app_response 
+    | App_response   of APb.app_response 
       (** A response was received from the App server *)
 
   type threads = {
@@ -124,7 +125,7 @@ let next_timeout timeout timeout_type =
   >|= (fun () -> Event.Timeout timeout_type)
 
 let get_next_compaction_f configuration = fun () ->
-  Lwt_unix.sleep configuration.Pb.disk_backup.Pb.compaction_period
+  Lwt_unix.sleep configuration.UPb.disk_backup.UPb.compaction_period
   >|=(fun () -> Event.Compaction_initiate)
 
 let get_app_ipc_f logger stats configuration = 
@@ -277,7 +278,7 @@ let run_server configuration id logger print_header slow =
   in
 
   let initial_raft_state = RRole.Follower.create
-    ~configuration:configuration.Pb.raft_configuration 
+    ~configuration:configuration.UPb.raft_configuration 
     ~now:(get_now ()) 
     ~id () 
   in
@@ -356,7 +357,7 @@ let () =
   Printf.printf ">>PID: %i\n%!" (Unix.getpid ());
   Random.self_init ();
   let configuration = Conf.default_configuration () in
-  let nb_of_servers = List.length configuration.Pb.servers_ipc_configuration in 
+  let nb_of_servers = List.length configuration.UPb.servers_ipc_configuration in 
 
   let ids = 
     let rec aux acc = function

@@ -25,6 +25,7 @@ type t =  {
   client_requests : Counter.t; 
   msg_processing: Perf.t;
   hb_processing : Perf.t; 
+  not_processing : Perf.t; 
   mutable print_stats_t : unit Lwt.t;
   print_header : bool;
   server_role : server_role option ref;
@@ -43,6 +44,7 @@ let print_stats_t t =
     msg_processing;
     append_failures;
     hb_processing; 
+    not_processing; 
     print_header; 
     server_role; 
     _
@@ -56,7 +58,7 @@ let print_stats_t t =
       if counter = 0 && print_header 
       then 
         Lwt_io.printf 
-          "[id   ] | %7s | %7s | %8s | %8s | %4s | %5s | %6s | %6s | %10s | %10s | \n" 
+          "[id   ] | %7s | %7s | %8s | %8s | %4s | %5s | %6s | %6s | %7s | %7s | %7s |\n" 
           "r rcv/s"
           "r snt/s" 
           "log/s"
@@ -65,14 +67,17 @@ let print_stats_t t =
           "clt/s"
           "req/s"
           "er/s"
-          "av msg(us)"
-          "av hb(us)"
+          "msg(us)"
+          "hb(us)"
+          "not(us)"
         >|=(fun () -> print_header_every)
       else
         Lwt.return counter 
     )
     >>=(fun counter ->
-      Lwt_io.printf "[%2i, %s] | %7.0f | %7.0f | %8.0f | %8i | %4.1f | %5.1f | %6.0f | %6.1f | %10.1f | %10.1f | \n"
+      let not_max = Perf.max ~unit_:`Us not_processing in 
+      let not_avg = Perf.avg ~reset:() ~unit_:`Us not_processing in  
+      Lwt_io.printf "[%2i, %s] | %7.0f | %7.0f | %8.0f | %8i | %4.1f | %5.1f | %6.0f | %6.1f | %7.1f | %7.1f | %5.1f ( %6.1f) |\n"
         id
         (string_of_server_role !server_role)
         (Counter.rate raft_msg_recv)
@@ -85,6 +90,8 @@ let print_stats_t t =
         (Counter.rate append_failures)
         (Perf.avg ~reset:() ~unit_:`Us msg_processing)
         (Perf.avg ~reset:() ~unit_:`Us hb_processing)
+        (not_avg)
+        (not_max)
       >>=(fun () -> aux (counter - 1) ()) 
     )
   in
@@ -105,6 +112,7 @@ let make ?print_header ~initial_log_size ~id () =
     client_requests = Counter.make ();
     msg_processing= Perf.make (); 
     hb_processing = Perf.make (); 
+    not_processing = Perf.make (); 
     append_failures = Counter.make (); 
     print_stats_t = Lwt.return_unit;
     print_header;
@@ -137,6 +145,8 @@ let tick_append_entries_failure {append_failures; _}  =
 let msg_processing {msg_processing; _} = msg_processing
 
 let hb_processing  {hb_processing; _} = hb_processing 
+
+let not_processing  {not_processing; _} = not_processing 
 
 let set_server_role t server_role = 
   t.server_role := (Some server_role)

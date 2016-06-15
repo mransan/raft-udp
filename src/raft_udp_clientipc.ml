@@ -4,13 +4,14 @@ open Lwt_log_core
 module U            = Lwt_unix
 module Conf         = Raft_udp_conf
 module Server_stats = Raft_udp_serverstats
-module Pb           = Raft_udp_pb
+module UPb          = Raft_udp_pb
+module APb          = Raft_app_pb 
 
 type handle = Lwt_unix.file_descr
 
-type client_request = Pb.client_request * handle
+type client_request = APb.client_request * handle
 
-type send_response_f = (Pb.client_response * handle) option -> unit 
+type send_response_f = (APb.client_response * handle) option -> unit 
 
 let section = Section.make (Printf.sprintf "%10s" "ClientIPC")
 
@@ -134,7 +135,7 @@ let get_next_client_request_f logger =
 
       | nb_bytes_received -> begin
         let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 nb_bytes_received) in
-        begin match Pb.decode_client_request decoder with
+        begin match APb.decode_client_request decoder with
         | req ->
           Lwt.return (Event.Client_connection_read_ok (req, fd))
 
@@ -163,7 +164,7 @@ let create_response_stream logger () =
     Lwt_stream.map_s (fun (response, fd) ->
 
       let encoder = Pbrt.Encoder.create () in
-      Pb.encode_client_response response encoder;
+      APb.encode_client_response response encoder;
       let buffer = Pbrt.Encoder.to_bytes encoder in
       let buffer_len = Bytes.length buffer in
 

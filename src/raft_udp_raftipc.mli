@@ -12,15 +12,15 @@ type event =
 
 type next_raft_message_f = unit -> event Lwt.t  
 
-type client_request   = Raft_udp_pb.client_request * Raft_udp_clientipc.handle
+type client_request   = Raft_app_pb.client_request * Raft_udp_clientipc.handle
 
-type client_response  = Raft_udp_pb.client_response * Raft_udp_clientipc.handle 
+type client_response  = Raft_app_pb.client_response * Raft_udp_clientipc.handle 
 
 type client_responses = client_response list 
 
-type app_requests = Raft_udp_pb.app_request list 
+type app_requests = Raft_app_pb.app_request list 
 
-type app_response = Raft_udp_pb.app_response 
+type app_response = Raft_app_pb.app_response 
 
 type connection_state 
 (** Abstract type which internally capture the necessary information to 

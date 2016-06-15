@@ -1,7 +1,8 @@
 open Lwt_log_core
 open Lwt.Infix 
 
-module Pb           = Raft_udp_pb
+module UPb          = Raft_udp_pb
+module APb          = Raft_app_pb
 module Server_stats = Raft_udp_serverstats
 module Counter      = Raft_udp_counter
 module Client_ipc   = Raft_udp_clientipc 
@@ -10,16 +11,16 @@ module Log_record   = Raft_udp_logrecord
 module Conf         = Raft_udp_conf
 
 module RState = Raft_state
-module RLog = Raft_log
-module RPb = Raft_pb 
+module RLog   = Raft_log
+module RPb    = Raft_pb 
 
 type raft_message     = RPb.message * int 
 type raft_messages    = raft_message list 
-type client_request   = Raft_udp_pb.client_request * Raft_udp_clientipc.handle
-type client_response  = Raft_udp_pb.client_response * Raft_udp_clientipc.handle 
+type client_request   = Raft_app_pb.client_request * Raft_udp_clientipc.handle
+type client_response  = Raft_app_pb.client_response * Raft_udp_clientipc.handle 
 type client_responses = client_response list 
-type app_requests = Raft_udp_pb.app_request list 
-type app_response = Raft_udp_pb.app_response 
+type app_requests = Raft_app_pb.app_request list 
+type app_response = Raft_app_pb.app_response 
 type notifications = RPb.notification list
 
 let section = Section.make (Printf.sprintf "%10s" "RaftIPC")
@@ -103,10 +104,10 @@ type connection_state = {
 
 let initialize configuration = 
 
-  let server_addresses = List.map (fun ({Pb.raft_id} as server_config) ->
+  let server_addresses = List.map (fun ({UPb.raft_id} as server_config) ->
     let fd = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM 0 in
     (raft_id, (Conf.sockaddr_of_server_config `Raft server_config, fd))
-  ) configuration.Pb.servers_ipc_configuration in
+  ) configuration.UPb.servers_ipc_configuration in
 
   let (
     outgoing_message_stream, 
@@ -162,34 +163,37 @@ type state = {
 
 type result = (state * client_responses * app_requests) 
 
-let handle_notifications logger connection_state compaction_handle notifications = 
+let handle_notifications logger stats connection_state compaction_handle notifications = 
 
   (* 
    * Go over each notifications and compute the client response by looking
    * up the map of pending request. 
    *)
-  let connection_state, client_responses = List.fold_left (fun acc notification ->
+  let connection_state, client_responses = 
+    Counter.Perf.f1 (Server_stats.not_processing stats) (fun notifications -> 
+      List.fold_left (fun acc notification ->
 
-    match notification with
-    | RPb.Committed_data {RPb.rev_log_entries} -> 
-      let ids = List.map (fun ({RPb.id; _ }:RPb.log_entry) -> id) rev_log_entries in 
-      List.fold_left (fun (connection_state, client_responses) id -> 
-        let {pending_requests; _ }   = connection_state in 
-        let pending_requests, client_request = Pending_requests.get pending_requests id in 
-        let connection_state = {connection_state with pending_requests } in 
-        match client_request with
-        | None -> 
-          (connection_state, client_responses) 
-        | Some (_, handle) -> 
-          (connection_state, ((Pb.Add_log_success, handle)::client_responses))
-      ) acc ids 
+      match notification with
+      | RPb.Committed_data {RPb.rev_log_entries} -> 
+        let ids = List.map (fun ({RPb.id; _ }:RPb.log_entry) -> id) rev_log_entries in 
+        List.fold_left (fun (connection_state, client_responses) id -> 
+          let {pending_requests; _ }   = connection_state in 
+          let pending_requests, client_request = Pending_requests.get pending_requests id in 
+          let connection_state = {connection_state with pending_requests } in 
+          match client_request with
+          | None -> 
+            (connection_state, client_responses) 
+          | Some (_, handle) -> 
+            (connection_state, ((APb.Add_log_success, handle)::client_responses))
+        ) acc ids 
 
-    | RPb.New_leader _
-    | RPb.No_leader  -> 
-      (* TODO need to go through all the pending requests. 
-       *)
-      acc
-    ) (connection_state, []) notifications
+      | RPb.New_leader _
+      | RPb.No_leader  -> 
+        (* TODO need to go through all the pending requests. 
+         *)
+        acc
+      ) (connection_state, []) notifications  
+    ) notifications 
   in
 
   (* 
@@ -231,7 +235,7 @@ let handle_raft_message ~logger ~stats ~now state msg =
 
     let (raft_state, outgoing_messages, notifications) = ret in 
 
-    handle_notifications logger  connection_state log_record_handle notifications 
+    handle_notifications logger stats connection_state log_record_handle notifications 
     >>=(fun (connection_state, client_responses) ->
       send_raft_messages ~logger ~stats (raft_state.RState.id) connection_state outgoing_messages
       >|= (fun () -> 
@@ -263,7 +267,7 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
 
   >>=(fun (raft_state, outgoing_messages, notifications) ->
 
-    handle_notifications logger  connection_state log_record_handle notifications 
+    handle_notifications logger stats connection_state log_record_handle notifications 
     >>=(fun (connection_state, client_responses) ->
       send_raft_messages ~logger ~stats (raft_state.RState.id) connection_state outgoing_messages
       >|= (fun () -> 
@@ -279,23 +283,17 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
   let { raft_state; connection_state; _ } = state in 
   let {pending_requests; _ } = connection_state in 
 
-  let pending_requests, log_entries = List.fold_left (fun (pending_requests, log_entries) ((client_request, _ ) as r) ->
+  let pending_requests, txs = List.fold_left (fun (pending_requests, txs) ((client_request, _ ) as r) ->
     match client_request with
-    | Pb.Add_log ({Pb.request_id;_} as log_entry) -> 
-      let pending_requests = Pending_requests.add pending_requests request_id r in 
-      let log_entries = log_entry::log_entries in 
-      (pending_requests, log_entries) 
+    | APb.Add_tx ({APb.tx_id;_} as tx) -> 
+      let pending_requests = Pending_requests.add pending_requests tx_id r in 
+      let txs = tx::txs in 
+      (pending_requests, txs) 
   ) (pending_requests, []) client_requests in
   
   incr debug_id; 
 
-  let app_request = Pb.{
-    app_request_debug_info = {
-      raft_server_id = raft_state.RState.id; 
-      debug_id = !debug_id; 
-    }; 
-    app_request_payload = Validate_logs {log_entries};
-  } in 
+  let app_request = APb.(Validate_txs {txs}) in 
 
   let connection_state = {connection_state with pending_requests} in 
   Lwt.return (
@@ -306,11 +304,11 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
       
 let process_validation logger (pending_requests, client_requests, client_responses) validation = 
   let {
-    Pb.request_id; 
-    Pb.result
+    APb.tx_id; 
+    APb.result
   } = validation in 
   
-  let pending_requests, client_request = Pending_requests.get pending_requests request_id in 
+  let pending_requests, client_request = Pending_requests.get pending_requests tx_id in 
 
   match client_request, result with
   | None, _ -> 
@@ -323,21 +321,21 @@ let process_validation logger (pending_requests, client_requests, client_respons
       (pending_requests, client_requests, client_responses)
     ) 
 
-  | Some ((Pb.Add_log _, _ ) as r), Pb.Success -> 
+  | Some ((APb.Add_tx _, _ ) as r), APb.Success -> 
     (* Validation is successful and the corresponding client request  
      * has been retrieved, we can insert start the addition of the request
      * from the RAFT protocol point of view. 
      *) 
     Lwt.return (pending_requests, r::client_requests, client_responses) 
 
-  | Some (_, handle), Pb.Failure {Pb.error_message; error_code}  -> 
+  | Some (_, handle), APb.Failure {APb.error_message; error_code}  -> 
     (* Validation has failed, the log entry is rejected. The failure is propagated 
      * back to the client which initiated the request and the log entry is never
      * created in the RAFT consensus. 
      *)
     log_f ~logger ~level:Notice ~section "Validation failure from App, code: %i, msg: %s" error_code error_message
     >|=(fun () -> 
-      let client_response = Pb.Add_log_validation_failure in 
+      let client_response = APb.Add_log_validation_failure in 
       let client_response = (client_response, handle) in 
       (pending_requests, client_requests, client_response::client_responses)
     )
@@ -346,20 +344,16 @@ let handle_app_response ~logger ~stats ~now state app_response =
 
   let { raft_state; connection_state; _ } = state in 
   let { pending_requests; _} = connection_state in 
-  let { 
-    Pb.app_response_debug_info; 
-    app_response_payload;
-  } = app_response in 
 
-  match app_response_payload with
-  | Pb.Commit_log_ack _ -> assert(false)
-  | Pb.Validations {Pb.validations} -> 
+  match app_response with
+  | APb.Commit_tx_ack _ -> assert(false)
+  | APb.Validations {APb.validations} -> 
 
     Lwt_list.fold_left_s (process_validation logger) (pending_requests, [], []) validations
     >>=(fun (pending_requests, client_requests, client_responses) ->
     
       let datas = List.map (function
-        | Pb.Add_log {Pb.data; request_id}, _ -> (data, request_id) 
+        | APb.Add_tx {APb.tx_data; tx_id}, _ -> (tx_data, tx_id) 
       ) client_requests in 
 
       let new_log_response  = 
@@ -376,7 +370,7 @@ let handle_app_response ~logger ~stats ~now state app_response =
           let state = {state with connection_state} in 
 
           let client_responses = List.fold_left (fun client_responses (_, handle) -> 
-            (Pb.(Add_log_not_a_leader {
+            (APb.(Add_log_not_a_leader {
              leader_id = RState.current_leader raft_state
             }), handle)::client_responses
           ) client_responses client_requests in  
@@ -391,8 +385,8 @@ let handle_app_response ~logger ~stats ~now state app_response =
 
 
           let pending_requests = List.fold_left (fun pending_requests -> function
-            | (Pb.Add_log {Pb.request_id; _}, _) as r -> 
-                Pending_requests.add pending_requests request_id r 
+            | (APb.Add_tx {APb.tx_id ; _}, _) as r -> 
+                Pending_requests.add pending_requests tx_id r 
           ) pending_requests client_requests in 
           let connection_state = {connection_state with pending_requests; } in  
 

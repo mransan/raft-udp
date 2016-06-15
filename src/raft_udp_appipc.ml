@@ -1,13 +1,14 @@
 open Lwt_log_core
 open Lwt.Infix 
 
-module Pb = Raft_udp_pb 
+module UPb = Raft_udp_pb 
+module APb = Raft_app_pb
 module Pb_util = Raft_udp_pbutil
 module U = Lwt_unix
 
-type send_app_request_f  = Raft_udp_pb.app_request option -> unit 
+type send_app_request_f  = Raft_app_pb.app_request option -> unit 
 
-type t = send_app_request_f * Raft_udp_pb.app_response Lwt_stream.t 
+type t = send_app_request_f * Raft_app_pb.app_response Lwt_stream.t 
 
 let section = Section.make (Printf.sprintf "%10s" "AppIPC")
 
@@ -23,10 +24,10 @@ module Event = struct
     | Connection_established of Lwt_unix.file_descr
       (* The connection is established to the App server *)
 
-    | App_request  of Pb.app_request 
+    | App_request  of APb.app_request 
       (* An App request is requested to be sent *)
 
-    | App_response of Pb.app_response 
+    | App_response of APb.app_response 
       (* An App response is received from the App server *)
 
   (* Builder functions *)
@@ -48,7 +49,7 @@ module Event = struct
 
 end 
 
-let connect logger {Pb.app_server_port; _} () = 
+let connect logger {UPb.app_server_port; _} () = 
   let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", app_server_port) in 
   let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
   Lwt.catch (fun () -> 
@@ -85,7 +86,7 @@ let next_response =
        >>=(fun () ->
 
          let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 received) in 
-         match Pb.decode_app_response decoder with
+         match APb.decode_app_response decoder with
          | app_response -> (
            log_f ~logger ~level:Notice ~section "Response decoded with success: %s"
              (Pb_util.string_of_app_response app_response) 
@@ -103,7 +104,7 @@ let next_response =
 let send_request logger configuration fd app_request = 
   let bytes = 
     let encoder = Pbrt.Encoder.create () in 
-    Pb.encode_app_request  app_request encoder; 
+    APb.encode_app_request  app_request encoder; 
     Pbrt.Encoder.to_bytes encoder 
   in 
   let bytes_len = Bytes.length bytes in 
@@ -112,8 +113,8 @@ let send_request logger configuration fd app_request =
     | 0 -> Event.failure_lwt "Failed to send request to APP server"
     | n -> 
       assert(n = bytes_len); 
-      log_f ~logger ~level:Notice ~section "App request successfully sent (%s)" 
-        (Pb_util.string_of_debug_info app_request.Pb.app_request_debug_info )
+      log_f ~logger ~level:Notice ~section "App request successfully sent:\n%s" 
+        (Pb_util.string_of_app_request app_request)
 
       >>= next_response logger configuration fd
   )  

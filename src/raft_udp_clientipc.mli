@@ -11,13 +11,13 @@ type handle
   * Internally this is the file descriptor. 
   *)
 
-type client_request = Raft_udp_pb.client_request * handle
+type client_request = Raft_app_pb.client_request * handle
 (* type client_request  = Raft_udp_pb.client_request * handle 
  *)
 
 (** Client request type *)
 
-type send_response_f = (Raft_udp_pb.client_response * handle) option -> unit 
+type send_response_f = (Raft_app_pb.client_response * handle) option -> unit 
 (** Sender function for the caller to send a response 
  *)
 

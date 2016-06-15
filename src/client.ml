@@ -3,7 +3,8 @@ open Lwt_log_core
 
 module Conf = Raft_udp_conf
 module U    = Lwt_unix
-module Pb   = Raft_udp_pb
+module UPb  = Raft_udp_pb
+module APb  = Raft_app_pb
 
 
 module Ext = struct
@@ -23,7 +24,7 @@ module Event = struct
     | Connection_closed 
       (* The connection with a server closed (brutal) 
        *)
-    | Response of Pb.client_response 
+    | Response of APb.client_response 
       (* The leader replied a response *)
     | Failure of string  
       (* System failure (unexpected) *)
@@ -59,7 +60,7 @@ module State = struct
       (* Successful on going connection with the leader *)
 
   type t = {
-    configuration : Pb.configuration; 
+    configuration : UPb.configuration; 
     leader : leader;
   }
 
@@ -86,7 +87,7 @@ module State = struct
     {state with leader}
 
   let next ({configuration; leader} as state) = 
-    let nb_of_servers = List.length (configuration.Pb.servers_ipc_configuration) in 
+    let nb_of_servers = List.length (configuration.UPb.servers_ipc_configuration) in 
     let next = match leader with
       | Established (i, _)  -> (i + 1) mod nb_of_servers
       | No                  -> 0
@@ -145,7 +146,7 @@ let send_request logger ({State.leader; _ } as state) client_request =
      Lwt.return (Event.Failure "Internal error, requests can only be sent to established leader") 
   | State.Established (server_id, fd) -> 
     let encoder = Pbrt.Encoder.create () in
-    Pb.encode_client_request client_request encoder;
+    APb.encode_client_request client_request encoder;
     let buffer     = Pbrt.Encoder.to_bytes encoder in
     let buffer_len = Bytes.length buffer in
 
@@ -165,7 +166,7 @@ let send_request logger ({State.leader; _ } as state) client_request =
                 if bytes_read <> 0 && bytes_read <> 1024
                 then
                   let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 bytes_read) in
-                  Event.response_lwt (Pb.decode_client_response decoder) ()
+                  Event.response_lwt (APb.decode_client_response decoder) ()
                 else
                   Event.connection_closed fd () 
               )
@@ -183,9 +184,9 @@ let unique_request_id = ref 0
 
 let test_add_log_request () = 
   incr unique_request_id; 
-  Pb.(Add_log {
-    request_id = Printf.sprintf "%06i|%09i" (Unix.getpid()) !unique_request_id;
-    data = Bytes.of_string (String.make (Random.int 10) 'a');
+  APb.(Add_tx {
+    tx_id = Printf.sprintf "%06i|%09i" (Unix.getpid()) !unique_request_id;
+    tx_data = Bytes.of_string (String.make (Random.int 10) 'a');
   })
 
 let rec server_loop logger state count e =
@@ -205,7 +206,7 @@ let rec server_loop logger state count e =
       >>= server_loop logger state count
     ) 
 
-  | Event.Response Pb.Add_log_success -> 
+  | Event.Response APb.Add_log_success -> 
     begin if (count mod 1000) = 0
     then 
       Lwt_io.printlf "Success ... [%10i] [%s]" count (State.string_of_state state) 
@@ -218,10 +219,10 @@ let rec server_loop logger state count e =
       >>= server_loop logger state (count + 1)
     ) 
   
-  | Event.Response Pb.Add_log_validation_failure -> 
+  | Event.Response APb.Add_log_validation_failure -> 
     server_loop logger state count @@ Event.failure "Validation failure" ()
 
-  | Event.Response Pb.Add_log_not_a_leader {Pb.leader_id;} -> 
+  | Event.Response APb.Add_log_not_a_leader {APb.leader_id;} -> 
     Lwt_io.printlf "Not a leader received, leader hint : %s"
       @@ (Ext.string_of_option string_of_int leader_id ) 
     >>=(fun () -> 

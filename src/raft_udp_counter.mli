@@ -54,5 +54,7 @@ module Perf : sig
    *) 
   
   val avg : ?reset:unit -> ?unit_:[`Us | `Ms]  -> t -> float 
+
+  val max : ?unit_:[`Us | `Ms] -> t -> float 
  
 end 

@@ -101,4 +101,10 @@ module Perf = struct
     | Some () -> reset t
     end;
     r
+
+  let max ?unit_ {max; _} = 
+    match unit_ with
+    | None -> max 
+    | Some `Ms -> max *. 1_000. 
+    | Some `Us -> max *. 1_000_000.  
 end

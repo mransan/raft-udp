@@ -31,6 +31,8 @@ val msg_processing : t -> Raft_udp_counter.Perf.t
 
 val hb_processing : t -> Raft_udp_counter.Perf.t 
 
+val not_processing : t -> Raft_udp_counter.Perf.t 
+
 type server_role =
   | Leader
   | Follower

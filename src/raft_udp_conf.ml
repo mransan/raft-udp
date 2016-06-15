@@ -4,7 +4,7 @@ module RPb = Raft_pb
 
 let default_configuration () = Pb.({
   raft_configuration = RPb.({
-    nb_of_server = 9;
+    nb_of_server = 5;
     election_timeout = 1.00;
     election_timeout_range = 0.25;
     hearbeat_timeout = 0.2;
@@ -17,10 +17,12 @@ let default_configuration () = Pb.({
     {raft_id = 2; inet4_address = "127.0.0.1"; raft_port = 34767; client_port = 34867};
     {raft_id = 3; inet4_address = "127.0.0.1"; raft_port = 34768; client_port = 34868};
     {raft_id = 4; inet4_address = "127.0.0.1"; raft_port = 34769; client_port = 34869};
+    (*
     {raft_id = 5; inet4_address = "127.0.0.1"; raft_port = 34760; client_port = 34860};
     {raft_id = 6; inet4_address = "127.0.0.1"; raft_port = 34761; client_port = 34861};
     {raft_id = 7; inet4_address = "127.0.0.1"; raft_port = 34762; client_port = 34862};
     {raft_id = 8; inet4_address = "127.0.0.1"; raft_port = 34763; client_port = 34863};
+    *)
   ];
   disk_backup = {
     compaction_period = 1.;
