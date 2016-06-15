@@ -1,4 +1,10 @@
-OCB_INC   = -I src -I tests 
+OCB_INC  += -I src/app 
+OCB_INC  += -I src/clt
+OCB_INC  += -I src/com 
+OCB_INC  += -I src/svc 
+OCB_INC  += -I src/utl
+OCB_INC  += -I tests/
+
 OCB_FLAGS = -use-ocamlfind -pkgs ocaml-protoc -pkgs raft -pkgs lwt.unix
 OCB       = ocamlbuild $(OCB_FLAGS) $(OCB_INC)
 
@@ -18,8 +24,8 @@ test:
 	$(OCB) start_all_clients.native
 
 gen:
-	ocaml-protoc -I ../raft.git/src/ -ml_out src src/raft_udp.proto
-	ocaml-protoc -I ../raft.git/src/ -ml_out src src/raft_app.proto
+	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_udp.proto
+	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_app.proto
 
 lib.native:
 	$(OCB) raft_udp.cmxa
