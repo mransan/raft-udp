@@ -14,17 +14,15 @@ let string_of_sockaddr = function
   | Unix.ADDR_INET (addr, port) -> 
     Printf.sprintf "ADDR_INET(address: %s, port: %i)" (Unix.string_of_inet_addr addr) port
 
+type validation = 
+  | Ok 
+  | Error of string 
+
 module type App_sig  = sig 
 
   type tx 
 
-  val encode : tx -> Pbrt.Encoder.t -> unit 
-
-  val decode : Pbrt.Decoder.t -> tx  
-
-  type validation = 
-    | Ok 
-    | Error of string 
+  val decode : bytes -> tx  
 
   val validate : tx -> validation 
 
@@ -172,11 +170,10 @@ let server_loop logger configuration handle_app_request () =
 module Make(App:App_sig) = struct 
 
   let handle_validate_log {APb.tx_id; APb.tx_data; } = 
-    let decoder    = Pbrt.Decoder.of_bytes tx_data in 
-    let tx         = App.decode decoder in 
+    let tx         = App.decode tx_data in 
     let result     = match App.validate tx with
-      | App.Ok -> APb.Success 
-      | App.Error error_message -> APb.(Failure {
+      | Ok -> APb.Success 
+      | Error error_message -> APb.(Failure {
         error_message; 
         error_code  = 1;
       })  
@@ -190,7 +187,7 @@ module Make(App:App_sig) = struct
   
     | APb.Commit_tx {APb.tx_id; _ } -> APb.(Commit_tx_ack {tx_id})
 
-  let start configuration logger =
+  let start logger configuration =
      server_loop logger configuration handle_app_request ()   
 
 end 

@@ -79,10 +79,10 @@ val encode_configuration : configuration -> Pbrt.Encoder.t -> unit
 (** {2 Formatters} *)
 
 val pp_server_ipc_configuration : Format.formatter -> server_ipc_configuration -> unit 
-(** [pp_server_ipc_configuration v] formats v *)
+(** [pp_server_ipc_configuration v] formats v] *)
 
 val pp_disk_backup_configuration : Format.formatter -> disk_backup_configuration -> unit 
-(** [pp_disk_backup_configuration v] formats v *)
+(** [pp_disk_backup_configuration v] formats v] *)
 
 val pp_configuration : Format.formatter -> configuration -> unit 
-(** [pp_configuration v] formats v *)
+(** [pp_configuration v] formats v] *)

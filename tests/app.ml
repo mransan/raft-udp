@@ -8,10 +8,18 @@ module Conf = Raft_udp_conf
 
 module U  = Lwt_unix 
 
+module Demo_app = Raft_app.Make(struct
 
-module Test = Raft_app 
+  type tx = Demo_pb.tx 
 
-(*
+  let decode bytes = 
+    let decoder = Pbrt.Decoder.of_bytes bytes in 
+    Demo_pb.decode_tx decoder 
+
+  let validate _ = Raft_app.Ok
+
+end)
+
 let main configuration log () = 
   begin 
     if log 
@@ -22,7 +30,9 @@ let main configuration log () =
     else 
       Lwt.return Lwt_log_core.null
   end
-  >>=(fun logger -> server_loop logger configuration ())
+  >>=(fun logger -> 
+    Demo_app.start logger configuration 
+  )
 
 let () = 
   let configuration = Conf.default_configuration () in
@@ -36,4 +46,3 @@ let () =
 
   Sys.set_signal Sys.sigpipe Sys.Signal_ignore ; 
   Lwt_main.run (main configuration !log ())
-*)

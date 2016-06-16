@@ -1,18 +1,14 @@
 
 
-
+type validation = 
+  | Ok 
+  | Error of string 
 
 module type App_sig  = sig 
 
   type tx 
 
-  val encode : tx -> Pbrt.Encoder.t -> unit 
-
-  val decode : Pbrt.Decoder.t -> tx  
-
-  type validation = 
-    | Ok 
-    | Error of string 
+  val decode : bytes -> tx  
 
   val validate : tx -> validation 
 
@@ -20,6 +16,6 @@ end
 
 module Make(App:App_sig) : sig 
 
-  val start : Raft_udp_pb.configuration -> Lwt_log_core.logger -> unit Lwt.t  
+  val start : Lwt_log_core.logger -> Raft_udp_pb.configuration -> unit Lwt.t  
 
 end 

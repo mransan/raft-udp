@@ -198,37 +198,37 @@ val encode_app_response : app_response -> Pbrt.Encoder.t -> unit
 (** {2 Formatters} *)
 
 val pp_tx : Format.formatter -> tx -> unit 
-(** [pp_tx v] formats v *)
+(** [pp_tx v] formats v] *)
 
 val pp_client_request : Format.formatter -> client_request -> unit 
-(** [pp_client_request v] formats v *)
+(** [pp_client_request v] formats v] *)
 
 val pp_client_response_add_log_not_aleader : Format.formatter -> client_response_add_log_not_aleader -> unit 
-(** [pp_client_response_add_log_not_aleader v] formats v *)
+(** [pp_client_response_add_log_not_aleader v] formats v] *)
 
 val pp_client_response : Format.formatter -> client_response -> unit 
-(** [pp_client_response v] formats v *)
+(** [pp_client_response v] formats v] *)
 
 val pp_app_request_validate_txs : Format.formatter -> app_request_validate_txs -> unit 
-(** [pp_app_request_validate_txs v] formats v *)
+(** [pp_app_request_validate_txs v] formats v] *)
 
 val pp_app_request : Format.formatter -> app_request -> unit 
-(** [pp_app_request v] formats v *)
+(** [pp_app_request v] formats v] *)
 
 val pp_app_response_validation_failure : Format.formatter -> app_response_validation_failure -> unit 
-(** [pp_app_response_validation_failure v] formats v *)
+(** [pp_app_response_validation_failure v] formats v] *)
 
 val pp_app_response_validation_result : Format.formatter -> app_response_validation_result -> unit 
-(** [pp_app_response_validation_result v] formats v *)
+(** [pp_app_response_validation_result v] formats v] *)
 
 val pp_app_response_validation : Format.formatter -> app_response_validation -> unit 
-(** [pp_app_response_validation v] formats v *)
+(** [pp_app_response_validation v] formats v] *)
 
 val pp_app_response_validations : Format.formatter -> app_response_validations -> unit 
-(** [pp_app_response_validations v] formats v *)
+(** [pp_app_response_validations v] formats v] *)
 
 val pp_app_response_commit_tx_ack : Format.formatter -> app_response_commit_tx_ack -> unit 
-(** [pp_app_response_commit_tx_ack v] formats v *)
+(** [pp_app_response_commit_tx_ack v] formats v] *)
 
 val pp_app_response : Format.formatter -> app_response -> unit 
-(** [pp_app_response v] formats v *)
+(** [pp_app_response v] formats v] *)
