@@ -44,7 +44,6 @@ module  Event = struct
       (** A connection was closed *)
     
     | Response_sent of Lwt_unix.file_descr
-      (** A connection was closed *)
 
   let close_connection fd () = 
     U.close fd >|= (fun () -> Connection_close) 
@@ -54,6 +53,9 @@ module  Event = struct
 
   let new_connection fd () = 
     New_connection fd
+
+  let new_request app_request fd () = 
+    New_request (app_request, fd) 
 end 
 
 let get_next_connection_f logger {UPb.app_server_port; _} () =
@@ -94,17 +96,31 @@ let next_request  =
     Lwt.catch (fun () ->
       U.read fd buffer 0 1024 
       >>=(function
-        | 0 -> Event.close_connection fd () 
+        | 0 -> 
+          log ~logger ~level:Warning "Connection closed by client (read size = 0)" 
+          >>= Event.close_connection fd
+
+        | 1024 -> 
+          log ~logger ~level:Warning "Larger then expected request from client... closing connection" 
+          >>= Event.close_connection fd
+          
         | n -> 
           log_f ~logger ~level:Notice "Request received, size: %i" n
           >>=(fun () -> 
-            let app_request = decode_request (Bytes.sub buffer 0 n) in 
-            log_f ~logger ~level:Notice "Request decoded: %s" (Pb_util.string_of_app_request app_request)
-            >|=(fun () -> Event.New_request (app_request, fd))
+            match decode_request (Bytes.sub buffer 0 n) with
+            | app_request ->
+              log_f ~logger ~level:Notice "Request decoded: %s" (Pb_util.string_of_app_request app_request)
+              >|= Event.new_request app_request fd 
+
+            | exception exn -> 
+              log_f ~logger ~level:Error "Failed to decode request, details: %s" (Printexc.to_string exn)
+              >>= Event.close_connection fd 
+              
           )
       ) 
     ) (* with *) (fun exn -> 
-      Event.close_connection fd () 
+      log_f ~logger ~level:Error "Failed to read new request, details: %s" (Printexc.to_string exn)
+      >>= Event.close_connection fd
     ) 
 
 let send_app_response logger fd app_response = 
@@ -114,20 +130,24 @@ let send_app_response logger fd app_response =
     APb.encode_app_response  app_response encoder; 
     Pbrt.Encoder.to_bytes encoder 
   in
-  let len   = Bytes.length bytes in 
+  let len = Bytes.length bytes in 
 
   (* Send the bytes *)
   Lwt.catch (fun () -> 
     U.write fd bytes 0 len
     >>=(function
       | 0 -> Event.close_connection fd () 
-      | n -> assert(len = n); 
-        log_f ~logger ~level:Notice "Response sent (size: %i): %s" n 
+      | n -> 
+        assert(len = n); 
+        log_f ~logger ~level:Notice "Response sent (byte length: %i): %s" n 
           (Pb_util.string_of_app_response app_response)
         >|= Event.response_sent fd 
     )  
   ) (* with *) (fun exn -> 
-    Event.close_connection fd () 
+    log_f ~logger ~level:Error "Failed to send response, details: %s, response: %s" 
+      (Printexc.to_string exn) 
+      (Pb_util.string_of_app_response app_response) 
+    >>= Event.close_connection fd 
   ) 
 
 let server_loop logger configuration handle_app_request () =

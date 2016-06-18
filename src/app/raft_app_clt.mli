@@ -18,4 +18,5 @@ type send_result =
 module Make(App:App_sig) : sig 
 
   val send : t -> App.tx -> send_result Lwt.t 
+
 end

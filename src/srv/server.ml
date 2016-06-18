@@ -10,7 +10,6 @@ module RState = Raft_state
 module UPb = Raft_udp_pb
 module APb = Raft_app_pb
 module Conf = Raft_udp_conf
-module Counter = Raft_udp_counter
 module Server_stats = Raft_udp_serverstats
 module Raft_ipc = Raft_udp_raftipc
 module Client_ipc = Raft_udp_clientipc

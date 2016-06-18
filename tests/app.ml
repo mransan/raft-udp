@@ -8,7 +8,7 @@ module Conf = Raft_udp_conf
 
 module U  = Lwt_unix 
 
-module Demo_app = Raft_app.Make(struct
+module Demo_srv = Raft_app_srv.Make(struct
 
   type tx = Demo_pb.tx 
 
@@ -16,7 +16,7 @@ module Demo_app = Raft_app.Make(struct
     let decoder = Pbrt.Decoder.of_bytes bytes in 
     Demo_pb.decode_tx decoder 
 
-  let validate _ = Raft_app.Ok
+  let validate _ = Raft_app_srv.Ok
 
 end)
 
@@ -31,7 +31,7 @@ let main configuration log () =
       Lwt.return Lwt_log_core.null
   end
   >>=(fun logger -> 
-    Demo_app.start logger configuration 
+    Demo_srv.start logger configuration 
   )
 
 let () = 

@@ -1,7 +1,7 @@
 OCB_INC  += -I src/app 
 OCB_INC  += -I src/clt
 OCB_INC  += -I src/com 
-OCB_INC  += -I src/svc 
+OCB_INC  += -I src/srv 
 OCB_INC  += -I src/utl
 OCB_INC  += -I tests/
 

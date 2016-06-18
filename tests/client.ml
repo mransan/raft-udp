@@ -2,7 +2,7 @@ open Lwt.Infix
 
 module Conf = Raft_udp_conf 
 
-module Demo_app = Raft_clt.Make(struct
+module Demo_clt = Raft_app_clt.Make(struct
 
   type tx = Demo_pb.tx 
 
@@ -14,29 +14,29 @@ module Demo_app = Raft_clt.Make(struct
 end)
 
 
-let send_single_request logger configuration () =
-  Raft_clt.make logger configuration 
-  >>=(fun client -> 
-
-    Demo_app.send client {Demo_pb.hello_who = "Maxime please"}
-  )  
+let rec loop client () = 
+  Demo_clt.send client {Demo_pb.hello_who = "Maxime please"}
   >|=(function
-    | Raft_clt.Ok -> Printf.printf "OK...\n"
-    | Raft_clt.Error msg -> Printf.eprintf "Error, details: %s\n" msg
+    | Raft_app_clt.Ok -> () 
+    | Raft_app_clt.Error msg -> Printf.eprintf "Error, details: %s\n" msg
   )
-
+  >>= loop client
 
 let main log () = 
   begin 
     if log 
     then 
       let file_name = Printf.sprintf "client%i.log" (Unix.getpid ()) in 
+      Printf.printf "log file: %s\n%!" file_name;
       let template  = "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" in
       Lwt_log.file ~mode:`Truncate ~template ~file_name ()
     else 
       Lwt.return Lwt_log_core.null 
   end 
-  >>=(fun logger -> send_single_request logger (Conf.default_configuration ()) ()) 
+  >>=(fun logger -> 
+    Raft_app_clt.make logger (Conf.default_configuration ()) 
+  ) 
+  >>= (fun client -> loop client ()) 
 
 let () =
   let log = ref false in 

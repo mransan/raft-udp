@@ -1,10 +1,11 @@
 open Lwt_log_core
 open Lwt.Infix 
 
+module Counter      = Raft_utl_counter
+
 module UPb          = Raft_udp_pb
 module APb          = Raft_app_pb
 module Server_stats = Raft_udp_serverstats
-module Counter      = Raft_udp_counter
 module Client_ipc   = Raft_udp_clientipc 
 module Log          = Raft_udp_log 
 module Log_record   = Raft_udp_logrecord
