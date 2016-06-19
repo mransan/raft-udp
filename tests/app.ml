@@ -8,17 +8,6 @@ module Conf = Raft_udp_conf
 
 module U  = Lwt_unix 
 
-module Demo_srv = Raft_app_srv.Make(struct
-
-  type tx = Demo_pb.tx 
-
-  let decode bytes = 
-    let decoder = Pbrt.Decoder.of_bytes bytes in 
-    Demo_pb.decode_tx decoder 
-
-  let validate _ = Raft_app_srv.Ok
-
-end)
 
 let main configuration log () = 
   begin 
@@ -31,6 +20,34 @@ let main configuration log () =
       Lwt.return Lwt_log_core.null
   end
   >>=(fun logger -> 
+
+    let module Demo_srv = Raft_app_srv.Make(struct
+    
+      type tx = Demo_pb.tx 
+    
+      let decode bytes = 
+        let decoder = Pbrt.Decoder.of_bytes bytes in 
+        Demo_pb.decode_tx decoder 
+    
+      let counter_values = ref []
+    
+      let validate {Demo_pb.counter_value; process_id } = 
+        let ok = 
+          match !counter_values with
+          | [] -> true 
+          | (last_counter_value,  _ )::_ -> last_counter_value < counter_value 
+        in
+        if ok 
+        then begin 
+          counter_values := (counter_value, process_id) :: !counter_values;
+          ign_log_f ~logger ~level:Notice "Added: (%06i, %6i) \n" counter_value process_id;
+          Raft_app_srv.Ok
+        end
+        else 
+          Raft_app_srv.Error "not a valid counter value"
+    
+    end) in
+
     Demo_srv.start logger configuration 
   )
 

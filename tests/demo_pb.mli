@@ -3,14 +3,16 @@
 (** {2 Types} *)
 
 type tx = {
-  hello_who : string;
+  counter_value : int;
+  process_id : int;
 }
 
 
 (** {2 Default values} *)
 
 val default_tx : 
-  ?hello_who:string ->
+  ?counter_value:int ->
+  ?process_id:int ->
   unit ->
   tx
 (** [default_tx ()] is the default value for type [tx] *)

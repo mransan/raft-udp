@@ -14,13 +14,16 @@ module Demo_clt = Raft_app_clt.Make(struct
 end)
 
 
-let rec loop client () = 
-  Demo_clt.send client {Demo_pb.hello_who = "Maxime please"}
+let rec loop client counter_value () = 
+  Demo_clt.send client Demo_pb.({
+    counter_value; 
+    process_id = Unix.getpid (); 
+  }) 
   >|=(function
     | Raft_app_clt.Ok -> () 
     | Raft_app_clt.Error msg -> Printf.eprintf "Error, details: %s\n" msg
   )
-  >>= loop client
+  >>= loop client (counter_value + 1) 
 
 let main log () = 
   begin 
@@ -36,7 +39,7 @@ let main log () =
   >>=(fun logger -> 
     Raft_app_clt.make logger (Conf.default_configuration ()) 
   ) 
-  >>= (fun client -> loop client ()) 
+  >>= (fun client -> loop client 0 ()) 
 
 let () =
   let log = ref false in 
