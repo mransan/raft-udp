@@ -40,6 +40,8 @@ module  Event = struct
     | New_request    of APb.app_request * Lwt_unix.file_descr  
       (** New request successfully received and decoded *)
 
+    | App_response of APb.app_response * Lwt_unix.file_descr  
+
     | Connection_close 
       (** A connection was closed *)
     
@@ -172,7 +174,13 @@ let server_loop logger configuration handle_app_request () =
           (next_connection ())::(next_request logger fd)::non_terminated_threads 
 
         | Event.New_request (request, fd) -> 
-          let response = handle_app_request request in 
+          let t = 
+            handle_app_request request 
+            >|=(fun response -> Event.App_response (response, fd))
+          in 
+          t::non_terminated_threads 
+
+        | Event.App_response (response, fd) -> 
           (send_app_response logger fd response)::non_terminated_threads
 
         | Event.Connection_close -> 
@@ -189,10 +197,11 @@ let server_loop logger configuration handle_app_request () =
 
 module Make(App:App_sig) = struct 
   
-  type validations = App.tx list * (validation list -> unit) 
+  type validations = (string * App.tx ) list * ((string * validation) list -> unit) 
 
-  let handle_validate_log {APb.tx_id; APb.tx_data; } = 
-    let tx         = App.decode tx_data in 
+  let decode_tx {APb.tx_id; APb.tx_data; } = 
+    (tx_id, App.decode tx_data) 
+    (*
     let result     = match App.validate tx with
       | Ok -> APb.Success 
       | Error error_message -> APb.(Failure {
@@ -201,13 +210,32 @@ module Make(App:App_sig) = struct
       })  
     in
     APb.({result; tx_id; })
+   *)
 
-  let handle_app_request = function
+  let handle_app_request request_push = function
     | APb.Validate_txs {APb.txs} ->
-      let validations = List.map handle_validate_log txs in 
-      APb.(Validations {validations}) 
+      let txs = List.map decode_tx txs in 
+      let validations_t, validations_u = Lwt.wait () in  
+      request_push (Some (txs, (fun r -> Lwt.wakeup validations_u r)));
+      validations_t
+      >|=(fun validations -> 
+        List.map (fun (tx_id, result) ->
+         let result = match result with
+           | Ok -> APb.Success 
+           | Error error_message -> APb.(Failure {
+             error_message; 
+             error_code  = 1;
+           })  
+         in 
+         APb.({result; tx_id}) 
+       ) validations 
+      )
+      >|=(fun validations -> 
+        APb.(Validations {validations}) 
+      )
   
-    | APb.Commit_tx {APb.tx_id; _ } -> APb.(Commit_tx_ack {tx_id})
+    | APb.Commit_tx {APb.tx_id; _ } -> 
+      Lwt.return @@ APb.(Commit_tx_ack {tx_id})
 
 
   let start logger configuration =
@@ -215,8 +243,8 @@ module Make(App:App_sig) = struct
        validations_stream, 
        validations_push, 
        validations_set_ref
-     ) = Lwt_stream.create () in 
-     validations_set_ref @@ server_loop logger configuration handle_app_request (); 
+     ) = Lwt_stream.create_with_reference () in 
+     validations_set_ref @@ server_loop logger configuration (handle_app_request validations_push) (); 
      validations_stream
 
 

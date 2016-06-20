@@ -48,7 +48,10 @@ let main configuration log () =
     
     end) in
 
-    Demo_srv.start logger configuration 
+    let request_stream = Demo_srv.start logger configuration  in 
+    Lwt_stream.iter_s (fun r -> 
+      Lwt.return_unit
+    ) request_stream
   )
 
 let () = 
