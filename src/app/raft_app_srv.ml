@@ -188,6 +188,8 @@ let server_loop logger configuration handle_app_request () =
   aux [next_connection ()] 
 
 module Make(App:App_sig) = struct 
+  
+  type validations = App.tx list * (validation list -> unit) 
 
   let handle_validate_log {APb.tx_id; APb.tx_data; } = 
     let tx         = App.decode tx_data in 
@@ -207,7 +209,15 @@ module Make(App:App_sig) = struct
   
     | APb.Commit_tx {APb.tx_id; _ } -> APb.(Commit_tx_ack {tx_id})
 
+
   let start logger configuration =
-     server_loop logger configuration handle_app_request ()   
+     let (
+       validations_stream, 
+       validations_push, 
+       validations_set_ref
+     ) = Lwt_stream.create () in 
+     validations_set_ref @@ server_loop logger configuration handle_app_request (); 
+     validations_stream
+
 
 end 

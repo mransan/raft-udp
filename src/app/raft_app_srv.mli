@@ -15,6 +15,8 @@ end
 
 module Make(App:App_sig) : sig 
 
-  val start : Lwt_log_core.logger -> Raft_udp_pb.configuration -> unit Lwt.t  
+  type validations = App.tx list * (validation list -> unit) 
+
+  val start : Lwt_log_core.logger -> Raft_udp_pb.configuration -> validations Lwt_stream.t 
 
 end 
