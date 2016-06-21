@@ -5,10 +5,10 @@ module Counter      = Raft_utl_counter
 
 module UPb          = Raft_udp_pb
 module APb          = Raft_app_pb
-module Server_stats = Raft_udp_serverstats
-module Client_ipc   = Raft_udp_clientipc 
-module Log          = Raft_udp_log 
-module Log_record   = Raft_udp_logrecord
+module Server_stats = Raft_srv_serverstats
+module Client_ipc   = Raft_srv_clientipc 
+module Log          = Raft_srv_log 
+module Log_record   = Raft_srv_logrecord
 module Conf         = Raft_udp_conf
 
 module RState = Raft_state
@@ -17,8 +17,8 @@ module RPb    = Raft_pb
 
 type raft_message     = RPb.message * int 
 type raft_messages    = raft_message list 
-type client_request   = Raft_app_pb.client_request * Raft_udp_clientipc.handle
-type client_response  = Raft_app_pb.client_response * Raft_udp_clientipc.handle 
+type client_request   = Raft_app_pb.client_request * Raft_srv_clientipc.handle
+type client_response  = Raft_app_pb.client_response * Raft_srv_clientipc.handle 
 type client_responses = client_response list 
 type app_requests = Raft_app_pb.app_request list 
 type app_response = Raft_app_pb.app_response 
@@ -213,7 +213,7 @@ let send_raft_messages ~logger ~stats id connection_state messages  =
 
   Lwt_list.map_p (fun ((msg, server_id) as msg_to_send) ->
     Server_stats.tick_raft_msg_send stats; 
-    Raft_udp_log.print_msg_to_send logger section id msg server_id 
+    Raft_srv_log.print_msg_to_send logger section id msg server_id 
     >|= (fun () -> push_outgoing_message (Some msg_to_send))
   ) messages
   >|= ignore

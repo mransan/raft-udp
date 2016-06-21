@@ -10,12 +10,12 @@ module RState = Raft_state
 module UPb = Raft_udp_pb
 module APb = Raft_app_pb
 module Conf = Raft_udp_conf
-module Server_stats = Raft_udp_serverstats
-module Raft_ipc = Raft_udp_raftipc
-module Client_ipc = Raft_udp_clientipc
-module Compaction = Raft_udp_compaction
-module Log_record = Raft_udp_logrecord
-module App_ipc = Raft_udp_appipc
+module Server_stats = Raft_srv_serverstats
+module Raft_ipc = Raft_srv_raftipc
+module Client_ipc = Raft_srv_clientipc
+module Compaction = Raft_srv_compaction
+module Log_record = Raft_srv_logrecord
+module App_ipc = Raft_srv_appipc
 
 let section = Section.make (Printf.sprintf "%10s" "server")
 

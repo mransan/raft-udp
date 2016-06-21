@@ -15,6 +15,6 @@ type t = send_app_request_f * Raft_app_pb.app_response Lwt_stream.t
 val make : 
   Lwt_log_core.logger ->
   Raft_udp_pb.configuration -> 
-  Raft_udp_serverstats.t -> 
+  Raft_srv_serverstats.t -> 
   t 
 (** [make logger configuration stats] initialize and return the IPC with the APP server. *) 

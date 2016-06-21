@@ -12,9 +12,9 @@ type event =
 
 type next_raft_message_f = unit -> event Lwt.t  
 
-type client_request   = Raft_app_pb.client_request * Raft_udp_clientipc.handle
+type client_request   = Raft_app_pb.client_request * Raft_srv_clientipc.handle
 
-type client_response  = Raft_app_pb.client_response * Raft_udp_clientipc.handle 
+type client_response  = Raft_app_pb.client_response * Raft_srv_clientipc.handle 
 
 type client_responses = client_response list 
 
@@ -36,7 +36,7 @@ type connection_state
 type state = {
   raft_state: Raft_state.t; 
   connection_state: connection_state; 
-  log_record_handle: Raft_udp_logrecord.t
+  log_record_handle: Raft_srv_logrecord.t
 }
 
 type result = (state * client_responses * app_requests) 
@@ -56,7 +56,7 @@ val initialize : Raft_udp_pb.configuration -> connection_state
 
 val handle_raft_message :
   logger: Lwt_log_core.logger    ->
-  stats : Raft_udp_serverstats.t ->
+  stats : Raft_srv_serverstats.t ->
   now   : float -> 
   state -> 
   Raft_pb.message ->
@@ -67,7 +67,7 @@ val handle_raft_message :
 
 val handle_timeout :
   logger: Lwt_log_core.logger    ->
-  stats : Raft_udp_serverstats.t ->
+  stats : Raft_srv_serverstats.t ->
   now   : float -> 
   state ->
   Raft_pb.timeout_event_time_out_type ->
@@ -78,7 +78,7 @@ val handle_timeout :
 
 val handle_client_requests :
   logger: Lwt_log_core.logger    ->
-  stats : Raft_udp_serverstats.t ->
+  stats : Raft_srv_serverstats.t ->
   now   : float -> 
   state ->
   client_request list ->
@@ -89,7 +89,7 @@ val handle_client_requests :
 
 val handle_app_response :
   logger: Lwt_log_core.logger    ->
-  stats : Raft_udp_serverstats.t ->
+  stats : Raft_srv_serverstats.t ->
   now   : float -> 
   state ->
   app_response ->
