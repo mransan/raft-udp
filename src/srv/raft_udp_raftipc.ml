@@ -66,7 +66,7 @@ module Pending_requests = struct
   let add t request_id client_request = 
     StringMap.add request_id client_request t
   
-  let get t request_id =
+  let get_and_remove t request_id =
     match StringMap.find request_id t with
     | client_request ->
       let t = StringMap.remove request_id t  in
@@ -179,7 +179,7 @@ let handle_notifications logger stats connection_state compaction_handle notific
         let ids = List.map (fun ({RPb.id; _ }:RPb.log_entry) -> id) rev_log_entries in 
         List.fold_left (fun (connection_state, client_responses) id -> 
           let {pending_requests; _ }   = connection_state in 
-          let pending_requests, client_request = Pending_requests.get pending_requests id in 
+          let pending_requests, client_request = Pending_requests.get_and_remove pending_requests id in 
           let connection_state = {connection_state with pending_requests } in 
           match client_request with
           | None -> 
@@ -277,11 +277,9 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
     )
   ) 
 
-let debug_id = ref 0 
-
 let handle_client_requests ~logger ~stats ~now  state client_requests = 
 
-  let { raft_state; connection_state; _ } = state in 
+  let {raft_state; connection_state; _ } = state in 
   let {pending_requests; _ } = connection_state in 
 
   let pending_requests, txs = List.fold_left (fun (pending_requests, txs) ((client_request, _ ) as r) ->
@@ -292,8 +290,6 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
       (pending_requests, txs) 
   ) (pending_requests, []) client_requests in
   
-  incr debug_id; 
-
   let app_request = APb.(Validate_txs {txs}) in 
 
   let connection_state = {connection_state with pending_requests} in 
@@ -303,13 +299,13 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
     [app_request]
   )
       
-let process_validation logger (pending_requests, client_requests, client_responses) validation = 
+let process_app_validation logger (pending_requests, validated_client_requests, client_responses) validation = 
   let {
     APb.tx_id; 
     APb.result
   } = validation in 
   
-  let pending_requests, client_request = Pending_requests.get pending_requests tx_id in 
+  let pending_requests, client_request = Pending_requests.get_and_remove pending_requests tx_id in 
 
   match client_request, result with
   | None, _ -> 
@@ -317,9 +313,9 @@ let process_validation logger (pending_requests, client_requests, client_respons
      * this stage. 
      * However not critical for now. 
      *)
-    log_f ~logger ~level:Warning ~section "Could not find pending request after validation"
+    log_f ~logger ~level:Warning ~section "Could not find pending request after validation for tx_id: %s" tx_id 
     >|=(fun () -> 
-      (pending_requests, client_requests, client_responses)
+      (pending_requests, validated_client_requests, client_responses)
     ) 
 
   | Some ((APb.Add_tx _, _ ) as r), APb.Success -> 
@@ -327,7 +323,7 @@ let process_validation logger (pending_requests, client_requests, client_respons
      * has been retrieved, we can insert start the addition of the request
      * from the RAFT protocol point of view. 
      *) 
-    Lwt.return (pending_requests, r::client_requests, client_responses) 
+    Lwt.return (pending_requests, r::validated_client_requests, client_responses) 
 
   | Some (_, handle), APb.Failure {APb.error_message; error_code}  -> 
     (* Validation has failed, the log entry is rejected. The failure is propagated 
@@ -338,24 +334,27 @@ let process_validation logger (pending_requests, client_requests, client_respons
     >|=(fun () -> 
       let client_response = APb.Add_log_validation_failure in 
       let client_response = (client_response, handle) in 
-      (pending_requests, client_requests, client_response::client_responses)
+      (pending_requests, validated_client_requests, client_response::client_responses)
     )
 
 let handle_app_response ~logger ~stats ~now state app_response = 
 
-  let { raft_state; connection_state; _ } = state in 
-  let { pending_requests; _} = connection_state in 
+  let {raft_state; connection_state; _ } = state in 
+  let {pending_requests; _} = connection_state in 
 
   match app_response with
-  | APb.Commit_tx_ack _ -> assert(false)
+  | APb.Commit_tx_ack _ -> 
+    assert(false)
+      (* Not implemented yet *)
+
   | APb.Validations {APb.validations} -> 
 
-    Lwt_list.fold_left_s (process_validation logger) (pending_requests, [], []) validations
-    >>=(fun (pending_requests, client_requests, client_responses) ->
+    Lwt_list.fold_left_s (process_app_validation logger) (pending_requests, [], []) validations
+    >>=(fun (pending_requests, validated_client_requests, client_responses) ->
     
       let datas = List.map (function
         | APb.Add_tx {APb.tx_data; tx_id}, _ -> (tx_data, tx_id) 
-      ) client_requests in 
+      ) validated_client_requests in 
 
       let new_log_response  = 
         Raft_logic.handle_add_log_entries raft_state datas now 
@@ -374,7 +373,7 @@ let handle_app_response ~logger ~stats ~now state app_response =
             (APb.(Add_log_not_a_leader {
              leader_id = RState.current_leader raft_state
             }), handle)::client_responses
-          ) client_responses client_requests in  
+          ) client_responses validated_client_requests in  
 
           (state, client_responses, [])
         )
@@ -384,11 +383,11 @@ let handle_app_response ~logger ~stats ~now state app_response =
           raft_state.RState.log.RLog.log_size (List.length datas)  
         >>= (fun () ->
 
-
           let pending_requests = List.fold_left (fun pending_requests -> function
             | (APb.Add_tx {APb.tx_id ; _}, _) as r -> 
                 Pending_requests.add pending_requests tx_id r 
-          ) pending_requests client_requests in 
+          ) pending_requests validated_client_requests in 
+
           let connection_state = {connection_state with pending_requests; } in  
 
           send_raft_messages ~logger ~stats (raft_state.RState.id) connection_state outgoing_messages

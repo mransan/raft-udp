@@ -8,26 +8,6 @@ module Conf = Raft_udp_conf
 
 module U  = Lwt_unix 
 
-let string_of_sockaddr = function
-  | Unix.ADDR_UNIX addr -> 
-    Printf.sprintf "ADDR_UNIX(%s)" addr
-  | Unix.ADDR_INET (addr, port) -> 
-    Printf.sprintf "ADDR_INET(address: %s, port: %i)" (Unix.string_of_inet_addr addr) port
-
-type validation = 
-  | Ok 
-  | Error of string 
-
-module type App_sig  = sig 
-
-  type tx 
-
-  val decode : bytes -> tx  
-
-  val validate : tx -> validation 
-
-end
-
 module  Event = struct 
 
   type e = 
@@ -76,7 +56,7 @@ let get_next_connection_f logger {UPb.app_server_port; _} () =
     Lwt.catch (fun () ->
       U.accept fd
       >>=(fun (fd2, ad) ->
-        log_f ~logger ~level:Notice "New connection accepted, details: %s" (string_of_sockaddr ad)
+        log_f ~logger ~level:Notice "New connection accepted, details: %s" (Raft_utl_unix.string_of_sockaddr ad)
         >|= Event.new_connection fd2 
       )
     ) (* with *) (fun exn ->
@@ -195,22 +175,33 @@ let server_loop logger configuration handle_app_request () =
   in
   aux [next_connection ()] 
 
+type validation_result = 
+  | Ok 
+  | Error of string 
+
+type tx_validation = {
+  tx_id : string; 
+  result : validation_result; 
+} 
+module type App_sig  = sig 
+
+  type tx_data 
+
+  val decode : bytes -> tx_data 
+
+end
+
 module Make(App:App_sig) = struct 
   
-  type validations = (string * App.tx ) list * ((string * validation) list -> unit) 
+  type tx = {
+    tx_id : string; 
+    tx_data : App.tx_data;
+  } 
+  
+  type validations = tx list * (tx_validation list -> unit) 
 
   let decode_tx {APb.tx_id; APb.tx_data; } = 
-    (tx_id, App.decode tx_data) 
-    (*
-    let result     = match App.validate tx with
-      | Ok -> APb.Success 
-      | Error error_message -> APb.(Failure {
-        error_message; 
-        error_code  = 1;
-      })  
-    in
-    APb.({result; tx_id; })
-   *)
+    {tx_id; tx_data = App.decode tx_data}
 
   let handle_app_request request_push = function
     | APb.Validate_txs {APb.txs} ->
@@ -219,16 +210,20 @@ module Make(App:App_sig) = struct
       request_push (Some (txs, (fun r -> Lwt.wakeup validations_u r)));
       validations_t
       >|=(fun validations -> 
-        List.map (fun (tx_id, result) ->
-         let result = match result with
-           | Ok -> APb.Success 
-           | Error error_message -> APb.(Failure {
-             error_message; 
-             error_code  = 1;
-           })  
-         in 
-         APb.({result; tx_id}) 
-       ) validations 
+        List.map (fun {tx_id; result} ->
+          let result = 
+            match result with
+            | Ok -> 
+              APb.Success 
+
+            | Error error_message -> 
+              APb.(Failure {
+                error_message; 
+                error_code  = 1;
+              })  
+          in 
+          APb.({result; tx_id}) 
+        ) validations 
       )
       >|=(fun validations -> 
         APb.(Validations {validations}) 

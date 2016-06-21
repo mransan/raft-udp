@@ -209,9 +209,9 @@ let handle_request ({state; logger; _ }) client_request response_wakener =
           )
       )
     ) (* with *) (fun exn ->
-      Lwt_io.eprintlf "Error in IPC with RAFT server, details: %s" 
+      log_f ~logger ~level:Error "Error in IPC with RAFT server, details: %s" 
         (Printexc.to_string exn) 
-        >>= Event.connection_closed fd
+      >>= Event.connection_closed fd
     )
 
 let handle_response {logger; _ } client_response response_wakener = 

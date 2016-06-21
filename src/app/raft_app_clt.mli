@@ -1,4 +1,9 @@
+(** Generic client interface to add transaction to the Raft 
+    Consensus. 
+  *)
 
+(** Application signature for Application specific transaction type. 
+  *)
 module type App_sig = sig 
 
   type tx 
