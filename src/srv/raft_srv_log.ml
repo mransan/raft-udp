@@ -133,7 +133,7 @@ let print_leader () leader_state =
   in
   Printf.sprintf "\t\t %15s: Leader\n%a"
     "role"
-    aux leader_state.RPb.indices
+    aux leader_state.RPb.followers
 
 let print_candidate () candidate_state = 
   let fmt = 

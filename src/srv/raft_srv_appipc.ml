@@ -52,19 +52,29 @@ end
 let connect logger {UPb.app_server_port; _} () = 
   let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", app_server_port) in 
   let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
-  Lwt.catch (fun () -> 
-    U.connect fd ad 
-    >>=(fun () -> 
-      log ~logger ~level:Notice ~section "Connection established with App server"
-    )
-    >|= Event.connection_established fd 
 
-  ) (* with *) (fun exn -> 
+  let rec retry = function
+    | 0 -> 
+      log_f ~logger ~level:Error ~section "Error connecting to App server" 
+      >|= Event.failure "Error connecting to App server"
+    | n -> 
+      Lwt.catch (fun () -> 
+        U.connect fd ad 
+        >>=(fun () -> 
+          log ~logger ~level:Notice ~section "Connection established with App server"
+        )
+        >|= Event.connection_established fd 
 
-    log_f ~logger ~level:Error ~section "Error connecting to App server, %s" 
-      (Printexc.to_string exn) 
-    >|= Event.failure "Error connecting to App server"
-  ) 
+      ) (* with *) (fun exn -> 
+        log_f ~logger ~level:Error ~section "Error connecting to App server, %s" 
+          (Printexc.to_string exn) 
+        >>=(fun () -> 
+          Lwt_unix.sleep 1. 
+        ) 
+        >>= (fun () -> retry (n - 1))
+      ) 
+  in
+  retry 5
 
 let next_response = 
   let buffer = Bytes.create 1024 in 
