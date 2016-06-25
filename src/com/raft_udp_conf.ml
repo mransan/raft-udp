@@ -4,20 +4,21 @@ module RPb = Raft_pb
 
 let default_configuration () = Pb.({
   raft_configuration = RPb.({
-    nb_of_server = 5;
-    election_timeout = 1.00;
-    election_timeout_range = 0.25;
-    hearbeat_timeout = 0.2;
+    nb_of_server = 3;
+    election_timeout = 0.50;
+    election_timeout_range = 0.2;
+    hearbeat_timeout = 0.1;
     max_nb_logs_per_message = 300;
     log_interval_size = 10_000;
   });
+
   servers_ipc_configuration = [
     {raft_id = 0; inet4_address = "127.0.0.1"; raft_port = 34765; client_port = 34865};
     {raft_id = 1; inet4_address = "127.0.0.1"; raft_port = 34766; client_port = 34866};
     {raft_id = 2; inet4_address = "127.0.0.1"; raft_port = 34767; client_port = 34867};
+    (*
     {raft_id = 3; inet4_address = "127.0.0.1"; raft_port = 34768; client_port = 34868};
     {raft_id = 4; inet4_address = "127.0.0.1"; raft_port = 34769; client_port = 34869};
-    (*
     {raft_id = 5; inet4_address = "127.0.0.1"; raft_port = 34760; client_port = 34860};
     {raft_id = 6; inet4_address = "127.0.0.1"; raft_port = 34761; client_port = 34861};
     {raft_id = 7; inet4_address = "127.0.0.1"; raft_port = 34762; client_port = 34862};
@@ -32,7 +33,7 @@ let default_configuration () = Pb.({
   app_server_port = 40_000;
 })
 
-let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port} =
+let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port; _ } =
   let port = match which with
     | `Client  -> client_port 
     | `Raft    -> raft_port

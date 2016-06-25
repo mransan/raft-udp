@@ -1,4 +1,4 @@
-[@@@ocaml.warning "-30"]
+[@@@ocaml.warning "-27-30-39"]
 
 type tx = {
   tx_id : string;
@@ -49,8 +49,8 @@ and app_response_validation_failure_mutable = {
 }
 
 type app_response_validation_result =
-  | Success
-  | Failure of app_response_validation_failure
+  | Validation_success
+  | Validation_failure of app_response_validation_failure
 
 and app_response_validation = {
   tx_id : string;
@@ -134,11 +134,11 @@ and default_app_response_validation_failure_mutable () : app_response_validation
   error_code = 0;
 }
 
-let rec default_app_response_validation_result (): app_response_validation_result = Success
+let rec default_app_response_validation_result (): app_response_validation_result = Validation_success
 
 and default_app_response_validation 
   ?tx_id:((tx_id:string) = "")
-  ?result:((result:app_response_validation_result) = Success)
+  ?result:((result:app_response_validation_result) = Validation_success)
   () : app_response_validation  = {
   tx_id;
   result;
@@ -146,7 +146,7 @@ and default_app_response_validation
 
 and default_app_response_validation_mutable () : app_response_validation_mutable = {
   tx_id = "";
-  result = Success;
+  result = Validation_success;
 }
 
 let rec default_app_response_validations 
@@ -191,7 +191,7 @@ let rec decode_tx d =
     | Some (2, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(tx), field(2)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:tx = Obj.magic v in
@@ -224,7 +224,7 @@ let rec decode_client_response_add_log_not_aleader d =
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_response_add_log_not_aleader), field(1)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:client_response_add_log_not_aleader = Obj.magic v in
@@ -260,7 +260,7 @@ let rec decode_app_request_validate_txs d =
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_request_validate_txs), field(1)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:app_request_validate_txs = Obj.magic v in
@@ -301,7 +301,7 @@ let rec decode_app_response_validation_failure d =
     | Some (2, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validation_failure), field(2)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:app_response_validation_failure = Obj.magic v in
@@ -311,8 +311,8 @@ let rec decode_app_response_validation_result d =
   let rec loop () = 
     let ret:app_response_validation_result = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
-      | Some (2, _) -> (Pbrt.Decoder.empty_nested d ; Success)
-      | Some (3, _) -> Failure (decode_app_response_validation_failure (Pbrt.Decoder.nested d))
+      | Some (2, _) -> (Pbrt.Decoder.empty_nested d ; Validation_success)
+      | Some (3, _) -> Validation_failure (decode_app_response_validation_failure (Pbrt.Decoder.nested d))
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
         loop () 
@@ -337,20 +337,20 @@ and decode_app_response_validation d =
     )
     | Some (2, Pbrt.Bytes) -> (
       Pbrt.Decoder.empty_nested d;
-      v.result <- Success;
+      v.result <- Validation_success;
       loop ()
     )
     | Some (2, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validation), field(2)", pk))
     )
     | Some (3, Pbrt.Bytes) -> (
-      v.result <- Failure (decode_app_response_validation_failure (Pbrt.Decoder.nested d));
+      v.result <- Validation_failure (decode_app_response_validation_failure (Pbrt.Decoder.nested d));
       loop ()
     )
     | Some (3, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validation), field(3)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:app_response_validation = Obj.magic v in
@@ -370,7 +370,7 @@ let rec decode_app_response_validations d =
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validations), field(1)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:app_response_validations = Obj.magic v in
@@ -389,7 +389,7 @@ let rec decode_app_response_commit_tx_ack d =
     | Some (2, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_commit_tx_ack), field(2)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:app_response_commit_tx_ack = Obj.magic v in
@@ -477,11 +477,11 @@ let rec encode_app_response_validation_failure (v:app_response_validation_failur
 
 let rec encode_app_response_validation_result (v:app_response_validation_result) encoder = 
   match v with
-  | Success -> (
+  | Validation_success -> (
     Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.empty_nested encoder
   )
-  | Failure x -> (
+  | Validation_failure x -> (
     Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.nested (encode_app_response_validation_failure x) encoder;
   )
@@ -491,11 +491,11 @@ and encode_app_response_validation (v:app_response_validation) encoder =
   Pbrt.Encoder.string v.tx_id encoder;
   (
     match v.result with
-    | Success -> (
+    | Validation_success -> (
       Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
       Pbrt.Encoder.empty_nested encoder
     )
-    | Failure x -> (
+    | Validation_failure x -> (
       Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
       Pbrt.Encoder.nested (encode_app_response_validation_failure x) encoder;
     )
@@ -576,8 +576,8 @@ let rec pp_app_response_validation_failure fmt (v:app_response_validation_failur
 
 let rec pp_app_response_validation_result fmt (v:app_response_validation_result) =
   match v with
-  | Success  -> Format.fprintf fmt "Success"
-  | Failure x -> Format.fprintf fmt "@[Failure(%a)@]" pp_app_response_validation_failure x
+  | Validation_success  -> Format.fprintf fmt "Validation_success"
+  | Validation_failure x -> Format.fprintf fmt "@[Validation_failure(%a)@]" pp_app_response_validation_failure x
 
 and pp_app_response_validation fmt (v:app_response_validation) = 
   let pp_i fmt () =

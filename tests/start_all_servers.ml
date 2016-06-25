@@ -41,9 +41,9 @@ let () =
     end;
     match Unix.fork () with
     | 0 -> Unix.execv "./app.native" args
-    | _ -> Unix.sleep 1;
+    | _ -> Unix.sleep 2;
   end;
-  
+
   let rec aux acc = function
     | 0 -> acc 
     | i -> 
@@ -56,14 +56,14 @@ let () =
   let processes = aux [] nb_of_servers in 
 
   let rec aux server_to_kill processes = 
-    Unix.sleep 20; 
+    Unix.sleep 3; 
     let server_to_kill = (server_to_kill + 1) mod nb_of_servers in 
     let processes = List.map (fun (server_id, pid) -> 
       if server_to_kill  = server_id
       then begin 
         Printf.printf "Killing server id: %i, PID: %i\n%!" server_id pid; 
         Unix.kill pid Sys.sigkill;
-        Unix.sleep 20;  
+        Unix.sleep 1;  
         match Unix.fork () with
         | 0   -> Unix.execv "./server.native" (arg_of_server !log server_id)
         | pid ->

@@ -1,11 +1,18 @@
 open Lwt.Infix
-open Lwt_log_core 
+open !Lwt_log_core 
 
 module Conf = Raft_udp_conf
 module U    = Lwt_unix
 module UPb  = Raft_udp_pb
 module APb  = Raft_app_pb
 
+module type App_sig = sig 
+
+  type tx 
+
+  val encode : tx -> bytes 
+
+end 
 
 module Ext = struct
 
@@ -14,6 +21,11 @@ module Ext = struct
     | Some x -> f x 
 
 end 
+
+type send_result = 
+  | Ok 
+  | Error of string 
+
 module Event = struct 
 
   type e = 
@@ -21,15 +33,20 @@ module Event = struct
       (* Connection established with a server, it does not mean the server
        * is a leader. 
        *)
+
     | Connection_closed 
       (* The connection with a server closed (brutal) 
        *)
-    | Response of APb.client_response 
-      (* The leader replied a response *)
+
+    | Request  of APb.client_request * send_result Lwt.u  
+    
+    | Response of APb.client_response * send_result Lwt.u  
+
     | Failure of string  
-      (* System failure (unexpected) *)
+      (** System failure (unexpected) *)
+
     | Init
-      (* Start the client loop *)
+      (** Start the client loop *)
 
   let failure context () = Failure context
 
@@ -41,8 +58,11 @@ module Event = struct
   let connection_established fd () = 
     Connection_established fd
 
-  let response_lwt client_response () = 
-    Lwt.return (Response client_response)
+  let lwt_response client_response response_wakener () = 
+    Lwt.return @@ Response (client_response, response_wakener)
+  
+  let client_request client_request response_wakener () = 
+    Request (client_request, response_wakener)
 
 end 
 
@@ -70,8 +90,8 @@ module State = struct
     | Potential i -> Printf.sprintf "Potential(%2i)" i
     | Established (i, _) -> Printf.sprintf "Established(%2i)" i 
 
-  let make () = {
-    configuration = Conf.default_configuration ();
+  let make configuration = {
+    configuration;
     leader = No;
   }
   
@@ -96,22 +116,29 @@ module State = struct
 
     ({state with leader = Potential next}, next)
 
-  let fd {leader; _ } = 
-    match leader with
-    | Established (i, fd) -> Some fd 
-    | _ -> None
-
 end 
+
+type pending_request = APb.client_request * send_result Lwt.u 
+
+type t = {
+  mutable state : State.t; 
+  logger : Lwt_log_core.logger; 
+  configuration : Raft_udp_pb.configuration; 
+  request_stream : pending_request  Lwt_stream.t;
+  request_push : pending_request option -> unit;  
+  mutable client_loop : unit Lwt.t;
+  mutable pending_request : pending_request option;
+} 
 
 (* Attempts to establish a TCP connection to the give server. 
  *
  * In case of success the returned event will [Connection_established] 
  * while on failure it will be [Connection_closed]. 
  *) 
-let new_connection ~to_ state = 
+let new_connection {logger; state; _ } to_  = 
   match Conf.sockaddr_of_server_id `Client (state.State.configuration) to_ with
   | None -> 
-    Lwt_io.eprintlf "Error getting address for server_id: %i" to_
+    log_f ~logger ~level:Fatal "Error getting address for server_id: %i" to_
     >|= Event.failure "Error gettting address"
 
   | Some ad ->
@@ -120,12 +147,13 @@ let new_connection ~to_ state =
       U.sleep 0.25
       >>=(fun () -> U.connect fd ad)
       >>=(fun () -> 
-        Lwt_io.printlf "Connection established successfully with server_id: %i" to_
+        log_f ~logger ~level:Notice "Connection established successfully with server_id: %i" to_
        >|= Event.connection_established fd
       ) 
     ) (* with *) (fun exn ->
 
-      Lwt_io.printlf "Error connecting to server_id: %i" to_
+      log_f ~logger ~level:Warning "Error connecting to server_id: %i, details: %s" 
+        to_ (Printexc.to_string exn)
       >>= Event.connection_closed fd
     )
 
@@ -140,10 +168,13 @@ let new_connection ~to_ state =
  * The function expects the leader to be established, if not [Failure] event
  * is returned. 
  *)
-let send_request logger ({State.leader; _ } as state) client_request = 
+let handle_request ({state; logger; _ }) client_request response_wakener = 
+  let {State.leader; _ } = state in 
+
   match leader with
   | State.No | State.Potential _ -> 
-     Lwt.return (Event.Failure "Internal error, requests can only be sent to established leader") 
+     Event.failure_lwt "Internal error, requests can only be sent to established leader" ()
+
   | State.Established (server_id, fd) -> 
     let encoder = Pbrt.Encoder.create () in
     APb.encode_client_request client_request encoder;
@@ -156,7 +187,7 @@ let send_request logger ({State.leader; _ } as state) client_request =
         if nb_byte_written <>  buffer_len
         then Event.connection_closed fd () 
         else
-          log_f ~logger ~level:Notice "Request sent to state: %s" (State.string_of_state state) 
+          log_f ~logger ~level:Notice "Request sent to server id: %i" server_id 
           >>=(fun () -> 
             let buffer = Bytes.create 1024 in
             U.read fd buffer 0 1024
@@ -166,7 +197,7 @@ let send_request logger ({State.leader; _ } as state) client_request =
                 if bytes_read <> 0 && bytes_read <> 1024
                 then
                   let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 bytes_read) in
-                  Event.response_lwt (APb.decode_client_response decoder) ()
+                  Event.lwt_response (APb.decode_client_response decoder) response_wakener ()
                 else
                   Event.connection_closed fd () 
               )
@@ -174,22 +205,38 @@ let send_request logger ({State.leader; _ } as state) client_request =
           )
       )
     ) (* with *) (fun exn ->
-      Lwt_io.eprintlf "Error in IPC with RAFT server, details: %s" 
+      log_f ~logger ~level:Error "Error in IPC with RAFT server, details: %s" 
         (Printexc.to_string exn) 
-        >>= Event.connection_closed fd
+      >>= Event.connection_closed fd
     )
 
+let handle_response (_:t) client_response response_wakener = 
 
-let unique_request_id = ref 0 
+  match client_response with
+  | APb.Add_log_success -> 
+    Lwt.wakeup response_wakener Ok; 
+    `Next_request  
 
-let test_add_log_request () = 
-  incr unique_request_id; 
-  APb.(Add_tx {
-    tx_id = Printf.sprintf "%06i|%09i" (Unix.getpid()) !unique_request_id;
-    tx_data = Bytes.of_string (String.make (Random.int 10) 'a');
-  })
+  | APb.Add_log_validation_failure -> 
+    Lwt.wakeup response_wakener (Error "validation failure");
+    `Next_request 
 
-let rec server_loop logger state count e =
+  | APb.Add_log_not_a_leader {APb.leader_id} -> 
+    `Not_a_leader leader_id 
+    
+let next_request ({request_stream; pending_request; _ } as t) () = 
+  match pending_request with
+  | Some (r, w) -> Lwt.return @@ Event.client_request r w () 
+  | None ->
+    Lwt_stream.get request_stream
+    >|=(function
+      | None -> Event.failure "Request stream is closed" () 
+      | Some ((client_request, response_wakener) as pending_request) -> 
+        t.pending_request <- Some pending_request; 
+        Event.client_request client_request response_wakener ()  
+    )
+
+let rec client_loop ({logger; state; _} as t) e =
 
   match e with 
   | Event.Failure context -> (
@@ -199,81 +246,83 @@ let rec server_loop logger state count e =
   )
 
   | Event.Connection_established fd ->
-    let state = State.establish state fd in 
+    t.state <- State.establish state fd;
     log_f ~logger ~level:Notice "Connection established, %s" (State.string_of_state state) 
     >>=(fun () ->
-      send_request logger state @@ test_add_log_request () 
-      >>= server_loop logger state count
+      next_request t () >>= client_loop t 
     ) 
 
-  | Event.Response APb.Add_log_success -> 
-    begin if (count mod 1000) = 0
-    then 
-      Lwt_io.printlf "Success ... [%10i] [%s]" count (State.string_of_state state) 
-    else 
-      Lwt.return_unit
-    end
-    >>=(fun () -> U.sleep 0.0)
-    >>=(fun () ->
-      send_request logger state @@ test_add_log_request ()
-      >>= server_loop logger state (count + 1)
-    ) 
-  
-  | Event.Response APb.Add_log_validation_failure -> 
-    server_loop logger state count @@ Event.failure "Validation failure" ()
+  | Event.Request (client_request, response_wakener) -> 
+    handle_request t client_request response_wakener 
+    >>=(fun e -> 
+      log ~logger ~level:Notice "Request poped" 
+      >>= (fun () -> client_loop t e)
+    )  
 
-  | Event.Response APb.Add_log_not_a_leader {APb.leader_id;} -> 
-    Lwt_io.printlf "Not a leader received, leader hint : %s"
-      @@ (Ext.string_of_option string_of_int leader_id ) 
-    >>=(fun () -> 
-      begin match State.fd state with
-      | None -> server_loop logger state count @@ Event.failure "No connection (invariant violation)"  ()
-      | Some fd -> 
-        U.close fd 
-        >>=(fun () ->
+  | Event.Response (client_response, response_wakener) ->  
+    begin match handle_response t client_response response_wakener with
+    | `Next_request -> 
+       t.pending_request <- None;
+       next_request t () >>= client_loop t 
 
+    | `Not_a_leader leader_id -> 
+      log_f ~logger ~level:Notice "Not a leader received, leader hint : %s"
+        @@ (Ext.string_of_option string_of_int leader_id ) 
+      >>=(fun () ->
           let state, leader_id = match leader_id with
             | None -> State.next state
             | Some leader_id -> 
               State.potential state leader_id, leader_id 
           in
-
-          new_connection ~to_:leader_id state 
-          >>= server_loop logger state count 
-        ) 
-      end
-    )
+          t.state <- state; 
+          new_connection t leader_id >>= client_loop t  
+      )
+    end 
   
   | Event.Connection_closed ->
     let state, leader_id = State.next state in  
+    t.state <- state;
     U.sleep 0.25
-    >>=(fun () -> new_connection ~to_:leader_id state )
-    >>= server_loop logger state count 
+    >>=(fun () -> new_connection t leader_id)
+    >>= client_loop t 
 
   | Event.Init ->
     let state, leader_id = State.next state in 
-    new_connection ~to_:leader_id state 
-    >>= server_loop logger state count 
+    t.state <- state; 
+    new_connection t leader_id 
+    >>= client_loop t 
 
-let main log () = 
-  begin 
-    if log 
-    then 
-      let file_name = Printf.sprintf "client%i.log" (Unix.getpid ()) in 
-      let template  = "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" in
-      Lwt_log.file ~mode:`Truncate ~template ~file_name ()
-    else 
-      Lwt.return Lwt_log_core.null 
-  end 
-  >>=(fun logger -> server_loop logger (State.make ()) 0 Event.Init)
+let make logger configuration = 
+  let state = State.make configuration in 
+  let request_stream, request_push  = Lwt_stream.create () in
+  let t = {
+    state; 
+    logger;
+    configuration;
+    request_stream;
+    request_push;
+    client_loop = Lwt.return_unit; 
+    pending_request = None;
+  } in 
+  t.client_loop <- client_loop t Event.Init; 
+  Lwt.return t 
 
-let () =
-  let log = ref false in 
-  let log_spec = Arg.Set log  in
-  
-  Arg.parse [
-    ("--log", log_spec, " : enable logging");
-  ] (fun _ -> ()) "client.ml";
+let unique_id = 
+  let pid = Unix.getpid () in 
+  let uid = ref 0 in 
+  fun () ->
+    incr uid; 
+    Printf.sprintf "%06i|%010i" pid !uid 
 
-  Random.self_init ();
-  Lwt_main.run (main !log ())
+module Make(App:App_sig) = struct 
+
+  let send {request_push; _} tx = 
+    let t, u = Lwt.wait () in
+    let bytes = App.encode tx  in
+    let tx = Raft_app_pb.(Add_tx {
+      tx_id = unique_id (); 
+      tx_data = bytes;
+    }) in 
+    request_push (Some (tx, u)); 
+    t
+end

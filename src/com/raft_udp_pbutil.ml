@@ -18,9 +18,9 @@ let string_of_app_response = function
   | APb.Validations {APb.validations} ->  
     let validations = String.concat ",\n" @@ List.map (fun {APb.result;tx_id} -> 
       let result = match result with
-        | APb.Success  -> 
+        | APb.Validation_success  -> 
           "Success"
-        | APb.Failure {APb.error_message; _} -> 
+        | APb.Validation_failure {APb.error_message; _} -> 
           Printf.sprintf "Failure (details: %s)" error_message
       in 
       Printf.sprintf "%20s - %s" tx_id result

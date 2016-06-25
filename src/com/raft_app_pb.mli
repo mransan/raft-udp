@@ -33,8 +33,8 @@ type app_response_validation_failure = {
 }
 
 type app_response_validation_result =
-  | Success
-  | Failure of app_response_validation_failure
+  | Validation_success
+  | Validation_failure of app_response_validation_failure
 
 and app_response_validation = {
   tx_id : string;

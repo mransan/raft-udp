@@ -1,7 +1,7 @@
 OCB_INC  += -I src/app 
 OCB_INC  += -I src/clt
 OCB_INC  += -I src/com 
-OCB_INC  += -I src/svc 
+OCB_INC  += -I src/srv 
 OCB_INC  += -I src/utl
 OCB_INC  += -I tests/
 
@@ -26,6 +26,7 @@ test:
 gen:
 	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_udp.proto
 	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_app.proto
+	ocaml-protoc -I ../raft.git/src/ -ml_out tests/  tests/demo.proto
 
 lib.native:
 	$(OCB) raft_udp.cmxa

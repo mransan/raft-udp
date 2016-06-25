@@ -1,5 +1,5 @@
-module Counter = Raft_udp_counter.Counter 
-module Perf    = Raft_udp_counter.Perf
+module Counter = Raft_utl_counter.Counter 
+module Perf    = Raft_utl_counter.Perf
 
 open Lwt.Infix 
 

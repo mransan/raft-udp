@@ -1,4 +1,5 @@
-let arg_of_server i = 
+let arg_of_server _ = 
+
   let arg = [| 
     "./client.native";
   |] in 
@@ -10,7 +11,7 @@ module Udp  = Raft_udp_pb
 
 let () = 
 
-  let nb_of_children = 4 in 
+  let nb_of_children = 10 in 
 
   for i = 1 to nb_of_children do
     match Unix.fork () with
@@ -18,7 +19,7 @@ let () =
     | _ -> ()
   done;
   
-  for i = 0 to nb_of_children do
+  for _ = 0 to nb_of_children do
     let pid, process_status = Unix.wait () in 
     Printf.eprintf "Process [%5i] died with status %s\n%!"
       pid

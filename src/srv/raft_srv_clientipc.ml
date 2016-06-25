@@ -1,9 +1,9 @@
 open Lwt.Infix
-open Lwt_log_core
+open !Lwt_log_core
 
 module U            = Lwt_unix
 module Conf         = Raft_udp_conf
-module Server_stats = Raft_udp_serverstats
+module Server_stats = Raft_srv_serverstats
 module UPb          = Raft_udp_pb
 module APb          = Raft_app_pb 
 
@@ -77,7 +77,8 @@ let get_next_client_connection_f logger configuration server_id =
       Lwt.catch (fun () ->
         U.accept fd
         >>=(fun (fd2, ad) ->
-          log ~logger ~level:Notice ~section "New client connection accepted"
+          log_f ~logger ~level:Notice ~section "New client connection accepted: %s"
+            (Raft_utl_unix.string_of_sockaddr ad)
           >|= Event.new_client_connection fd2
         )
       ) (* with *) (fun exn ->

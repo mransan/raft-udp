@@ -34,7 +34,7 @@ type t = client_request Lwt_stream.t * send_response_f
 val make : 
   Lwt_log_core.logger -> 
   Raft_udp_pb.configuration ->
-  Raft_udp_serverstats.t ->
+  Raft_srv_serverstats.t ->
   int -> 
   t
 (** [client_request_stream ~logger configuration server_id] initialize the 

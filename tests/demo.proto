@@ -1,0 +1,6 @@
+option (int32_type) = int_t;
+
+message tx {
+  required int32 counter_value = 1;
+  required int32 process_id    = 2;
+}
