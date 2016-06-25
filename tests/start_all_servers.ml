@@ -22,25 +22,31 @@ module Udp  = Raft_udp_pb
    
 let () = 
   
+  let task = ref "" in 
   let log = ref false in 
   let log_spec = Arg.Set log  in
   
   Arg.parse [
     ("--log", log_spec, " : enable logging");
-  ] (fun _ -> ()) "start_all_server [options]";
+  ] (function
+    | "counter" -> task := "counter_srv.native" 
+    | _ -> failwith "Invalid app name"
+  ) "start_all_servers.native [options]";
+
+  assert(!task <> "");
 
   let {Udp.servers_ipc_configuration ;_  } = Conf.default_configuration () in 
 
   let nb_of_servers = List.length servers_ipc_configuration in 
 
   begin 
-    let args = [| "./app.native" ; "" |] in 
+    let args = [| !task; "" |] in 
     begin 
       if !log 
       then args.(1) <- "--log"
     end;
     match Unix.fork () with
-    | 0 -> Unix.execv "./app.native" args
+    | 0 -> Unix.execv !task  args
     | _ -> Unix.sleep 2;
   end;
 

@@ -1,7 +1,7 @@
-let arg_of_server _ = 
+let arg_of_server task _ = 
 
   let arg = [| 
-    "./client.native";
+    task;
   |] in 
   arg
 
@@ -11,11 +11,21 @@ module Udp  = Raft_udp_pb
 
 let () = 
 
+  let task = ref "" in 
+
+  Arg.parse [
+  ] (function 
+    | "counter" -> task := "./counter_clt.native" 
+    | _ -> failwith "Invalid app name"
+  ) "start_all_clients.native";
+
+  assert(!task <> "");
+
   let nb_of_children = 10 in 
 
   for i = 1 to nb_of_children do
     match Unix.fork () with
-    | 0 -> Unix.execv "./client.native" (arg_of_server i)
+    | 0 -> Unix.execv !task (arg_of_server !task i)
     | _ -> ()
   done;
   

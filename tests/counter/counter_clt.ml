@@ -3,20 +3,20 @@ open Lwt_log_core
 
 module Conf = Raft_udp_conf 
 
-module Demo_clt = Raft_app_clt.Make(struct
+module Counter_clt = Raft_app_clt.Make(struct
 
-  type tx = Demo_pb.tx 
+  type tx = Counter_pb.tx 
 
   let encode tx = 
     let encoder = Pbrt.Encoder.create () in 
-    Demo_pb.encode_tx tx encoder; 
+    Counter_pb.encode_tx tx encoder; 
     Pbrt.Encoder.to_bytes encoder
 
 end)
 
 
 let rec loop logger client counter_value () = 
-  Demo_clt.send client Demo_pb.({
+  Counter_clt.send client Counter_pb.({
     counter_value; 
     process_id = Unix.getpid (); 
   }) 

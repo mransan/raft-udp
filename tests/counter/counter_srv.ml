@@ -8,13 +8,13 @@ module Conf = Raft_udp_conf
 
 module U  = Lwt_unix 
 
-module Demo_srv = Raft_app_srv.Make(struct
+module Counter_srv = Raft_app_srv.Make(struct
 
-  type tx_data = Demo_pb.tx 
+  type tx_data = Counter_pb.tx 
 
   let decode bytes = 
     let decoder = Pbrt.Decoder.of_bytes bytes in 
-    Demo_pb.decode_tx decoder 
+    Counter_pb.decode_tx decoder 
 
 end)
 
@@ -57,8 +57,8 @@ let process_demo_app_request logger (validations, notify) state =
   Lwt_list.fold_left_s (fun (tx_validations, state) tx -> 
 
     let {
-      Demo_srv.tx_id; 
-      tx_data = {Demo_pb.counter_value; process_id};
+      Counter_srv.tx_id; 
+      tx_data = {Counter_pb.counter_value; process_id};
     } = tx in
 
     match State.process state counter_value process_id with
@@ -98,7 +98,7 @@ let main configuration log () =
   end
   >>=(fun logger -> 
 
-    let request_stream = Demo_srv.start logger configuration  in 
+    let request_stream = Counter_srv.start logger configuration  in 
 
     Lwt_stream.fold_s (fun request state -> 
       process_demo_app_request logger request state

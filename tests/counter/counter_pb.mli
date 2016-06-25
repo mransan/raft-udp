@@ -1,4 +1,4 @@
-(** demo.proto Generated Types and Encoding *)
+(** counter.proto Generated Types and Encoding *)
 
 (** {2 Types} *)
 
