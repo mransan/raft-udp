@@ -46,7 +46,7 @@ let () =
       then args.(1) <- "--log"
     end;
     match Unix.fork () with
-    | 0 -> Unix.execv !task  args
+    | 0 -> Unix.execv !task args
     | _ -> Unix.sleep 2;
   end;
 

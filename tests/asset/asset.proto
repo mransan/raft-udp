@@ -6,16 +6,36 @@
 // Validation: 
 //   - content = download data from [url]
 //   - assert(sha256(content) = [hash]) 
+//   - [hash] is not found in the existing assets
 //
 message Asset {
-  required string url = 1; 
+  required string a_url = 1; 
     // URL of the document describing the asset 
-  required bytes hash = 2;
+
+  required bytes a_hash = 2;
     // SHA256 hash of the document at the given url
     // 
 }
 
+// Unique Id = sha256([aa_accepted_transfer_id])  
+// 
+// Validation
+//   * accepted_transfer = get_accepted_transfer_from_id([aa_accepted_transfer_id]) 
+//   * assert(not_transfered(accepted_transfer))
+//   * transfer = get_transfer_from_id([accepted_transfer.at_transfer_id]) 
+//   * pub_key  = [transfer.tr_dest_addr] 
+//   * verify([aa_existing_sig], [aa_accepted_transfer_id], [pub_key])  
+//
+message AcceptedAsset {
+  required bytes aa_accepted_transfer_id = 1; 
+    // The id of the accepted transfer
+
+  required string aa_existing_sig = 2;
+    // sign(aa_accepted_transfer_id, owner_pri_key) (see doc for verification)
+}
+
 // Unique Id = sha256([asset].id + [dest_addr])
+// 
 // 
 // Validation:
 //   assert(validation([asset]))
@@ -24,7 +44,10 @@ message Asset {
 //   then 
 //     - transfer = latest_transfer([hash])
 //     - assert(is_accepted(transfer))
-//     - assert(valid_sign(tx_signature, tx_id, transfer.dest_addr)) 
+//     - owner_key= transfer.dest_addr 
+//   else 
+//     - 
+//   - assert(valid_sign(id, [transfer_sig], 
 // 
 // Note
 //   The validtion is more complicated for the case the asset being transfered
@@ -34,13 +57,23 @@ message Asset {
 //   the asset then you can transfer it to another address. 
 // 
 message Transfer {
-  required Asset asset = 1;
-  required bytes dest_addr = 2; 
+
+  oneof asset {
+    // The asset to be transferred 
+    Asset tr_new = 1; 
+    Accepted_asset tr_accepted = 2;
+  }
+  
+  required bytes tr_dest_addr = 3; 
+    // The public key to which the [asset] will be transferred to
 }
 
-// Unique Id = sha256(transfer_id)
+// Unique Id = sha256(at_asset_id)
 message AcceptTransfer {
-  required bytes transfer_id  = 1;
+  required bytes at_transfer_id = 1;
+    // The asset to be transfered.  
+
+  required string at_sig = 2; 
 }
 
 // Unique Id = sha256(transfer.id | accept_transfer.id)
