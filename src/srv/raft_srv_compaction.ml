@@ -1,5 +1,5 @@
 open Lwt.Infix 
-open Lwt_log_core
+open !Lwt_log_core
 
 module RState = Raft_state 
 module RPb    = Raft_pb
@@ -37,7 +37,7 @@ let compact logger server_id configuration to_be_compacted =
 
     log_f ~logger ~level:Notice ~section "Compacting to file: %s" filename 
     >>=(fun () -> 
-      Lwt_io.open_file Lwt_io.output filename  
+      Lwt_io.open_file ~mode:Lwt_io.output filename  
     )
     >>=(fun file ->
       let bytes = Pbrt.Encoder.to_bytes encoder in 
@@ -53,7 +53,7 @@ let compact logger server_id configuration to_be_compacted =
 let read_from_file ~logger ~server_id ~configuration ~prev_index () = 
   let filename = compaction_filename ~server_id ~prev_index ~configuration () in  
   log_f ~logger ~level:Notice ~section "De-Compacting from file: %s" filename 
-  >>=(fun () -> Lwt_io.open_file Lwt_io.input filename) 
+  >>=(fun () -> Lwt_io.open_file ~mode:Lwt_io.input filename) 
   >>=(fun file ->
     Lwt_io.length file
     >|= (fun file_len -> (file, file_len))
@@ -134,7 +134,10 @@ let load_previous_log_intervals logger configuration server_id =
 
         aux (log_interval::log_intervals) last_index 
       )
-    ) (* with *) (fun exn -> 
+    ) (* with *) (fun _ -> 
+      (* TODO: be more precise that the exception should really be the one 
+       * not finding the next log interval file
+       *)
       Lwt.return log_intervals
     )
   in 

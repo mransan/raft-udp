@@ -1,5 +1,5 @@
 open Lwt.Infix 
-open Lwt_log_core
+open !Lwt_log_core
 
 module RPb = Raft_pb
 module Pb  = Raft_udp_pb
@@ -33,7 +33,7 @@ end
 
 type t = Lwt_io.output_channel  
 
-let filename {Pb.disk_backup = {Pb.log_record_directory; _}} server_id  = 
+let filename {Pb.disk_backup = {Pb.log_record_directory; _}; _ } server_id  = 
   Filename.concat log_record_directory (Printf.sprintf "record_%03i.data" server_id)
 
 let make logger configuration server_id = 
@@ -116,7 +116,7 @@ let read_log_records configuration server_id f e0 =
 
   let filename = filename configuration server_id in 
   Lwt.catch (fun () ->
-    Lwt_io.open_file Lwt_io.input filename
+    Lwt_io.open_file ~mode:Lwt_io.input filename
     >>=(fun file ->
       let bytes = Bytes.create 4 in 
       let rec aux acc = 

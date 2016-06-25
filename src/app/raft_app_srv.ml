@@ -1,5 +1,5 @@
 open Lwt.Infix 
-open Lwt_log_core
+open !Lwt_log_core
 
 module UPb = Raft_udp_pb
 module APb = Raft_app_pb
@@ -183,6 +183,7 @@ type tx_validation = {
   tx_id : string; 
   result : validation_result; 
 } 
+
 module type App_sig  = sig 
 
   type tx_data 
@@ -214,15 +215,15 @@ module Make(App:App_sig) = struct
           let result = 
             match result with
             | Ok -> 
-              APb.Success 
+              APb.Validation_success
 
             | Error error_message -> 
-              APb.(Failure {
+              APb.(Validation_failure {
                 error_message; 
                 error_code  = 1;
               })  
           in 
-          APb.({result; tx_id}) 
+          {APb.result; tx_id}
         ) validations 
       )
       >|=(fun validations -> 
@@ -230,8 +231,7 @@ module Make(App:App_sig) = struct
       )
   
     | APb.Commit_tx {APb.tx_id; _ } -> 
-      Lwt.return @@ APb.(Commit_tx_ack {tx_id})
-
+      Lwt.return @@ APb.Commit_tx_ack {APb.tx_id}
 
   let start logger configuration =
      let (

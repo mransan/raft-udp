@@ -1,22 +1,24 @@
+open Lwt.Infix 
+open !Lwt_log_core
 
 module RPb = Raft_pb
 module RState = Raft_state
 module RLog = Raft_log
 
-open Lwt.Infix 
-open Lwt_log_core
 
 let print_of_pp f_pp () v =
   Format.fprintf Format.str_formatter "@[%a@]" f_pp v;
   Format.flush_str_formatter ()
 
-let string_of_log_interval {RPb.prev_index;last_index; rev_log_entries} = 
+(*
+let string_of_log_interval {RPb.prev_index;last_index; rev_log_entries;_} = 
   let status = match rev_log_entries with
     | RPb.Compacted _ -> "Compacted"
     | RPb.Expanded  _ -> "Expanded"
   in
   Printf.sprintf
     "%10s ]%10i;%10i]" status prev_index last_index
+*)
 
 let string_of_message_type = function
   | RPb.Request_vote_request  _   -> "Request Vote Request" 
@@ -122,7 +124,7 @@ let print_leader () leader_state =
       let {
         RPb.server_id;
         next_index;
-        outstanding_request;
+        outstanding_request; _ 
       } = server_index in 
 
       Printf.sprintf "\t\t\t\t server index: (id: %3i, next: %10i, out req.: %b)\n%a" 
@@ -156,8 +158,7 @@ let print_state logger section state =
     current_term;
     log = {RLog.log_size; term_tree ; _  };
     commit_index;
-    role;
-    configuration;
+    role; _ 
   } = state in
 
   let print_role (oc:unit) = function

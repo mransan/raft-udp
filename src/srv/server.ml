@@ -1,5 +1,5 @@
 open Lwt.Infix
-open Lwt_log_core
+open !Lwt_log_core
 
 module RPb = Raft_pb
 module RHelper = Raft_helper

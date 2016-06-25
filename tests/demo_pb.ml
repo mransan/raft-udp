@@ -1,4 +1,4 @@
-[@@@ocaml.warning "-30"]
+[@@@ocaml.warning "-27-30-39"]
 
 type tx = {
   counter_value : int;
@@ -43,7 +43,7 @@ let rec decode_tx d =
     | Some (2, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(tx), field(2)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:tx = Obj.magic v in

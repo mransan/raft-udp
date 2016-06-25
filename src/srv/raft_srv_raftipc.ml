@@ -1,5 +1,5 @@
-open Lwt_log_core
 open Lwt.Infix 
+open !Lwt_log_core
 
 module Counter      = Raft_utl_counter
 
@@ -15,14 +15,11 @@ module RState = Raft_state
 module RLog   = Raft_log
 module RPb    = Raft_pb 
 
-type raft_message     = RPb.message * int 
-type raft_messages    = raft_message list 
 type client_request   = Raft_app_pb.client_request * Raft_srv_clientipc.handle
 type client_response  = Raft_app_pb.client_response * Raft_srv_clientipc.handle 
 type client_responses = client_response list 
 type app_requests = Raft_app_pb.app_request list 
 type app_response = Raft_app_pb.app_response 
-type notifications = RPb.notification list
 
 let section = Section.make (Printf.sprintf "%10s" "RaftIPC")
 
@@ -105,7 +102,7 @@ type connection_state = {
 
 let initialize configuration = 
 
-  let server_addresses = List.map (fun ({UPb.raft_id} as server_config) ->
+  let server_addresses = List.map (fun ({UPb.raft_id; _ } as server_config) ->
     let fd = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM 0 in
     (raft_id, (Conf.sockaddr_of_server_config `Raft server_config, fd))
   ) configuration.UPb.servers_ipc_configuration in
@@ -209,7 +206,7 @@ let handle_notifications logger stats connection_state compaction_handle notific
   >|=(fun () -> (connection_state, client_responses))
 
 let send_raft_messages ~logger ~stats id connection_state messages  = 
-  let {push_outgoing_message; } = connection_state in 
+  let {push_outgoing_message; _ } = connection_state in 
 
   Lwt_list.map_p (fun ((msg, server_id) as msg_to_send) ->
     Server_stats.tick_raft_msg_send stats; 
@@ -279,7 +276,8 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
 
 let handle_client_requests ~logger ~stats ~now  state client_requests = 
 
-  let {raft_state; connection_state; _ } = state in 
+  let _  = logger and _ = stats and _ = now in 
+  let {connection_state; _ } = state in 
   let {pending_requests; _ } = connection_state in 
 
   let pending_requests, txs = List.fold_left (fun (pending_requests, txs) ((client_request, _ ) as r) ->
@@ -318,14 +316,14 @@ let process_app_validation logger (pending_requests, validated_client_requests, 
       (pending_requests, validated_client_requests, client_responses)
     ) 
 
-  | Some ((APb.Add_tx _, _ ) as r), APb.Success -> 
+  | Some ((APb.Add_tx _, _ ) as r), APb.Validation_success -> 
     (* Validation is successful and the corresponding client request  
      * has been retrieved, we can insert start the addition of the request
      * from the RAFT protocol point of view. 
      *) 
     Lwt.return (pending_requests, r::validated_client_requests, client_responses) 
 
-  | Some (_, handle), APb.Failure {APb.error_message; error_code}  -> 
+  | Some (_, handle), APb.Validation_failure {APb.error_message; error_code}  -> 
     (* Validation has failed, the log entry is rejected. The failure is propagated 
      * back to the client which initiated the request and the log entry is never
      * created in the RAFT consensus. 

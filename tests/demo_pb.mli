@@ -33,4 +33,4 @@ val encode_tx : tx -> Pbrt.Encoder.t -> unit
 (** {2 Formatters} *)
 
 val pp_tx : Format.formatter -> tx -> unit 
-(** [pp_tx v] formats v] *)
+(** [pp_tx v] formats v *)

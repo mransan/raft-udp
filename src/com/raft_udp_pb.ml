@@ -1,4 +1,4 @@
-[@@@ocaml.warning "-30"]
+[@@@ocaml.warning "-27-30-39"]
 
 type server_ipc_configuration = {
   raft_id : int;
@@ -128,7 +128,7 @@ let rec decode_server_ipc_configuration d =
     | Some (4, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(server_ipc_configuration), field(4)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:server_ipc_configuration = Obj.magic v in
@@ -161,7 +161,7 @@ let rec decode_disk_backup_configuration d =
     | Some (3, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(disk_backup_configuration), field(3)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:disk_backup_configuration = Obj.magic v in
@@ -202,7 +202,7 @@ let rec decode_configuration d =
     | Some (6, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(configuration), field(6)", pk))
     )
-    | Some (n, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:configuration = Obj.magic v in

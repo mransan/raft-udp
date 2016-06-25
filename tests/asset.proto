@@ -1,0 +1,52 @@
+
+
+
+// Unique Id = hash
+//
+// Validation: 
+//   - content = download data from [url]
+//   - assert(sha256(content) = [hash]) 
+//
+message Asset {
+  required string url = 1; 
+    // URL of the document describing the asset 
+  required bytes hash = 2;
+    // SHA256 hash of the document at the given url
+    // 
+}
+
+// Unique Id = sha256([asset].id + [dest_addr])
+// 
+// Validation:
+//   assert(validation([asset]))
+//   
+//   if [asset].hash in previous_asset
+//   then 
+//     - transfer = latest_transfer([hash])
+//     - assert(is_accepted(transfer))
+//     - assert(valid_sign(tx_signature, tx_id, transfer.dest_addr)) 
+// 
+// Note
+//   The validtion is more complicated for the case the asset being transfered
+//   was previously part of a past transfer. This transfer should both
+//   has been accepted and the signature of the transaction must match 
+//   the destination address of that transfer. In other only if you own
+//   the asset then you can transfer it to another address. 
+// 
+message Transfer {
+  required Asset asset = 1;
+  required bytes dest_addr = 2; 
+}
+
+// Unique Id = sha256(transfer_id)
+message AcceptTransfer {
+  required bytes transfer_id  = 1;
+}
+
+// Unique Id = sha256(transfer.id | accept_transfer.id)
+message Tx {
+  oneof t {
+    Transfer transfer = 1; 
+    AcceptTransfer accept_transfer = 2;
+  }
+}

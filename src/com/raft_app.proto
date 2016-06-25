@@ -60,8 +60,8 @@ message AppResponse {
 
     required string tx_id = 1;
     oneof result {
-      Success success = 2; 
-      Failure failure = 3;
+      Success validation_success = 2; 
+      Failure validation_failure = 3;
     }
   }
 

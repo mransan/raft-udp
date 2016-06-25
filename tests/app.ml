@@ -1,5 +1,5 @@
 open Lwt.Infix 
-open Lwt_log_core
+open !Lwt_log_core
 
 module UPb = Raft_udp_pb
 module APb = Raft_app_pb
@@ -67,7 +67,7 @@ let process_demo_app_request logger (validations, notify) state =
       >|= (fun () -> 
         let tx_validation = Raft_app_srv.({
           tx_id; 
-          result = Ok; 
+          result = Raft_app_srv.Ok; 
         }) in 
         (tx_validation::tx_validations, state) 
       )
@@ -75,7 +75,7 @@ let process_demo_app_request logger (validations, notify) state =
     | exception Not_found -> 
       let tx_validation = Raft_app_srv.({
         tx_id; 
-        result = Error "Not a valid counter value"; 
+        result = Raft_app_srv.Error "Not a valid counter value"; 
       }) in 
       Lwt.return (tx_validation::tx_validations, state)
 

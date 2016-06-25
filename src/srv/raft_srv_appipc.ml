@@ -1,9 +1,10 @@
-open Lwt_log_core
 open Lwt.Infix 
+open !Lwt_log_core
 
 module UPb = Raft_udp_pb 
 module APb = Raft_app_pb
 module Pb_util = Raft_udp_pbutil
+module Server_stats = Raft_srv_serverstats
 module U = Lwt_unix
 
 type send_app_request_f  = Raft_app_pb.app_request option -> unit 
@@ -142,7 +143,7 @@ let get_next_request_f logger request_stream =
         >|= Event.app_request request 
     )
 
-let make logger configuration stats = 
+let make logger configuration (_:Server_stats.t)= 
 
   let (
     request_stream, 

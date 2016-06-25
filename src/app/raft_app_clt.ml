@@ -1,5 +1,5 @@
 open Lwt.Infix
-open Lwt_log_core 
+open !Lwt_log_core 
 
 module Conf = Raft_udp_conf
 module U    = Lwt_unix
@@ -116,11 +116,6 @@ module State = struct
 
     ({state with leader = Potential next}, next)
 
-  let fd {leader; _ } = 
-    match leader with
-    | Established (i, fd) -> Some fd 
-    | _ -> None
-
 end 
 
 type pending_request = APb.client_request * send_result Lwt.u 
@@ -157,7 +152,8 @@ let new_connection {logger; state; _ } to_  =
       ) 
     ) (* with *) (fun exn ->
 
-      log_f ~logger ~level:Warning "Error connecting to server_id: %i" to_
+      log_f ~logger ~level:Warning "Error connecting to server_id: %i, details: %s" 
+        to_ (Printexc.to_string exn)
       >>= Event.connection_closed fd
     )
 
@@ -191,7 +187,7 @@ let handle_request ({state; logger; _ }) client_request response_wakener =
         if nb_byte_written <>  buffer_len
         then Event.connection_closed fd () 
         else
-          log_f ~logger ~level:Notice "Request sent to state: %s" (State.string_of_state state) 
+          log_f ~logger ~level:Notice "Request sent to server id: %i" server_id 
           >>=(fun () -> 
             let buffer = Bytes.create 1024 in
             U.read fd buffer 0 1024
@@ -214,7 +210,7 @@ let handle_request ({state; logger; _ }) client_request response_wakener =
       >>= Event.connection_closed fd
     )
 
-let handle_response {logger; _ } client_response response_wakener = 
+let handle_response (_:t) client_response response_wakener = 
 
   match client_response with
   | APb.Add_log_success -> 
