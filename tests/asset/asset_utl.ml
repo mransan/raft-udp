@@ -5,9 +5,9 @@ module type App_sig = sig
 
   type asset 
 
-  val owner : asset -> string option 
+  val owner : asset -> Cry.Pub.t option 
 
-  val receiver : asset -> string option 
+  val receiver : asset -> Cry.Pub.t option 
 
   type t
 
@@ -67,6 +67,24 @@ let make_issue_asset ~url ~url_content ~prv_key () =
   in 
   {Pb.ia_asset; ia_issuer_addr; ia_sig} 
 
+type dest_addr = 
+  | Binary of Cry.Pub.t 
+  | Text   of string 
+
+let make_transfer ~asset_id ~dest_addr ~prv_key () = 
+  let tr_dest_addr = match dest_addr with
+    | Binary k -> k |> Cry.Pub.to_binary |> B58.encode_str 
+    | Text   k -> k 
+  in 
+  let id  = Cry.Sha256.hash_strings [asset_id; tr_dest_addr] in 
+  let tr_sig = 
+    id 
+    |> Cry.Prv.sign prv_key  
+    |> Cry.Sig.to_binary 
+    |> B58.encode_str 
+  in 
+  {Pb.tr_asset_id = asset_id; tr_dest_addr; tr_sig}
+   
 module Make(App:App_sig) = struct 
 
   let validate_asset {Pb.a_hash; _} ~url_content app = 
@@ -83,7 +101,7 @@ module Make(App:App_sig) = struct
 
   let validate_issue_asset issue_asset ~url_content app = 
     let {Pb.ia_asset; ia_issuer_addr; ia_sig} = issue_asset in 
-    if not @@ validate_asset ia_asset url_content app 
+    if not @@ validate_asset ia_asset ~url_content app 
     then 
       false 
     else 
@@ -99,4 +117,15 @@ module Make(App:App_sig) = struct
       in
       Cry.Pub.verify pub_key (id_of_issue_asset issue_asset) sig_ 
 
+  let validate_transfer transfer app = 
+    let {Pb.tr_asset_id; tr_sig; _ } = transfer in 
+    match App.find app tr_asset_id with
+    | None -> false 
+    | Some asset -> 
+      match App.owner asset with
+      | None -> false 
+      | Some owner -> 
+        let sig_ = tr_sig |> B58.decode_str |> Cry.Sig.from_binary in 
+        Cry.Pub.verify owner (id_of_transfer transfer) sig_
+         
 end 

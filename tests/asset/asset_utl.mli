@@ -8,11 +8,22 @@ val make_issue_asset :
   unit -> 
   Asset_pb.issue_asset 
 
+type dest_addr = 
+  | Binary of Raft_cry.Pub.t 
+  | Text   of string 
+
+val make_transfer : 
+  asset_id:string -> 
+  dest_addr:dest_addr -> 
+  prv_key:Raft_cry.Prv.t -> 
+  unit -> 
+  Asset_pb.transfer 
+
 module type App_sig = sig 
 
   type asset 
 
-  val owner : asset -> string option 
+  val owner : asset -> Raft_cry.Pub.t option 
   (** [owner asset] returns the address (ie base58 encoded public key) 
       of the asset owner. 
       
@@ -24,7 +35,7 @@ module type App_sig = sig
       } 
     *)
 
-  val receiver : asset -> string option 
+  val receiver : asset -> Raft_cry.Pub.t option 
   (** [receiver asset] returns the address (ie base58 encoded public key)
       of the receiver of the asset. 
 
@@ -58,6 +69,11 @@ module Make(App:App_sig) : sig
   val validate_issue_asset : 
     Asset_pb.issue_asset -> 
     url_content:string -> 
+    App.t -> 
+    bool 
+  
+  val validate_transfer: 
+    Asset_pb.transfer -> 
     App.t -> 
     bool 
 end 
