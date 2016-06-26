@@ -50,3 +50,15 @@ let () =
   let app = [asset_id] in
 
   assert(Validation.validate_transfer transfer app)  
+
+let () = 
+  
+  let asset_id = "This is a fake one" in 
+  let accept_transfer = Utl.make_accept_transfer
+    ~asset_id
+    ~prv_key:App.receiver_key
+    () 
+  in 
+  let app = [asset_id] in
+
+  assert(Validation.validate_accept_transfer accept_transfer app)  

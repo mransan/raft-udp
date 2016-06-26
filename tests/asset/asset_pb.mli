@@ -20,7 +20,7 @@ type transfer = {
 }
 
 type accept_transfer = {
-  at_asset_id : bytes;
+  at_asset_id : string;
   at_sig : string;
 }
 
@@ -55,7 +55,7 @@ val default_transfer :
 (** [default_transfer ()] is the default value for type [transfer] *)
 
 val default_accept_transfer : 
-  ?at_asset_id:bytes ->
+  ?at_asset_id:string ->
   ?at_sig:string ->
   unit ->
   accept_transfer

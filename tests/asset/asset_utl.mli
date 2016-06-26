@@ -19,6 +19,12 @@ val make_transfer :
   unit -> 
   Asset_pb.transfer 
 
+val make_accept_transfer : 
+  asset_id:string -> 
+  prv_key:Raft_cry.Prv.t ->
+  unit -> 
+  Asset_pb.accept_transfer
+
 module type App_sig = sig 
 
   type asset 
@@ -74,4 +80,10 @@ module Make_validation(App:App_sig) : sig
     Asset_pb.transfer -> 
     App.t -> 
     bool 
+  
+  val validate_accept_transfer: 
+    Asset_pb.accept_transfer -> 
+    App.t -> 
+    bool 
+
 end 

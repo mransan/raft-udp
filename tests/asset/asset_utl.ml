@@ -84,6 +84,15 @@ let make_transfer ~asset_id ~dest_addr ~prv_key () =
     |> B58.encode_str 
   in 
   {Pb.tr_asset_id = asset_id; tr_dest_addr; tr_sig}
+
+let make_accept_transfer ~asset_id ~prv_key () = 
+  let at_sig = 
+    asset_id
+    |> Cry.Prv.sign prv_key 
+    |> Cry.Sig.to_binary 
+    |> B58.encode_str 
+  in 
+  {Pb.at_asset_id = asset_id; at_sig}  
    
 module Make_validation(App:App_sig) = struct 
 
@@ -128,4 +137,15 @@ module Make_validation(App:App_sig) = struct
         let sig_ = tr_sig |> B58.decode_str |> Cry.Sig.from_binary in 
         Cry.Pub.verify owner (id_of_transfer transfer) sig_
          
+
+  let validate_accept_transfer accept_transfer app = 
+    let {Pb.at_asset_id;at_sig} = accept_transfer in  
+    match App.find app at_asset_id with
+    | None -> false 
+    | Some asset -> 
+      match App.receiver asset with
+      | None -> false 
+      | Some receiver -> 
+        let sig_ = at_sig |> B58.decode_str |> Cry.Sig.from_binary in 
+        Cry.Pub.verify receiver (id_of_accept_transfer accept_transfer) sig_ 
 end 

@@ -91,7 +91,7 @@ message Transfer {
 // }
 // 
 message AcceptTransfer {
-  required bytes at_asset_id = 1;
+  required string at_asset_id = 1;
   required string at_sig = 2; 
 }
 

@@ -35,12 +35,12 @@ and transfer_mutable = {
 }
 
 type accept_transfer = {
-  at_asset_id : bytes;
+  at_asset_id : string;
   at_sig : string;
 }
 
 and accept_transfer_mutable = {
-  mutable at_asset_id : bytes;
+  mutable at_asset_id : string;
   mutable at_sig : string;
 }
 
@@ -94,7 +94,7 @@ and default_transfer_mutable () : transfer_mutable = {
 }
 
 let rec default_accept_transfer 
-  ?at_asset_id:((at_asset_id:bytes) = Bytes.create 64)
+  ?at_asset_id:((at_asset_id:string) = "")
   ?at_sig:((at_sig:string) = "")
   () : accept_transfer  = {
   at_asset_id;
@@ -102,7 +102,7 @@ let rec default_accept_transfer
 }
 
 and default_accept_transfer_mutable () : accept_transfer_mutable = {
-  at_asset_id = Bytes.create 64;
+  at_asset_id = "";
   at_sig = "";
 }
 
@@ -207,7 +207,7 @@ let rec decode_accept_transfer d =
     | None -> (
     )
     | Some (1, Pbrt.Bytes) -> (
-      v.at_asset_id <- Pbrt.Decoder.bytes d;
+      v.at_asset_id <- Pbrt.Decoder.string d;
       loop ()
     )
     | Some (1, pk) -> raise (
@@ -268,7 +268,7 @@ let rec encode_transfer (v:transfer) encoder =
 
 let rec encode_accept_transfer (v:accept_transfer) encoder = 
   Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
-  Pbrt.Encoder.bytes v.at_asset_id encoder;
+  Pbrt.Encoder.string v.at_asset_id encoder;
   Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
   Pbrt.Encoder.string v.at_sig encoder;
   ()
@@ -316,7 +316,7 @@ let rec pp_transfer fmt (v:transfer) =
 let rec pp_accept_transfer fmt (v:accept_transfer) = 
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
-    Pbrt.Pp.pp_record_field "at_asset_id" Pbrt.Pp.pp_bytes fmt v.at_asset_id;
+    Pbrt.Pp.pp_record_field "at_asset_id" Pbrt.Pp.pp_string fmt v.at_asset_id;
     Pbrt.Pp.pp_record_field "at_sig" Pbrt.Pp.pp_string fmt v.at_sig;
     Format.pp_close_box fmt ()
   in

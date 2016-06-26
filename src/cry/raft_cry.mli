@@ -1,3 +1,4 @@
+(** Signature module *)
 module Sig : sig 
 
   type t 
@@ -15,6 +16,7 @@ module Sig : sig
 
 end 
 
+(** Public Key module *)
 module Pub : sig 
 
   type  t 
@@ -31,6 +33,7 @@ module Pub : sig
 
 end 
 
+(** Private Key module *)
 module Prv : sig 
 
   type t 
