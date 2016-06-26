@@ -1,82 +1,100 @@
-
-
-
-// Unique Id = hash
+// unique_id(asset) {
+//   return asset.a_hash;
+// } 
 //
-// Validation: 
-//   - content = download data from [url]
-//   - assert(sha256(content) = [hash]) 
-//   - [hash] is not found in the existing assets
+// validate(asset, assets) { 
+//   var content = download_data_from_url(asset.a_url);
+//   assert(base58(sha256(content)) == asset.a_hash);
+//   assert(false == assets.contains(a_hash)); 
+// }
 //
 message Asset {
   required string a_url = 1; 
     // URL of the document describing the asset 
 
-  required bytes a_hash = 2;
-    // SHA256 hash of the document at the given url
+  required string a_hash = 2;
+    // base58(sha256(url content))
     // 
 }
 
-// Unique Id = sha256([aa_accepted_transfer_id])  
+// unique_id(issue_asset) {
+//   return sha256(unique_id(issue_asset.ia_asset), 
+//                 issue_asset.ia_issuer_addr); 
+// }
 // 
-// Validation
-//   * accepted_transfer = get_accepted_transfer_from_id([aa_accepted_transfer_id]) 
-//   * assert(not_transfered(accepted_transfer))
-//   * transfer = get_transfer_from_id([accepted_transfer.at_transfer_id]) 
-//   * pub_key  = [transfer.tr_dest_addr] 
-//   * verify([aa_existing_sig], [aa_accepted_transfer_id], [pub_key])  
+// validate(issue_asset) {
+//   validate(issue_asset.ia_asset);
+//   assert(verify(issue_asset.ia_sig,
+//                 unique_id(issue_asset),
+//                 ia_issuer_addr)); 
+// }
 //
-message AcceptedAsset {
-  required bytes aa_accepted_transfer_id = 1; 
-    // The id of the accepted transfer
-
-  required string aa_existing_sig = 2;
-    // sign(aa_accepted_transfer_id, owner_pri_key) (see doc for verification)
+message IssueAsset {
+  required Asset ia_asset = 1; 
+  required string ia_issuer_addr = 2;
+  required string ia_sig = 3;
 }
 
-// Unique Id = sha256([asset].id + [dest_addr])
+// id(transfer) {
+//   return sha256(transfer.tr_asset_id, 
+//                 transfer.tr_dest_addr); 
+// }
 // 
+// validate(transfer, assets) {
+//   val asset = assets.find(transfer.tr_asset_id); 
+//   assert(asset.isAccepted()); 
+//   val pub_key = asset.owner();
+//   assert(verify(transfer.tr_sig, 
+//                 id(transfer), 
+//                 pub_key));  
+// }
+//
+// Note on validate 
+//   validate() function assumes that the application is maintaining 
+//   the state of an asset upon receiving new transactions. In particular 
+//   * isAccepted() returns true when either the asset has never been 
+//     transferred or when it was both transferred and accepted. 
+//   * owner() returns the public key of the rightful owner. In case
+//     the asset has never been transfered it is the issuer address, while
+//     if there was at least one accepted transfer then it is the destination
+//     address of the last transfer.
 // 
-// Validation:
-//   assert(validation([asset]))
-//   
-//   if [asset].hash in previous_asset
-//   then 
-//     - transfer = latest_transfer([hash])
-//     - assert(is_accepted(transfer))
-//     - owner_key= transfer.dest_addr 
-//   else 
-//     - 
-//   - assert(valid_sign(id, [transfer_sig], 
-// 
-// Note
-//   The validtion is more complicated for the case the asset being transfered
-//   was previously part of a past transfer. This transfer should both
-//   has been accepted and the signature of the transaction must match 
-//   the destination address of that transfer. In other only if you own
-//   the asset then you can transfer it to another address. 
+// Note on the use of the asset id 
+//   A transfer is using the asset id to identify the asset. This means 
+//   that there is an implicit assumption that transactions will be chained
+//   by a consensus algorihtm. An alternative would have been to use 
+//   a more complex type: a oneof between an issued asset or an 
+//   accepted transfer. This would make the transaction maintain a fix 
+//   ordering intrinsically. However the validate() function would still have 
+//   to maintain the same state to ensure that the link to the previous transfer
+//   is indeed valid (ie avoid double spending). 
+//   Another consequence of using the asset id is that transfer's id are 
+//   not unique since an asset can be transfered back to an owner. 
 // 
 message Transfer {
-
-  oneof asset {
-    // The asset to be transferred 
-    Asset tr_new = 1; 
-    Accepted_asset tr_accepted = 2;
-  }
-  
-  required bytes tr_dest_addr = 3; 
-    // The public key to which the [asset] will be transferred to
+  required string tr_asset_id = 1; 
+  required string tr_dest_addr = 2; 
+  required string tr_sig = 3;
 }
 
-// Unique Id = sha256(at_asset_id)
+// id(accept_transfer) {
+//   return accept_transfer.at_asset_id;
+// } 
+// 
+// validate(accept_transfer, assets) {
+//   var asset = assets.find(accept_transfer.at_asset_id); 
+//   assert(! asset.isAccepted()); 
+//   var pub_key = asset.dest(); 
+//   assert(verify(accept_transfer.at_sig, 
+//                 id(accept_transfer), 
+//                 pub_key)); 
+// }
+// 
 message AcceptTransfer {
-  required bytes at_transfer_id = 1;
-    // The asset to be transfered.  
-
+  required bytes at_asset_id = 1;
   required string at_sig = 2; 
 }
 
-// Unique Id = sha256(transfer.id | accept_transfer.id)
 message Tx {
   oneof t {
     Transfer transfer = 1; 

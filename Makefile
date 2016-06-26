@@ -23,7 +23,7 @@ test:
 	$(OCB) server.native
 	$(OCB) counter_srv.native
 	$(OCB) counter_clt.native
-	$(OCB) -pkg cryptokit asset_utl.native
+	$(OCB) -pkgs cryptokit,base58 asset_test.native
 	$(OCB) start_all_servers.native
 	$(OCB) start_all_clients.native
 

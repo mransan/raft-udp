@@ -3,14 +3,14 @@ module Sig : sig
   type t 
   (* Signature type *)
 
-  val serialize   : t -> string 
-  (** [serialize s] Serializes the signature [s] to a plain text representation *)
+  val to_binary : t -> string 
+  (** [serialize s] Serializes the signature [s] to a binary representation *)
 
-  val deserialize : string -> t 
+  val from_binary : string -> t 
   (** [deserialize s] Deserializes the string [s] into a signature 
     *    
-    * Note that [s] must have previously been computed with [serialize] function, if 
-    * not behavior is undefined. 
+    * Note that [s] must have previously been computed with [to_binary] function, if 
+    * not, the behavior is undefined. 
     *) 
 
 end 
@@ -25,9 +25,9 @@ module Pub : sig
     * signature of the [msg], [false] otherwise.
     *)
 
-  val serialize : t -> string 
+  val to_binary : t -> string 
 
-  val deserialize : string ->  t
+  val from_binary : string ->  t
 
 end 
 
@@ -46,9 +46,9 @@ module Prv : sig
   val sign : t -> string -> Sig.t 
   (** [sign private_key msg] compute the signature for [msg] *)
 
-  val serialize : t -> string 
+  val to_binary : t -> string 
 
-  val deserialize : string ->  t
+  val from_binary : string ->  t
 
 end 
 

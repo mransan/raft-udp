@@ -1,13 +1,7 @@
 module Hex = struct 
-
   let encode = 
     let transform = Cryptokit.Hexa.encode ()in 
     Cryptokit.transform_string transform 
-  
-  let decode = 
-    let transform = Cryptokit.Hexa.decode ()in 
-    Cryptokit.transform_string transform
-
 end 
 
 let size          = 256 (* Bits *) 
@@ -17,9 +11,9 @@ module Sig = struct
 
   type t = string 
 
-  let serialize t = Hex.encode t  
+  let to_binary t = t 
 
-  let deserialize s = Hex.decode s
+  let from_binary s = s
 
 end 
 
@@ -30,16 +24,15 @@ module Pub = struct
     e : string
   } 
 
-  let serialized_size = 2 * size_in_bytes 
-
-  let serialize {n; e} = 
+  let to_binary {n; e} = 
     assert(String.length n = size_in_bytes);
     assert(String.length e = size_in_bytes);
-    Hex.encode (n ^ e)
+    (n ^ e)
   
-  let deserialize s = 
-    assert(String.length s = serialized_size * 2);
-    let s = Hex.decode s in 
+  let serialized_size = 2 * size_in_bytes 
+
+  let from_binary s = 
+    assert(String.length s = serialized_size);
     {
       n = String.sub s 0 size_in_bytes; 
       e = String.sub s size_in_bytes size_in_bytes;
@@ -90,6 +83,8 @@ module Prv = struct
         (String.length key.RSA.qinv) 
         (Hex.encode key.RSA.qinv)
 
+  let _ = to_string 
+
   let make () = 
     Cryptokit.RSA.new_key size 
 
@@ -101,32 +96,33 @@ module Prv = struct
     let msg_hash = String.sub (Cryptokit.hash_string hash msg) 0 31 in 
     Cryptokit.RSA.sign key msg_hash
 
-  let serialize {Cryptokit.RSA.n;e;d;p;q;dp;dq;qinv;_} = 
+  let half_size = size_in_bytes / 2 
+
+  let to_binary {Cryptokit.RSA.n;e;d;p;q;dp;dq;qinv;_} = 
     assert(String.length n = size_in_bytes);
     assert(String.length e = size_in_bytes);
     assert(String.length d = size_in_bytes);
-    assert(String.length p = size_in_bytes/2);
-    assert(String.length q = size_in_bytes/2);
-    assert(String.length dp = size_in_bytes/2);
-    assert(String.length dq = size_in_bytes/2);
-    assert(String.length qinv = size_in_bytes/2);
-    let s = String.concat "" [n;e;d;p;q;dp;dq;qinv] in 
-    Hex.encode s 
+    assert(String.length p = half_size);
+    assert(String.length q = half_size);
+    assert(String.length dp = half_size);
+    assert(String.length dq = half_size);
+    assert(String.length qinv = half_size);
+    String.concat "" [n;e;d;p;q;dp;dq;qinv]
 
-  let deserialize s = 
-    let half = size_in_bytes/2 in 
-    assert(String.length s = (size_in_bytes * 5 + half) * 2);
-    let s = Hex.decode s in 
+  let serialized_size = size_in_bytes * 5 + half_size 
+
+  let from_binary s = 
+    assert(String.length s = serialized_size);
     Cryptokit.RSA.({
       size = size;
-      n    = String.sub s (0                       ) size_in_bytes; 
-      e    = String.sub s (size_in_bytes           ) size_in_bytes; 
-      d    = String.sub s (size_in_bytes * 2       ) size_in_bytes; 
-      p    = String.sub s (size_in_bytes * 3       ) half; 
-      q    = String.sub s (size_in_bytes * 3 + half) half;
-      dp   = String.sub s (size_in_bytes * 4       ) half;
-      dq   = String.sub s (size_in_bytes * 4 + half) half;
-      qinv = String.sub s (size_in_bytes * 5       ) half;
+      n    = String.sub s (0                            ) size_in_bytes; 
+      e    = String.sub s (size_in_bytes                ) size_in_bytes; 
+      d    = String.sub s (size_in_bytes * 2            ) size_in_bytes; 
+      p    = String.sub s (size_in_bytes * 3            ) half_size; 
+      q    = String.sub s (size_in_bytes * 3 + half_size) half_size;
+      dp   = String.sub s (size_in_bytes * 4            ) half_size;
+      dq   = String.sub s (size_in_bytes * 4 + half_size) half_size;
+      qinv = String.sub s (size_in_bytes * 5            ) half_size;
     })
 
 end 
