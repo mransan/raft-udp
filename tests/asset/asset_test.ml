@@ -1,12 +1,12 @@
 module Pb = Asset_pb
 module Cry= Raft_cry
 
-
 module App = struct
 
   type asset = string 
 
   let owner_key = Cry.Prv.make () 
+
   let receiver_key = Cry.Prv.make () 
 
   let owner _ = 
@@ -21,11 +21,11 @@ module App = struct
     if List.mem asset_id t
     then Some asset_id 
     else None  
+
 end 
 
-module Utl = Asset_utl.Make(App) 
-
-let alphabet = B58.make_alphabet "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+module Utl        = Asset_utl
+module Validation = Asset_utl.Make_validation(App) 
 
 let () = 
   let app = [] in 
@@ -34,20 +34,19 @@ let () =
   let url = "http://test" in 
   let prv_key = Cry.Prv.make () in 
 
-  let issue_asset = Asset_utl.make_issue_asset ~url ~url_content ~prv_key () in 
+  let issue_asset = Utl.make_issue_asset ~url ~url_content ~prv_key () in 
 
-  assert(Utl.validate_issue_asset ~url_content issue_asset app)
-
+  assert(Validation.validate_issue_asset ~url_content issue_asset app)
 
 let () = 
 
   let asset_id = "This is a fake one" in 
-  let transfer = Asset_utl.make_transfer 
+  let transfer = Utl.make_transfer 
     ~asset_id
     ~prv_key:App.owner_key
-    ~dest_addr:(Asset_utl.Binary (Cry.Prv.public_key App.receiver_key)) 
+    ~dest_addr:(Utl.Binary (Cry.Prv.public_key App.receiver_key)) 
     () 
   in 
   let app = [asset_id] in
 
-  assert(Utl.validate_transfer transfer app)  
+  assert(Validation.validate_transfer transfer app)  

@@ -30,8 +30,7 @@ module type App_sig = sig
       {ul 
       {- [None] is returned if the asset has been transfered but 
          not accepted yet.}
-      {- [Some addr] is returned where [addr] is the base58 encoded 
-         binary public key of the owner.}
+      {- [Some addr] is returned where [addr] is the public key of the owner}
       } 
     *)
 
@@ -41,8 +40,7 @@ module type App_sig = sig
 
       {ul 
       {- [None] is returned if the asset is not pending an accept}
-      {- [Some addr] is returned where [addr] is the base58 
-         encoded public key.} 
+      {- [Some addr] is returned where [addr] is the public key of the receiver}
       }
     *)
 
@@ -58,7 +56,7 @@ module type App_sig = sig
     *)
 end 
   
-module Make(App:App_sig) : sig 
+module Make_validation(App:App_sig) : sig 
 
   val validate_asset : 
     Asset_pb.asset -> 

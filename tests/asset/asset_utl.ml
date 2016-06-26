@@ -85,7 +85,7 @@ let make_transfer ~asset_id ~dest_addr ~prv_key () =
   in 
   {Pb.tr_asset_id = asset_id; tr_dest_addr; tr_sig}
    
-module Make(App:App_sig) = struct 
+module Make_validation(App:App_sig) = struct 
 
   let validate_asset {Pb.a_hash; _} ~url_content app = 
     let a_hash' = 
