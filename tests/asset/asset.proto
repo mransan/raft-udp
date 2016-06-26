@@ -1,49 +1,45 @@
-
-
-
-// Unique Id = hash
-//
-// Validation: 
-//   - content = download data from [url]
-//   - assert(sha256(content) = [hash]) 
-//
 message Asset {
-  required string url = 1; 
+  required string a_url = 1; 
     // URL of the document describing the asset 
-  required bytes hash = 2;
-    // SHA256 hash of the document at the given url
+
+  required string a_hash = 2;
+    // base58(sha256(url content))
     // 
 }
 
-// Unique Id = sha256([asset].id + [dest_addr])
-// 
-// Validation:
-//   assert(validation([asset]))
-//   
-//   if [asset].hash in previous_asset
-//   then 
-//     - transfer = latest_transfer([hash])
-//     - assert(is_accepted(transfer))
-//     - assert(valid_sign(tx_signature, tx_id, transfer.dest_addr)) 
-// 
-// Note
-//   The validtion is more complicated for the case the asset being transfered
-//   was previously part of a past transfer. This transfer should both
-//   has been accepted and the signature of the transaction must match 
-//   the destination address of that transfer. In other only if you own
-//   the asset then you can transfer it to another address. 
-// 
+message IssueAsset {
+  required Asset ia_asset = 1; 
+    // Asset to be issued 
+
+  required string ia_issuer_addr = 2;
+    // Base58 encoded of the issuer public key
+
+  required string ia_sig = 3;
+    // Signature of [id] with the issuer private key where
+    // id = sha256(ia_asset.a_hash, ia_issuer_addr)
+}
+
 message Transfer {
-  required Asset asset = 1;
-  required bytes dest_addr = 2; 
+  required string tr_asset_id = 1; 
+    // a_hash of the asset to be transfered 
+
+  required string tr_dest_addr = 2; 
+    // Base58 encoded of the receipient public key
+
+  required string tr_sig = 3;
+    // Base58 encoded Signature of [id] with the asset owner private key where 
+    // id = sha256(previous transaction id, tr_asset_id, tr_dest_addr)
 }
 
-// Unique Id = sha256(transfer_id)
 message AcceptTransfer {
-  required bytes transfer_id  = 1;
+  required string at_asset_id = 1;
+    // a_hash of the asset to be accepted 
+
+  required string at_sig = 2; 
+    // Base58 encoded signature of [id] with the receiver private key where 
+    // id = sha256(previous transaction id, at_asset_id) 
 }
 
-// Unique Id = sha256(transfer.id | accept_transfer.id)
 message Tx {
   oneof t {
     Transfer transfer = 1; 

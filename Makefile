@@ -3,10 +3,12 @@ OCB_INC  += -I src/clt
 OCB_INC  += -I src/com 
 OCB_INC  += -I src/srv 
 OCB_INC  += -I src/utl
+OCB_INC  += -I src/cry
 OCB_INC  += -I tests/
 OCB_INC  += -I tests/counter
+OCB_INC  += -I tests/asset
 
-OCB_FLAGS = -use-ocamlfind -pkgs ocaml-protoc -pkgs raft -pkgs lwt.unix
+OCB_FLAGS = -use-ocamlfind -pkgs ocaml-protoc,raft,lwt.unix
 OCB       = ocamlbuild $(OCB_FLAGS) $(OCB_INC)
 
 ifeq "$(shell ocamlc -config | grep os_type)" "os_type: Win32"
@@ -21,6 +23,7 @@ test:
 	$(OCB) server.native
 	$(OCB) counter_srv.native
 	$(OCB) counter_clt.native
+	$(OCB) -pkgs cryptokit,base58 asset_test.native
 	$(OCB) start_all_servers.native
 	$(OCB) start_all_clients.native
 
@@ -28,6 +31,7 @@ gen:
 	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_udp.proto
 	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_app.proto
 	ocaml-protoc -I ../raft.git/src/ -ml_out tests/counter  tests/counter/counter.proto
+	ocaml-protoc -I ../raft.git/src/ -ml_out tests/asset  tests/asset/asset.proto
 
 lib.native:
 	$(OCB) raft_udp.cmxa
