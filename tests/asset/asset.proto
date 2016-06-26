@@ -1,13 +1,3 @@
-// unique_id(asset) {
-//   return asset.a_hash;
-// } 
-//
-// validate(asset, assets) { 
-//   var content = download_data_from_url(asset.a_url);
-//   assert(base58(sha256(content)) == asset.a_hash);
-//   assert(false == assets.contains(a_hash)); 
-// }
-//
 message Asset {
   required string a_url = 1; 
     // URL of the document describing the asset 
@@ -17,82 +7,37 @@ message Asset {
     // 
 }
 
-// unique_id(issue_asset) {
-//   return sha256(unique_id(issue_asset.ia_asset), 
-//                 issue_asset.ia_issuer_addr); 
-// }
-// 
-// validate(issue_asset) {
-//   validate(issue_asset.ia_asset);
-//   assert(verify(issue_asset.ia_sig,
-//                 unique_id(issue_asset),
-//                 ia_issuer_addr)); 
-// }
-//
 message IssueAsset {
   required Asset ia_asset = 1; 
+    // Asset to be issued 
+
   required string ia_issuer_addr = 2;
+    // Base58 encoded of the issuer public key
+
   required string ia_sig = 3;
+    // Signature of [id] with the issuer private key where
+    // id = sha256(ia_asset.a_hash, ia_issuer_addr)
 }
 
-// id(transfer) {
-//   return sha256(transfer.tr_asset_id, 
-//                 transfer.tr_dest_addr); 
-// }
-// 
-// validate(transfer, assets) {
-//   val asset = assets.find(transfer.tr_asset_id); 
-//   assert(asset.isAccepted()); 
-//   val pub_key = asset.owner();
-//   assert(verify(transfer.tr_sig, 
-//                 id(transfer), 
-//                 pub_key));  
-// }
-//
-// Note on validate 
-//   validate() function assumes that the application is maintaining 
-//   the state of an asset upon receiving new transactions. In particular 
-//   * isAccepted() returns true when either the asset has never been 
-//     transferred or when it was both transferred and accepted. 
-//   * owner() returns the public key of the rightful owner. In case
-//     the asset has never been transfered it is the issuer address, while
-//     if there was at least one accepted transfer then it is the destination
-//     address of the last transfer.
-// 
-// Note on the use of the asset id 
-//   A transfer is using the asset id to identify the asset. This means 
-//   that there is an implicit assumption that transactions will be chained
-//   by a consensus algorihtm. An alternative would have been to use 
-//   a more complex type: a oneof between an issued asset or an 
-//   accepted transfer. This would make the transaction maintain a fix 
-//   ordering intrinsically. However the validate() function would still have 
-//   to maintain the same state to ensure that the link to the previous transfer
-//   is indeed valid (ie avoid double spending). 
-//   Another consequence of using the asset id is that transfer's id are 
-//   not unique since an asset can be transfered back to an owner. 
-// 
 message Transfer {
   required string tr_asset_id = 1; 
+    // a_hash of the asset to be transfered 
+
   required string tr_dest_addr = 2; 
+    // Base58 encoded of the receipient public key
+
   required string tr_sig = 3;
+    // Base58 encoded Signature of [id] with the asset owner private key where 
+    // id = sha256(previous transaction id, tr_asset_id, tr_dest_addr)
 }
 
-// id(accept_transfer) {
-//   return accept_transfer.at_asset_id;
-// } 
-// 
-// validate(accept_transfer, assets) {
-//   var asset = assets.find(accept_transfer.at_asset_id); 
-//   assert(! asset.isAccepted()); 
-//   var pub_key = asset.dest(); 
-//   assert(verify(accept_transfer.at_sig, 
-//                 id(accept_transfer), 
-//                 pub_key)); 
-// }
-// 
 message AcceptTransfer {
   required string at_asset_id = 1;
+    // a_hash of the asset to be accepted 
+
   required string at_sig = 2; 
+    // Base58 encoded signature of [id] with the receiver private key where 
+    // id = sha256(previous transaction id, at_asset_id) 
 }
 
 message Tx {

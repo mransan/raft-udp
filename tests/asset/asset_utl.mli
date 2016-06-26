@@ -13,6 +13,7 @@ type dest_addr =
   | Text   of string 
 
 val make_transfer : 
+  prev_tx_id:string ->
   asset_id:string -> 
   dest_addr:dest_addr -> 
   prv_key:Raft_cry.Prv.t -> 
@@ -20,6 +21,7 @@ val make_transfer :
   Asset_pb.transfer 
 
 val make_accept_transfer : 
+  prev_tx_id:string -> 
   asset_id:string -> 
   prv_key:Raft_cry.Prv.t ->
   unit -> 
@@ -50,6 +52,12 @@ module type App_sig = sig
       }
     *)
 
+
+  val prev_tx_id : asset -> string 
+  (** [prev_tx_id asset] returns the id of the previous transaction 
+      associated with [asset] in binary format. (ie not base58 encoded)
+    *) 
+
   type t
 
   val find : t -> string -> asset option 
@@ -77,11 +85,13 @@ module Make_validation(App:App_sig) : sig
     bool 
   
   val validate_transfer: 
+    prev_tx_id:string ->
     Asset_pb.transfer -> 
     App.t -> 
     bool 
   
   val validate_accept_transfer: 
+    prev_tx_id:string ->
     Asset_pb.accept_transfer -> 
     App.t -> 
     bool 

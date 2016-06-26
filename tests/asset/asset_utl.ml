@@ -8,6 +8,8 @@ module type App_sig = sig
   val owner : asset -> Cry.Pub.t option 
 
   val receiver : asset -> Cry.Pub.t option 
+  
+  val prev_tx_id : asset -> string 
 
   type t
 
@@ -15,17 +17,14 @@ module type App_sig = sig
 
 end 
 
-let id_of_asset {Pb.a_url = _ ; a_hash} = 
-  a_hash
+let id_of_issue_asset ~ia_asset_id ~ia_issuer_addr () = 
+  Cry.Sha256.hash_strings [ia_asset_id; ia_issuer_addr] 
 
-let id_of_issue_asset {Pb.ia_asset; ia_issuer_addr; ia_sig = _ } = 
-  Cry.Sha256.hash_strings [id_of_asset ia_asset; ia_issuer_addr] 
+let id_of_transfer ~prev_tx_id ~tr_asset_id ~tr_dest_addr () =
+  Cry.Sha256.hash_strings [prev_tx_id; tr_asset_id; tr_dest_addr] 
 
-let id_of_transfer {Pb.tr_asset_id; tr_dest_addr; tr_sig = _} = 
-  Cry.Sha256.hash_strings [tr_asset_id; tr_dest_addr]
-
-let id_of_accept_transfer {Pb.at_asset_id; at_sig = _ } = 
-  at_asset_id
+let id_of_accept_transfer ~prev_tx_id ~at_asset_id () = 
+  Cry.Sha256.hash_strings [prev_tx_id; at_asset_id] 
 
 module B58 = struct
   include B58 
@@ -43,6 +42,16 @@ module B58 = struct
     |> Bytes.to_string 
 end 
 
+let sign_id ~id ~prv_key () = 
+  id
+  |> Cry.Prv.sign prv_key
+  |> Cry.Sig.to_binary 
+  |> B58.encode_str 
+
+let verify_id ~id ~sig_ ~pub_key () = 
+  let sig_ = sig_ |> B58.decode_str |> Cry.Sig.from_binary in 
+  Cry.Pub.verify pub_key id sig_
+
 let make_asset ~url ~url_content () = 
   let a_hash = 
     Cry.Sha256.hash_strings [url_content]
@@ -52,56 +61,41 @@ let make_asset ~url ~url_content () =
 
 let make_issue_asset ~url ~url_content ~prv_key () = 
   let ia_asset = make_asset ~url ~url_content () in 
-
   let ia_issuer_addr = 
     Cry.Prv.public_key prv_key 
     |> Cry.Pub.to_binary 
     |> B58.encode_str
   in  
 
-  let id = Cry.Sha256.hash_strings [id_of_asset ia_asset; ia_issuer_addr] in 
-  let ia_sig = 
-    Cry.Prv.sign prv_key id  
-    |> Cry.Sig.to_binary 
-    |> B58.encode_str 
-  in 
+  let id = id_of_issue_asset ~ia_asset_id:ia_asset.Pb.a_hash ~ia_issuer_addr () in 
+  let ia_sig = sign_id ~id ~prv_key () in  
   {Pb.ia_asset; ia_issuer_addr; ia_sig} 
 
 type dest_addr = 
   | Binary of Cry.Pub.t 
   | Text   of string 
 
-let make_transfer ~asset_id ~dest_addr ~prv_key () = 
+let make_transfer ~prev_tx_id ~asset_id ~dest_addr ~prv_key () = 
+  let tr_asset_id = asset_id in 
   let tr_dest_addr = match dest_addr with
     | Binary k -> k |> Cry.Pub.to_binary |> B58.encode_str 
     | Text   k -> k 
   in 
-  let id  = Cry.Sha256.hash_strings [asset_id; tr_dest_addr] in 
-  let tr_sig = 
-    id 
-    |> Cry.Prv.sign prv_key  
-    |> Cry.Sig.to_binary 
-    |> B58.encode_str 
-  in 
+  let id = id_of_transfer ~prev_tx_id ~tr_asset_id ~tr_dest_addr () in 
+  let tr_sig = sign_id ~id ~prv_key () in  
   {Pb.tr_asset_id = asset_id; tr_dest_addr; tr_sig}
 
-let make_accept_transfer ~asset_id ~prv_key () = 
-  let at_sig = 
-    asset_id
-    |> Cry.Prv.sign prv_key 
-    |> Cry.Sig.to_binary 
-    |> B58.encode_str 
-  in 
-  {Pb.at_asset_id = asset_id; at_sig}  
+let make_accept_transfer ~prev_tx_id ~asset_id ~prv_key () = 
+  let at_asset_id = asset_id in 
+  let id = id_of_accept_transfer ~prev_tx_id ~at_asset_id () in
+  let at_sig = sign_id ~id ~prv_key () in  
+  {Pb.at_asset_id; at_sig}  
    
 module Make_validation(App:App_sig) = struct 
 
   let validate_asset {Pb.a_hash; _} ~url_content app = 
-    let a_hash' = 
-      Cry.Sha256.hash_strings [url_content]
-      |> B58.encode_str 
-    in 
-    if a_hash <> a_hash'
+    let a_hash' = Cry.Sha256.hash_strings [url_content] |> B58.encode_str in 
+    if  a_hash' <> a_hash
     then false 
     else 
       match App.find app a_hash with
@@ -119,26 +113,21 @@ module Make_validation(App:App_sig) = struct
         |> B58.decode_str 
         |> Cry.Pub.from_binary 
       in 
-      let sig_ = 
-        ia_sig
-        |> B58.decode_str 
-        |> Cry.Sig.from_binary 
-      in
-      Cry.Pub.verify pub_key (id_of_issue_asset issue_asset) sig_ 
+      let id = id_of_issue_asset ~ia_asset_id:ia_asset.Pb.a_hash ~ia_issuer_addr () in  
+      verify_id ~id ~pub_key ~sig_:ia_sig () 
 
-  let validate_transfer transfer app = 
-    let {Pb.tr_asset_id; tr_sig; _ } = transfer in 
+  let validate_transfer ~prev_tx_id transfer app = 
+    let {Pb.tr_asset_id; tr_sig; tr_dest_addr} = transfer in 
     match App.find app tr_asset_id with
     | None -> false 
     | Some asset -> 
       match App.owner asset with
       | None -> false 
       | Some owner -> 
-        let sig_ = tr_sig |> B58.decode_str |> Cry.Sig.from_binary in 
-        Cry.Pub.verify owner (id_of_transfer transfer) sig_
-         
+        let id = id_of_transfer ~prev_tx_id ~tr_asset_id ~tr_dest_addr () in 
+        verify_id ~id ~pub_key:owner ~sig_:tr_sig () 
 
-  let validate_accept_transfer accept_transfer app = 
+  let validate_accept_transfer ~prev_tx_id accept_transfer app = 
     let {Pb.at_asset_id;at_sig} = accept_transfer in  
     match App.find app at_asset_id with
     | None -> false 
@@ -146,6 +135,6 @@ module Make_validation(App:App_sig) = struct
       match App.receiver asset with
       | None -> false 
       | Some receiver -> 
-        let sig_ = at_sig |> B58.decode_str |> Cry.Sig.from_binary in 
-        Cry.Pub.verify receiver (id_of_accept_transfer accept_transfer) sig_ 
+        let id = id_of_accept_transfer ~prev_tx_id ~at_asset_id () in 
+        verify_id ~id ~pub_key:receiver ~sig_:at_sig () 
 end 
