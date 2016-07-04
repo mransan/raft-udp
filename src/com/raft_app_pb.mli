@@ -1,5 +1,6 @@
 (** raft_app.proto Generated Types and Encoding *)
 
+
 (** {2 Types} *)
 
 type tx = {

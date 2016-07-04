@@ -45,6 +45,7 @@ and accept_transfer_mutable = {
 }
 
 type tx =
+  | Issue_asset of issue_asset
   | Transfer of transfer
   | Accept_transfer of accept_transfer
 
@@ -106,7 +107,7 @@ and default_accept_transfer_mutable () : accept_transfer_mutable = {
   at_sig = "";
 }
 
-let rec default_tx () : tx = Transfer (default_transfer ())
+let rec default_tx () : tx = Issue_asset (default_issue_asset ())
 
 let rec decode_asset d =
   let v = default_asset_mutable () in
@@ -230,8 +231,9 @@ let rec decode_tx d =
   let rec loop () = 
     let ret:tx = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
-      | Some (1, _) -> Transfer (decode_transfer (Pbrt.Decoder.nested d))
-      | Some (2, _) -> Accept_transfer (decode_accept_transfer (Pbrt.Decoder.nested d))
+      | Some (1, _) -> Issue_asset (decode_issue_asset (Pbrt.Decoder.nested d))
+      | Some (2, _) -> Transfer (decode_transfer (Pbrt.Decoder.nested d))
+      | Some (3, _) -> Accept_transfer (decode_accept_transfer (Pbrt.Decoder.nested d))
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
         loop () 
@@ -275,12 +277,16 @@ let rec encode_accept_transfer (v:accept_transfer) encoder =
 
 let rec encode_tx (v:tx) encoder = 
   match v with
-  | Transfer x -> (
+  | Issue_asset x -> (
     Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
+    Pbrt.Encoder.nested (encode_issue_asset x) encoder;
+  )
+  | Transfer x -> (
+    Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.nested (encode_transfer x) encoder;
   )
   | Accept_transfer x -> (
-    Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
+    Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.nested (encode_accept_transfer x) encoder;
   )
 
@@ -324,5 +330,6 @@ let rec pp_accept_transfer fmt (v:accept_transfer) =
 
 let rec pp_tx fmt (v:tx) =
   match v with
+  | Issue_asset x -> Format.fprintf fmt "@[Issue_asset(%a)@]" pp_issue_asset x
   | Transfer x -> Format.fprintf fmt "@[Transfer(%a)@]" pp_transfer x
   | Accept_transfer x -> Format.fprintf fmt "@[Accept_transfer(%a)@]" pp_accept_transfer x

@@ -1,5 +1,6 @@
 (** raft_udp.proto Generated Types and Encoding *)
 
+
 (** {2 Types} *)
 
 type server_ipc_configuration = {

@@ -42,7 +42,8 @@ message AcceptTransfer {
 
 message Tx {
   oneof t {
-    Transfer transfer = 1; 
-    AcceptTransfer accept_transfer = 2;
+    IssueAsset issue_asset = 1;
+    Transfer transfer = 2; 
+    AcceptTransfer accept_transfer = 3;
   }
 }

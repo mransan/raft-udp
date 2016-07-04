@@ -90,9 +90,31 @@ let make_accept_transfer ~prev_tx_id ~asset_id ~prv_key () =
   let id = id_of_accept_transfer ~prev_tx_id ~at_asset_id () in
   let at_sig = sign_id ~id ~prv_key () in  
   {Pb.at_asset_id; at_sig}  
+
+let pub_key_of_addr addr = 
+  addr
+  |> B58.decode_str 
+  |> Cry.Pub.from_binary 
    
 module Make_validation(App:App_sig) = struct 
+  type tx_id = string 
 
+  type 'a ok_result = {
+    tx_id : tx_id; 
+    ok_data : 'a; 
+  }
+
+  type 'a result = 
+    | Ok of 'a ok_result  
+    | Error 
+
+  let verify_id ~id ~sig_ ~pub_key f = 
+    if verify_id ~id ~sig_ ~pub_key () 
+    then Ok {tx_id = id; ok_data = (f ())} 
+    else Error 
+
+  type issue_asset_ok = Cry.Pub.t  
+  
   let validate_asset {Pb.a_hash; _} ~url_content app = 
     let a_hash' = Cry.Sha256.hash_strings [url_content] |> B58.encode_str in 
     if  a_hash' <> a_hash
@@ -104,37 +126,56 @@ module Make_validation(App:App_sig) = struct
 
   let validate_issue_asset issue_asset ~url_content app = 
     let {Pb.ia_asset; ia_issuer_addr; ia_sig} = issue_asset in 
-    if not @@ validate_asset ia_asset ~url_content app 
+    if validate_asset ia_asset ~url_content app 
     then 
-      false 
-    else 
-      let pub_key = 
-        ia_issuer_addr
-        |> B58.decode_str 
-        |> Cry.Pub.from_binary 
-      in 
+      let pub_key = pub_key_of_addr ia_issuer_addr in  
       let id = id_of_issue_asset ~ia_asset_id:ia_asset.Pb.a_hash ~ia_issuer_addr () in  
-      verify_id ~id ~pub_key ~sig_:ia_sig () 
+      verify_id ~id ~pub_key ~sig_:ia_sig (fun () ->
+        pub_key
+      ) 
+    else Error 
 
-  let validate_transfer ~prev_tx_id transfer app = 
+  type transfer_ok = {
+    tr_asset : App.asset; 
+    tr_receiver : Cry.Pub.t 
+  }
+
+  let validate_transfer transfer app = 
     let {Pb.tr_asset_id; tr_sig; tr_dest_addr} = transfer in 
     match App.find app tr_asset_id with
-    | None -> false 
+    | None -> Error
     | Some asset -> 
       match App.owner asset with
-      | None -> false 
+      | None -> Error
       | Some owner -> 
+        let prev_tx_id = App.prev_tx_id asset in 
         let id = id_of_transfer ~prev_tx_id ~tr_asset_id ~tr_dest_addr () in 
-        verify_id ~id ~pub_key:owner ~sig_:tr_sig () 
+        verify_id ~id ~pub_key:owner ~sig_:tr_sig (fun () -> 
+          {
+            tr_asset = asset; 
+            tr_receiver = pub_key_of_addr tr_dest_addr; 
+          }
+        ) 
 
-  let validate_accept_transfer ~prev_tx_id accept_transfer app = 
+  type accept_transfer_ok = {
+    at_asset : App.asset; 
+    at_owner : Cry.Pub.t; 
+  }
+
+  let validate_accept_transfer accept_transfer app = 
     let {Pb.at_asset_id;at_sig} = accept_transfer in  
     match App.find app at_asset_id with
-    | None -> false 
+    | None -> Error
     | Some asset -> 
       match App.receiver asset with
-      | None -> false 
+      | None -> Error
       | Some receiver -> 
+        let prev_tx_id = App.prev_tx_id asset in 
         let id = id_of_accept_transfer ~prev_tx_id ~at_asset_id () in 
-        verify_id ~id ~pub_key:receiver ~sig_:at_sig () 
+        verify_id ~id ~pub_key:receiver ~sig_:at_sig (fun () ->
+          {
+            at_asset = asset; 
+            at_owner = receiver;
+          }
+        )  
 end 

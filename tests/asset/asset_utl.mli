@@ -27,6 +27,8 @@ val make_accept_transfer :
   unit -> 
   Asset_pb.accept_transfer
 
+val pub_key_of_addr : string -> Raft_cry.Pub.t 
+
 module type App_sig = sig 
 
   type asset 
@@ -72,28 +74,46 @@ end
   
 module Make_validation(App:App_sig) : sig 
 
-  val validate_asset : 
-    Asset_pb.asset -> 
-    url_content:string -> 
-    App.t -> 
-    bool 
+  type tx_id = string 
+
+  type 'a ok_result = {
+    tx_id : tx_id; 
+    ok_data : 'a; 
+  }
+
+  type 'a result = 
+    | Ok of 'a ok_result  
+    | Error 
+
+  type issue_asset_ok = Raft_cry.Pub.t  
+  (** The validation return the public key of the owner of the 
+      asset being issued. 
+   *)
 
   val validate_issue_asset : 
     Asset_pb.issue_asset -> 
     url_content:string -> 
     App.t -> 
-    bool 
+    issue_asset_ok result 
   
+  type transfer_ok = {
+    tr_asset : App.asset; 
+    tr_receiver : Raft_cry.Pub.t 
+  }
+
   val validate_transfer: 
-    prev_tx_id:string ->
     Asset_pb.transfer -> 
     App.t -> 
-    bool 
+    transfer_ok result 
   
+  type accept_transfer_ok = {
+    at_asset : App.asset; 
+    at_owner : Raft_cry.Pub.t; 
+  }
+
   val validate_accept_transfer: 
-    prev_tx_id:string ->
     Asset_pb.accept_transfer -> 
     App.t -> 
-    bool 
+    accept_transfer_ok result 
 
 end 

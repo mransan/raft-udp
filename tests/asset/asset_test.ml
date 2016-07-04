@@ -1,6 +1,8 @@
 module Pb = Asset_pb
 module Cry= Raft_cry
 
+module Tmp = Asset_app
+
 module App = struct
 
   type asset = string 
@@ -40,7 +42,11 @@ let () =
 
   let issue_asset = Utl.make_issue_asset ~url ~url_content ~prv_key () in 
 
-  assert(Validation.validate_issue_asset ~url_content issue_asset app)
+  assert(
+    match Validation.validate_issue_asset ~url_content issue_asset app with
+    | Validation.Ok _ -> true
+    | Validation.Error -> false)
+
 
 let () = 
 
@@ -54,7 +60,11 @@ let () =
   in 
   let app = [asset_id] in
 
-  assert(Validation.validate_transfer ~prev_tx_id:App.prev_tx_id_str transfer app)  
+  assert(
+    match Validation.validate_transfer transfer app with
+    | Validation.Ok _ -> true 
+    | Validation.Error -> false 
+  )
 
 let () = 
   
@@ -67,4 +77,8 @@ let () =
   in 
   let app = [asset_id] in
 
-  assert(Validation.validate_accept_transfer ~prev_tx_id:App.prev_tx_id_str accept_transfer app)  
+  assert(
+    match Validation.validate_accept_transfer accept_transfer app with
+    | Validation.Ok _ -> true
+    | Validation.Error -> false 
+  ) 

@@ -1,5 +1,6 @@
 (** asset.proto Generated Types and Encoding *)
 
+
 (** {2 Types} *)
 
 type asset = {
@@ -25,6 +26,7 @@ type accept_transfer = {
 }
 
 type tx =
+  | Issue_asset of issue_asset
   | Transfer of transfer
   | Accept_transfer of accept_transfer
 
