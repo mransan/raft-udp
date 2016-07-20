@@ -1,5 +1,7 @@
 module Pb = Asset_pb
 module Cry= Raft_cry
+  
+type tx_id = string 
 
 module type App_sig = sig 
 
@@ -69,7 +71,7 @@ let make_issue_asset ~url ~url_content ~prv_key () =
 
   let id = id_of_issue_asset ~ia_asset_id:ia_asset.Pb.a_hash ~ia_issuer_addr () in 
   let ia_sig = sign_id ~id ~prv_key () in  
-  {Pb.ia_asset; ia_issuer_addr; ia_sig} 
+  ({Pb.ia_asset; ia_issuer_addr; ia_sig}, id) 
 
 type dest_addr = 
   | Binary of Cry.Pub.t 
@@ -83,13 +85,13 @@ let make_transfer ~prev_tx_id ~asset_id ~dest_addr ~prv_key () =
   in 
   let id = id_of_transfer ~prev_tx_id ~tr_asset_id ~tr_dest_addr () in 
   let tr_sig = sign_id ~id ~prv_key () in  
-  {Pb.tr_asset_id = asset_id; tr_dest_addr; tr_sig}
+  ({Pb.tr_asset_id = asset_id; tr_dest_addr; tr_sig}, id)
 
 let make_accept_transfer ~prev_tx_id ~asset_id ~prv_key () = 
   let at_asset_id = asset_id in 
   let id = id_of_accept_transfer ~prev_tx_id ~at_asset_id () in
   let at_sig = sign_id ~id ~prv_key () in  
-  {Pb.at_asset_id; at_sig}  
+  ({Pb.at_asset_id; at_sig}, id) 
 
 let pub_key_of_addr addr = 
   addr
@@ -97,7 +99,6 @@ let pub_key_of_addr addr =
   |> Cry.Pub.from_binary 
    
 module Make_validation(App:App_sig) = struct 
-  type tx_id = string 
 
   type 'a ok_result = {
     tx_id : tx_id; 

@@ -38,7 +38,7 @@ let () =
   let url = "http://test" in 
   let prv_key = Cry.Prv.make () in 
 
-  let issue_asset = Utl.make_issue_asset ~url ~url_content ~prv_key () in 
+  let issue_asset, _ = Utl.make_issue_asset ~url ~url_content ~prv_key () in 
 
   assert(
     match Validation.validate_issue_asset ~url_content issue_asset app with
@@ -49,7 +49,7 @@ let () =
 let () = 
 
   let asset_id = "This is a fake one" in 
-  let transfer = Utl.make_transfer 
+  let transfer, _ = Utl.make_transfer 
     ~prev_tx_id:App.prev_tx_id_str
     ~asset_id
     ~prv_key:App.owner_key
@@ -67,7 +67,7 @@ let () =
 let () = 
   
   let asset_id = "This is a fake one" in 
-  let accept_transfer = Utl.make_accept_transfer
+  let accept_transfer, _ = Utl.make_accept_transfer
     ~prev_tx_id:App.prev_tx_id_str 
     ~asset_id
     ~prv_key:App.receiver_key
@@ -80,3 +80,6 @@ let () =
     | Validation.Ok _ -> true
     | Validation.Error -> false 
   ) 
+
+let () =
+  Printf.printf "Success...\n"
