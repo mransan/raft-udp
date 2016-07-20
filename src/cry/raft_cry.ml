@@ -47,6 +47,8 @@ module Pub = struct
     let msg_hash'= String.sub (Cryptokit.RSA.unwrap_signature ckey sign) 1 31 in 
     msg_hash = msg_hash' 
 
+  let pp fmt {n;e} = 
+    Format.fprintf fmt "{n: %s; e: %s}" (Hex.encode n) (Hex.encode e) 
 end 
 
 module Prv = struct 

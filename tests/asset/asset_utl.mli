@@ -70,7 +70,7 @@ module type App_sig = sig
       {- [Some asset] the asset identified by [asset_id]}
       }
     *)
-end 
+end (* App_sig *) 
   
 module Make_validation(App:App_sig) : sig 
 
@@ -116,4 +116,4 @@ module Make_validation(App:App_sig) : sig
     App.t -> 
     accept_transfer_ok result 
 
-end 
+end (* Make_validation *) 

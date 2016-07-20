@@ -1,8 +1,6 @@
 module Pb = Asset_pb
 module Cry= Raft_cry
 
-module Tmp = Asset_app
-
 module App = struct
 
   type asset = string 

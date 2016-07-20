@@ -116,6 +116,14 @@ module Make_validation(App:App_sig) = struct
   type issue_asset_ok = Cry.Pub.t  
   
   let validate_asset {Pb.a_hash; _} ~url_content app = 
+    (* 
+     * TODO
+     * Also check that [a_url] is not already in used by a previously issued
+     * asset.
+     * If the same url is used with different content, the validation below
+     * will succeed. However this is not correct since replaying the entire
+     * transaction since inception will then fail. 
+     *)
     let a_hash' = Cry.Sha256.hash_strings [url_content] |> B58.encode_str in 
     if  a_hash' <> a_hash
     then false 
@@ -137,7 +145,7 @@ module Make_validation(App:App_sig) = struct
 
   type transfer_ok = {
     tr_asset : App.asset; 
-    tr_receiver : Cry.Pub.t 
+    tr_receiver : Cry.Pub.t; 
   }
 
   let validate_transfer transfer app = 

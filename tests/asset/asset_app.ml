@@ -3,9 +3,11 @@ open Lwt.Infix
 module Pb = Asset_pb
 
 module App = struct 
+
   type asset_state =
     | Owned       of Raft_cry.Pub.t 
     | In_transfer of Raft_cry.Pub.t 
+  [@@deriving show]
   
   type asset = {
     url : string; 
@@ -13,6 +15,7 @@ module App = struct
     prev_tx_id : string;
     state : asset_state; 
   }
+  [@@deriving show]
   
   let owner {state; _ } = 
     match state with
@@ -26,13 +29,24 @@ module App = struct
   
   let prev_tx_id {prev_tx_id; _} = prev_tx_id 
   
-  
-  module StringMap = Map.Make(struct 
-    type t = string 
-    let compare (x:string) (y:string) = Pervasives.compare x y
-  end) 
+  module StringMap = struct 
+    include Map.Make(struct 
+      type t = string 
+      let compare (x:string) (y:string) = Pervasives.compare x y
+    end) 
+
+    let pp f fmt t = 
+      Format.fprintf fmt "[";
+      iter (fun key v ->
+        Format.fprintf fmt "{key: %s, value: %a}, " key f v
+      ) t;  
+      Format.fprintf fmt "[";
+  end 
   
   type t = asset StringMap.t 
+  [@@deriving show]
+
+  let make () = StringMap.empty 
   
   let find t asset_id = 
     match StringMap.find asset_id t with
@@ -48,18 +62,20 @@ module App = struct
 
 end 
 
-module Val = Asset_utl.Make_validation(App) 
+module Validation = Asset_utl.Make_validation(App) 
 
 let content_of_url url = 
   Lwt.return @@ "This is a dummy content of course" ^ url
+
+let make = App.make
 
 let handle_tx t = function 
   | Pb.Issue_asset issue_asset ->
     let {Pb.a_url; a_hash} = issue_asset.Pb.ia_asset in
     content_of_url a_url 
     >|= (function url_content ->
-      match Val.validate_issue_asset issue_asset ~url_content t with
-      | Val.Ok {Val.tx_id; ok_data = owner} ->
+      match Validation.validate_issue_asset issue_asset ~url_content t with
+      | Validation.Ok {Validation.tx_id; ok_data = owner} ->
         let asset = { 
           App.url = a_url; 
           id  = a_hash;
@@ -67,12 +83,12 @@ let handle_tx t = function
           state = App.Owned owner;
         } in 
         App.add t a_hash asset 
-      | Val.Error -> t 
+      | Validation.Error -> t 
     )
   
   | Pb.Transfer transfer ->
-    Lwt.return (match Val.validate_transfer transfer t with
-      | Val.Ok {Val.tx_id; ok_data = {Val.tr_asset = _ ; tr_receiver}} -> 
+    Lwt.return (match Validation.validate_transfer transfer t with
+      | Validation.Ok {Validation.tx_id; ok_data = {Validation.tr_asset = _ ; tr_receiver}} -> 
         let {Pb.tr_asset_id; _ } = transfer in  
         App.replace_asset t tr_asset_id (fun asset -> 
           {asset with 
@@ -80,12 +96,12 @@ let handle_tx t = function
             App.state = App.In_transfer tr_receiver; 
           }  
         )
-      | Val.Error -> t
+      | Validation.Error -> t
     ) 
 
   | Pb.Accept_transfer accept_transfer ->
-    Lwt.return (match Val.validate_accept_transfer accept_transfer t with
-      | Val.Ok {Val.tx_id; ok_data = {Val.at_asset = _ ; at_owner}} -> 
+    Lwt.return (match Validation.validate_accept_transfer accept_transfer t with
+      | Validation.Ok {Validation.tx_id; ok_data = {Validation.at_asset = _ ; at_owner}} -> 
         let {Pb.at_asset_id; _ } = accept_transfer in  
         App.replace_asset t at_asset_id (fun asset -> 
             {asset with 
@@ -93,5 +109,5 @@ let handle_tx t = function
               App.state = App.Owned at_owner; 
             }  
         )
-      | Val.Error -> t
+      | Validation.Error -> t
     ) 

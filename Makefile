@@ -8,7 +8,7 @@ OCB_INC  += -I tests/
 OCB_INC  += -I tests/counter
 OCB_INC  += -I tests/asset
 
-OCB_FLAGS = -use-ocamlfind -pkgs ocaml-protoc,raft,lwt.unix
+OCB_FLAGS = -use-ocamlfind -pkgs ocaml-protoc,raft,lwt.unix,ppx_deriving.show
 OCB       = ocamlbuild $(OCB_FLAGS) $(OCB_INC)
 
 ifeq "$(shell ocamlc -config | grep os_type)" "os_type: Win32"
@@ -23,7 +23,8 @@ test:
 	$(OCB) server.native
 	$(OCB) counter_srv.native
 	$(OCB) counter_clt.native
-	$(OCB) -pkgs cryptokit,base58 asset_test.native
+	$(OCB) -pkgs cryptokit,base58 asset_test_01.native
+	$(OCB) -pkgs cryptokit,base58 asset_test_02.native
 	$(OCB) start_all_servers.native
 	$(OCB) start_all_clients.native
 

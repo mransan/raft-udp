@@ -31,6 +31,7 @@ module Pub : sig
 
   val from_binary : string ->  t
 
+  val pp : Format.formatter -> t -> unit 
 end 
 
 (** Private Key module *)
