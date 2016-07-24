@@ -51,7 +51,7 @@ let main () =
     | [] -> 
       Lwt_io.printf 
         "- App after all tests:\n> %s\n" 
-        (Asset_app.App.show app); 
+        (Asset_app.show app); 
     | l  -> 
       let nth = Random.int @@ List.length l in  
       execute_nth_test ~nth ~app l
