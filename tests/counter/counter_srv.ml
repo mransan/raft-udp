@@ -67,7 +67,7 @@ let process_demo_app_request logger (validations, notify) state =
       >|= (fun () -> 
         let tx_validation = Raft_app_srv.({
           tx_id; 
-          result = Raft_app_srv.Ok; 
+          result = Raft_app_srv.Validation_result_ok; 
         }) in 
         (tx_validation::tx_validations, state) 
       )
@@ -75,7 +75,7 @@ let process_demo_app_request logger (validations, notify) state =
     | exception Not_found -> 
       let tx_validation = Raft_app_srv.({
         tx_id; 
-        result = Raft_app_srv.Error "Not a valid counter value"; 
+        result = Raft_app_srv.Validation_result_error "Not a valid counter value"; 
       }) in 
       Lwt.return (tx_validation::tx_validations, state)
 
@@ -88,13 +88,8 @@ let process_demo_app_request logger (validations, notify) state =
 
 let main configuration log () = 
   begin 
-    if log 
-    then 
-      let file_name = "app.log" in 
-      let template  = "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" in
-      Lwt_log.file ~mode:`Truncate ~template ~file_name ()
-    else 
-      Lwt.return Lwt_log_core.null
+    let to_file = if log then Some "app.log" else None in 
+    Raft_utl_lwt.make_logger ?to_file ()  
   end
   >>=(fun logger -> 
 

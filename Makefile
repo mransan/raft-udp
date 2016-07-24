@@ -18,15 +18,24 @@ else
 endif
 
 .PHONY: test gen lib.native lib.byte lib.install lib.uninstall clean 
+.PHONY: framework counter asset
 
-test: 
+all: framework counter asset
+
+framework: 
 	$(OCB) server.native
-	$(OCB) counter_srv.native
-	$(OCB) counter_clt.native
-	$(OCB) -pkgs cryptokit,base58 asset_test_01.native
-	$(OCB) -pkgs cryptokit,base58 asset_test_02.native
 	$(OCB) start_all_servers.native
 	$(OCB) start_all_clients.native
+
+counter:
+	$(OCB) counter_srv.native
+	$(OCB) counter_clt.native
+
+asset:
+	$(OCB) -pkgs cryptokit,base58 asset_test_01.native
+	$(OCB) -pkgs cryptokit,base58 asset_test_02.native
+	$(OCB) -pkgs cryptokit,base58 asset_srv.native
+	$(OCB) -pkgs cryptokit,base58 asset_clt.native
 
 gen:
 	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_udp.proto

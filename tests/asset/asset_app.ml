@@ -67,6 +67,8 @@ module Validation = Asset_utl.Make_validation(App)
 let content_of_url url = 
   Lwt.return @@ "This is a dummy content of course" ^ url
 
+type t = App.t 
+
 let make = App.make
 
 let handle_tx t = function 

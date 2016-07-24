@@ -30,6 +30,7 @@ let () =
     ("--log", log_spec, " : enable logging");
   ] (function
     | "counter" -> task := "counter_srv.native" 
+    | "asset" -> task := "asset_srv.native" 
     | _ -> failwith "Invalid app name"
   ) "start_all_servers.native [options]";
 
@@ -62,7 +63,7 @@ let () =
   let processes = aux [] nb_of_servers in 
 
   let rec aux server_to_kill processes = 
-    Unix.sleep 3; 
+    Unix.sleep 30000; 
     let server_to_kill = (server_to_kill + 1) mod nb_of_servers in 
     let processes = List.map (fun (server_id, pid) -> 
       if server_to_kill  = server_id

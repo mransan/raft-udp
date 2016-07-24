@@ -6,3 +6,7 @@
 *.sw*
 
 *.log
+
+*.native
+*.byte
+_build/*

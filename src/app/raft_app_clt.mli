@@ -17,8 +17,8 @@ type t
 val make : Lwt_log_core.logger -> Raft_udp_pb.configuration -> t Lwt.t 
 
 type send_result = 
-  | Ok 
-  | Error of string 
+  | Send_result_ok 
+  | Send_result_error of string 
 
 module Make(App:App_sig) : sig 
 

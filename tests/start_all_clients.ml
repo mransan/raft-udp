@@ -2,6 +2,7 @@ let arg_of_server task _ =
 
   let arg = [| 
     task;
+    "--log";
   |] in 
   arg
 
@@ -16,12 +17,13 @@ let () =
   Arg.parse [
   ] (function 
     | "counter" -> task := "./counter_clt.native" 
+    | "asset" -> task := "./asset_clt.native" 
     | _ -> failwith "Invalid app name"
   ) "start_all_clients.native";
 
   assert(!task <> "");
 
-  let nb_of_children = 10 in 
+  let nb_of_children = 1 in 
 
   for i = 1 to nb_of_children do
     match Unix.fork () with

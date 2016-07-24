@@ -23,8 +23,8 @@ module Ext = struct
 end 
 
 type send_result = 
-  | Ok 
-  | Error of string 
+  | Send_result_ok 
+  | Send_result_error of string 
 
 module Event = struct 
 
@@ -214,11 +214,11 @@ let handle_response (_:t) client_response response_wakener =
 
   match client_response with
   | APb.Add_log_success -> 
-    Lwt.wakeup response_wakener Ok; 
+    Lwt.wakeup response_wakener Send_result_ok ; 
     `Next_request  
 
   | APb.Add_log_validation_failure -> 
-    Lwt.wakeup response_wakener (Error "validation failure");
+    Lwt.wakeup response_wakener (Send_result_error "validation failure");
     `Next_request 
 
   | APb.Add_log_not_a_leader {APb.leader_id} -> 

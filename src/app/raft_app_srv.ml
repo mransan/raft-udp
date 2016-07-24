@@ -176,10 +176,10 @@ let server_loop logger configuration handle_app_request () =
   aux [next_connection ()] 
 
 type validation_result = 
-  | Ok 
-  | Error of string 
+  | Validation_result_ok 
+  | Validation_result_error of string 
 
-type tx_validation = {
+type tx_validation_result = {
   tx_id : string; 
   result : validation_result; 
 } 
@@ -199,7 +199,7 @@ module Make(App:App_sig) = struct
     tx_data : App.tx_data;
   } 
   
-  type validations = tx list * (tx_validation list -> unit) 
+  type validations = tx list * (tx_validation_result list -> unit) 
 
   let decode_tx {APb.tx_id; APb.tx_data; } = 
     {tx_id; tx_data = App.decode tx_data}
@@ -214,10 +214,10 @@ module Make(App:App_sig) = struct
         List.map (fun {tx_id; result} ->
           let result = 
             match result with
-            | Ok -> 
+            | Validation_result_ok -> 
               APb.Validation_success
 
-            | Error error_message -> 
+            | Validation_result_error error_message -> 
               APb.(Validation_failure {
                 error_message; 
                 error_code  = 1;
