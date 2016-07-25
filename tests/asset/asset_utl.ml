@@ -104,15 +104,35 @@ module Make_validation(App:App_sig) = struct
     tx_id : tx_id; 
     ok_data : 'a; 
   }
+  
+  type validation_error =
+    | Invalid_asset_hash
+    | Duplicate_asset of string 
+    | Invalid_signature  
+    | Unknown_asset of string 
+    | Attempt_to_transfer_in_transfer_asset of string  
+    | Asset_not_in_transfer of string 
 
-  type 'a result = 
-    | Ok of 'a ok_result  
-    | Error 
+  let string_of_validation_error = function
+    | Invalid_asset_hash -> "Invalid asset hash" 
+    | Duplicate_asset asset_hash -> 
+      Printf.sprintf "Duplicate asset, hash: %s" asset_hash 
+    | Invalid_signature  -> "Invalid transaction signature" 
+    | Unknown_asset asset_hash -> 
+      Printf.sprintf "Unknown asset, hash: %s" asset_hash
+    | Attempt_to_transfer_in_transfer_asset asset_hash -> 
+      Printf.sprintf "Attempt to transfer an 'in transfer' asset, hash: %s" asset_hash
+    | Asset_not_in_transfer asset_hash -> 
+      Printf.sprintf "Asset is not in transfer, hash: %s" asset_hash 
+
+  type 'a validation_result = 
+    | Validation_ok of 'a ok_result  
+    | Validation_error of validation_error  
 
   let verify_id ~id ~sig_ ~pub_key f = 
     if verify_id ~id ~sig_ ~pub_key () 
-    then Ok {tx_id = id; ok_data = (f ())} 
-    else Error 
+    then Validation_ok {tx_id = id; ok_data = (f ())} 
+    else Validation_error Invalid_signature  
 
   type issue_asset_ok = Cry.Pub.t  
   
@@ -126,23 +146,23 @@ module Make_validation(App:App_sig) = struct
      * transaction since inception will then fail. 
      *)
     let a_hash' = Cry.Sha256.hash_strings [url_content] |> B58.encode_str in 
-    if  a_hash' <> a_hash
-    then false 
+    if a_hash' <> a_hash
+    then Error Invalid_asset_hash
     else 
       match App.find app a_hash with
-      | None -> true
-      | Some _ -> false 
+      | None -> Ok ()
+      | Some _ -> Error (Duplicate_asset a_hash)
 
   let validate_issue_asset issue_asset ~url_content app = 
     let {Pb.ia_asset; ia_issuer_addr; ia_sig} = issue_asset in 
-    if validate_asset ia_asset ~url_content app 
-    then 
+    match validate_asset ia_asset ~url_content app with
+    | Error e -> Validation_error e 
+    | Ok () ->  
       let pub_key = pub_key_of_addr ia_issuer_addr in  
       let id = id_of_issue_asset ~ia_asset_id:ia_asset.Pb.a_hash ~ia_issuer_addr () in  
       verify_id ~id ~pub_key ~sig_:ia_sig (fun () ->
         pub_key
       ) 
-    else Error 
 
   type transfer_ok = {
     tr_asset : App.asset; 
@@ -152,10 +172,11 @@ module Make_validation(App:App_sig) = struct
   let validate_transfer transfer app = 
     let {Pb.tr_asset_id; tr_sig; tr_dest_addr} = transfer in 
     match App.find app tr_asset_id with
-    | None -> Error
+    | None -> Validation_error (Unknown_asset tr_asset_id) 
     | Some asset -> 
       match App.owner asset with
-      | None -> Error
+      | None -> 
+        Validation_error (Attempt_to_transfer_in_transfer_asset tr_asset_id) 
       | Some owner -> 
         let prev_tx_id = App.prev_tx_id asset in 
         let id = id_of_transfer ~prev_tx_id ~tr_asset_id ~tr_dest_addr () in 
@@ -174,10 +195,11 @@ module Make_validation(App:App_sig) = struct
   let validate_accept_transfer accept_transfer app = 
     let {Pb.at_asset_id;at_sig} = accept_transfer in  
     match App.find app at_asset_id with
-    | None -> Error
+    | None -> Validation_error (Unknown_asset at_asset_id) 
     | Some asset -> 
       match App.receiver asset with
-      | None -> Error
+      | None -> 
+        Validation_error (Asset_not_in_transfer at_asset_id) 
       | Some receiver -> 
         let prev_tx_id = App.prev_tx_id asset in 
         let id = id_of_accept_transfer ~prev_tx_id ~at_asset_id () in 

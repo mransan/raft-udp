@@ -90,7 +90,7 @@ let handle_tx t = function
     content_of_url a_url 
     >|= (function url_content ->
       match Validation.validate_issue_asset issue_asset ~url_content t with
-      | Validation.Ok {Validation.tx_id; ok_data = owner} ->
+      | Validation.Validation_ok {Validation.tx_id; ok_data = owner} ->
         let asset = { 
           url = a_url; 
           id  = a_hash;
@@ -98,13 +98,17 @@ let handle_tx t = function
           state = Owned owner;
         } in 
         Ok (add t a_hash asset) 
-      | Validation.Error -> 
-        Error "Validation error" 
+      | Validation.Validation_error e -> 
+        Error (Validation.string_of_validation_error e) 
     )
   
   | Pb.Transfer transfer ->
     Lwt.return (match Validation.validate_transfer transfer t with
-      | Validation.Ok {Validation.tx_id; ok_data = {Validation.tr_asset = _ ; tr_receiver}} -> 
+      | Validation.Validation_ok ok_transfer -> 
+        let {
+          Validation.tx_id; 
+          ok_data = {Validation.tr_asset = _ ; tr_receiver}
+        } = ok_transfer in 
         let {Pb.tr_asset_id; _ } = transfer in  
         let t = replace_asset t tr_asset_id (fun asset -> 
           {asset with 
@@ -113,13 +117,17 @@ let handle_tx t = function
           }  
         ) in
         Ok t 
-      | Validation.Error -> 
-        Error "Validation error"
+      | Validation.Validation_error e -> 
+        Error (Validation.string_of_validation_error e) 
     ) 
 
   | Pb.Accept_transfer accept_transfer ->
     Lwt.return (match Validation.validate_accept_transfer accept_transfer t with
-      | Validation.Ok {Validation.tx_id; ok_data = {Validation.at_asset = _ ; at_owner}} -> 
+      | Validation.Validation_ok ok_accept_transfer -> 
+        let {
+          Validation.tx_id; 
+          ok_data = {Validation.at_asset = _ ; at_owner}
+        } = ok_accept_transfer in 
         let {Pb.at_asset_id; _ } = accept_transfer in  
         let t = replace_asset t at_asset_id (fun asset -> 
             {asset with 
@@ -128,6 +136,6 @@ let handle_tx t = function
             }  
         ) in 
         Ok t 
-      | Validation.Error -> 
-        Error "Validation error"
+      | Validation.Validation_error e -> 
+        Error (Validation.string_of_validation_error e) 
     ) 

@@ -79,10 +79,58 @@ module Make_validation(App:App_sig) : sig
     tx_id : tx_id; 
     ok_data : 'a; 
   }
+  
+  type validation_error =
+    | Invalid_asset_hash
+      (** 
+       The asset hash in the Issue_asset transaction is not valid. This 
+       can be due 
+       {ul 
+       {- url content is not matching }
+       {- invalid sha256 hashing }
+       {- invalid Base 58 encoding (different alphabet?)} 
+       }
+       *) 
 
-  type 'a result = 
-    | Ok of 'a ok_result  
-    | Error 
+    | Duplicate_asset of string 
+      (** 
+       The asset being issued already exists.
+       *) 
+
+    | Invalid_signature  
+      (** 
+       The signature associated with the transaction is invalid. This can 
+       be due to:
+       {ul
+       {- Invalid id computation}
+       {- Invalid private key}
+       {- invalid Base 58 encoding (different alphabet?)}
+       }
+       *)
+
+    | Unknown_asset of string 
+      (** 
+       The asset being transfered/accepted does not exists (ie has never 
+       been issued). 
+       *)
+
+    | Attempt_to_transfer_in_transfer_asset of string  
+      (** 
+       The transfer transaction cannot be completed since the corresponding 
+       asset is already in transfer 
+       *) 
+
+    | Asset_not_in_transfer of string 
+      (** 
+       An Accept_transfer is rejected since the asset is currently not 
+       in transfer. 
+       *) 
+
+  val string_of_validation_error : validation_error -> string 
+
+  type 'a validation_result = 
+    | Validation_ok of 'a ok_result  
+    | Validation_error of validation_error  
 
   type issue_asset_ok = Raft_cry.Pub.t  
   (** The validation return the public key of the owner of the 
@@ -93,7 +141,7 @@ module Make_validation(App:App_sig) : sig
     Asset_pb.issue_asset -> 
     url_content:string -> 
     App.t -> 
-    issue_asset_ok result 
+    issue_asset_ok validation_result 
   
   type transfer_ok = {
     tr_asset : App.asset; 
@@ -103,7 +151,7 @@ module Make_validation(App:App_sig) : sig
   val validate_transfer: 
     Asset_pb.transfer -> 
     App.t -> 
-    transfer_ok result 
+    transfer_ok validation_result 
   
   type accept_transfer_ok = {
     at_asset : App.asset; 
@@ -113,6 +161,6 @@ module Make_validation(App:App_sig) : sig
   val validate_accept_transfer: 
     Asset_pb.accept_transfer -> 
     App.t -> 
-    accept_transfer_ok result 
+    accept_transfer_ok validation_result 
 
 end (* Make_validation *) 

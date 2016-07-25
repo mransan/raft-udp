@@ -42,8 +42,8 @@ let () =
 
   assert(
     match Validation.validate_issue_asset ~url_content issue_asset app with
-    | Validation.Ok _ -> true
-    | Validation.Error -> false)
+    | Validation.Validation_ok _ -> true
+    | Validation.Validation_error _ -> false)
 
 
 let () = 
@@ -60,9 +60,8 @@ let () =
 
   assert(
     match Validation.validate_transfer transfer app with
-    | Validation.Ok _ -> true 
-    | Validation.Error -> false 
-  )
+    | Validation.Validation_ok _ -> true
+    | Validation.Validation_error _ -> false)
 
 let () = 
   
@@ -77,9 +76,8 @@ let () =
 
   assert(
     match Validation.validate_accept_transfer accept_transfer app with
-    | Validation.Ok _ -> true
-    | Validation.Error -> false 
-  ) 
+    | Validation.Validation_ok _ -> true
+    | Validation.Validation_error _ -> false)
 
 let () =
   Printf.printf "Success...\n"
