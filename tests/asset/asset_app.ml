@@ -97,32 +97,37 @@ let handle_tx t = function
           prev_tx_id = tx_id; 
           state = Owned owner;
         } in 
-        add t a_hash asset 
-      | Validation.Error -> t 
+        Ok (add t a_hash asset) 
+      | Validation.Error -> 
+        Error "Validation error" 
     )
   
   | Pb.Transfer transfer ->
     Lwt.return (match Validation.validate_transfer transfer t with
       | Validation.Ok {Validation.tx_id; ok_data = {Validation.tr_asset = _ ; tr_receiver}} -> 
         let {Pb.tr_asset_id; _ } = transfer in  
-        replace_asset t tr_asset_id (fun asset -> 
+        let t = replace_asset t tr_asset_id (fun asset -> 
           {asset with 
             prev_tx_id = tx_id; 
             state = In_transfer tr_receiver; 
           }  
-        )
-      | Validation.Error -> t
+        ) in
+        Ok t 
+      | Validation.Error -> 
+        Error "Validation error"
     ) 
 
   | Pb.Accept_transfer accept_transfer ->
     Lwt.return (match Validation.validate_accept_transfer accept_transfer t with
       | Validation.Ok {Validation.tx_id; ok_data = {Validation.at_asset = _ ; at_owner}} -> 
         let {Pb.at_asset_id; _ } = accept_transfer in  
-        replace_asset t at_asset_id (fun asset -> 
+        let t = replace_asset t at_asset_id (fun asset -> 
             {asset with 
               prev_tx_id = tx_id; 
               state = Owned at_owner; 
             }  
-        )
-      | Validation.Error -> t
+        ) in 
+        Ok t 
+      | Validation.Error -> 
+        Error "Validation error"
     ) 

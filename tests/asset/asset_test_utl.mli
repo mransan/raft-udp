@@ -18,7 +18,7 @@ module type App_sig = sig
 
   val content_of_url : string -> string Lwt.t 
 
-  val handle_tx : t -> Asset_pb.tx -> t Lwt.t  
+  val handle_tx : t -> Asset_pb.tx -> (t, string) result Lwt.t  
 
 end 
 

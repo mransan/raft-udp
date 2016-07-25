@@ -19,6 +19,6 @@ val content_of_url : string -> string Lwt.t
     pointed to by [url].
   *)
 
-val handle_tx : t -> Asset_pb.tx -> t Lwt.t
+val handle_tx : t -> Asset_pb.tx -> (t, string) result Lwt.t
 (** [handle_tx app tx] handles a transaction and update the application
   *)

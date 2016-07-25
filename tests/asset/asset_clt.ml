@@ -27,10 +27,10 @@ module App = struct
   let handle_tx t tx = 
     Asset_clt.send t tx 
     >|=(function 
-      | Raft_app_clt.Send_result_ok -> t 
+      | Raft_app_clt.Send_result_ok -> Ok t 
       | Raft_app_clt.Send_result_error s -> 
-        Printf.eprintf "Send error in handle_tx, details: %s" s; 
-        t 
+        let error_msg = Printf.sprintf "Send error in handle_tx, details: %s" s in
+        Error error_msg
     ) 
 
 end (* App *)

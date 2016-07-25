@@ -19,15 +19,18 @@ end) (* Asset srv *)
 
 let process_validation_request app {Asset_srv.tx_data ; tx_id } =  
   Asset_app.handle_tx app tx_data 
-  >|=(fun app ->
-    (app, Raft_app_srv.({tx_id; result = Validation_result_ok})) 
+  >|=(function 
+    | Ok app ->
+      (app, Raft_app_srv.({tx_id; result = Validation_result_ok})) 
+    | Error error_msg -> 
+        (app, Raft_app_srv.({tx_id; result = Validation_result_error error_msg}))
   )
 
 (* 
  * Reminder: The Raft_app_srv module API enforces on the client to validate
  * a bulk of request at a time
  *)
-let process_validation_requests logger app (validation_requests, send_validations) = 
+let process_validation_requests _ (* logger *) app (validation_requests, send_validations) = 
  
   let rec aux app validation_results = function
     | [] -> 

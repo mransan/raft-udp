@@ -58,9 +58,15 @@ module type App_sig = sig
 
   val content_of_url : string -> string Lwt.t 
 
-  val handle_tx : t -> Asset_pb.tx -> t Lwt.t  
+  val handle_tx : t -> Asset_pb.tx -> (t, string) result Lwt.t  
 
 end 
+
+let handle_error ~tx_type = function 
+  | Ok x -> Lwt.return x 
+  | Error error_msg -> 
+    Lwt.fail_with @@ Printf.sprintf 
+      "Error handling tx in %s, details: %s" tx_type error_msg
 
 module Make(App:App_sig) = struct 
 
@@ -85,6 +91,7 @@ module Make(App:App_sig) = struct
           Asset_utl.make_issue_asset ~url ~url_content ~prv_key ()
         in
         App.handle_tx app (Pb.Issue_asset issue_asset) 
+        >>= handle_error ~tx_type:"Issue_asset"
         >|=(fun app -> 
           let asset_info = {
             id = issue_asset.Pb.ia_asset.Pb.a_hash; 
@@ -108,7 +115,8 @@ module Make(App:App_sig) = struct
         ()
       in 
       App.handle_tx app (Pb.Transfer transfer)
-      >|=(fun app -> 
+      >>= handle_error ~tx_type:"Transfer"
+      >|=(fun app ->
         let asset_info = {asset_info with prev_tx_id; prv_key = receiver; } in
         let test = {test with 
           remaining_transfers = remaining_transfers - 1; 
@@ -126,7 +134,8 @@ module Make(App:App_sig) = struct
           ()
         in 
         App.handle_tx app (Pb.Accept_transfer accept_transfer) 
-        >|=(fun app -> 
+        >>=handle_error ~tx_type:"Accept_transfer"
+        >|=(fun app ->
           (*
           match App.find app id with
           | None -> assert(false)
