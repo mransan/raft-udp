@@ -2,12 +2,12 @@
 
 type asset = {
   a_url : string;
-  a_hash : string;
+  a_id : string;
 }
 
 and asset_mutable = {
   mutable a_url : string;
-  mutable a_hash : string;
+  mutable a_id : string;
 }
 
 type issue_asset = {
@@ -51,15 +51,15 @@ type tx =
 
 let rec default_asset 
   ?a_url:((a_url:string) = "")
-  ?a_hash:((a_hash:string) = "")
+  ?a_id:((a_id:string) = "")
   () : asset  = {
   a_url;
-  a_hash;
+  a_id;
 }
 
 and default_asset_mutable () : asset_mutable = {
   a_url = "";
-  a_hash = "";
+  a_id = "";
 }
 
 let rec default_issue_asset 
@@ -123,7 +123,7 @@ let rec decode_asset d =
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(asset), field(1)", pk))
     )
     | Some (2, Pbrt.Bytes) -> (
-      v.a_hash <- Pbrt.Decoder.string d;
+      v.a_id <- Pbrt.Decoder.string d;
       loop ()
     )
     | Some (2, pk) -> raise (
@@ -247,7 +247,7 @@ let rec encode_asset (v:asset) encoder =
   Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
   Pbrt.Encoder.string v.a_url encoder;
   Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
-  Pbrt.Encoder.string v.a_hash encoder;
+  Pbrt.Encoder.string v.a_id encoder;
   ()
 
 let rec encode_issue_asset (v:issue_asset) encoder = 
@@ -294,7 +294,7 @@ let rec pp_asset fmt (v:asset) =
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
     Pbrt.Pp.pp_record_field "a_url" Pbrt.Pp.pp_string fmt v.a_url;
-    Pbrt.Pp.pp_record_field "a_hash" Pbrt.Pp.pp_string fmt v.a_hash;
+    Pbrt.Pp.pp_record_field "a_id" Pbrt.Pp.pp_string fmt v.a_id;
     Format.pp_close_box fmt ()
   in
   Pbrt.Pp.pp_brk pp_i fmt ()

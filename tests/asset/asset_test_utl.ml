@@ -94,7 +94,7 @@ module Make(App:App_sig) = struct
         >>= handle_error ~tx_type:"Issue_asset"
         >|=(fun app -> 
           let asset_info = {
-            id = issue_asset.Pb.ia_asset.Pb.a_hash; 
+            id = issue_asset.Pb.ia_asset.Pb.a_id; 
             prev_tx_id; 
             prv_key; 
           } in

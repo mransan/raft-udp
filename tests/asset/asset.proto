@@ -2,7 +2,7 @@ message Asset {
   required string a_url = 1; 
     // URL of the document describing the asset 
 
-  required string a_hash = 2;
+  required string a_id = 2;
     // base58(sha256(url content))
     // 
 }

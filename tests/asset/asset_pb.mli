@@ -5,7 +5,7 @@
 
 type asset = {
   a_url : string;
-  a_hash : string;
+  a_id : string;
 }
 
 type issue_asset = {
@@ -35,7 +35,7 @@ type tx =
 
 val default_asset : 
   ?a_url:string ->
-  ?a_hash:string ->
+  ?a_id:string ->
   unit ->
   asset
 (** [default_asset ()] is the default value for type [asset] *)

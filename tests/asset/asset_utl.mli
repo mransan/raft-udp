@@ -81,7 +81,7 @@ module Make_validation(App:App_sig) : sig
   }
   
   type validation_error =
-    | Invalid_asset_hash
+    | Invalid_asset_id
       (** 
        The asset hash in the Issue_asset transaction is not valid. This 
        can be due 

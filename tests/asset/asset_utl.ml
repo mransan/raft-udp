@@ -55,11 +55,11 @@ let verify_id ~id ~sig_ ~pub_key () =
   Cry.Pub.verify pub_key id sig_
 
 let make_asset ~url ~url_content () = 
-  let a_hash = 
+  let a_id = 
     Cry.Sha256.hash_strings [url_content]
     |> B58.encode_str
   in 
-  {Pb.a_hash; a_url = url}
+  {Pb.a_id; a_url = url}
 
 let make_issue_asset ~url ~url_content ~prv_key () = 
   let ia_asset = make_asset ~url ~url_content () in 
@@ -69,7 +69,7 @@ let make_issue_asset ~url ~url_content ~prv_key () =
     |> B58.encode_str
   in  
 
-  let id = id_of_issue_asset ~ia_asset_id:ia_asset.Pb.a_hash ~ia_issuer_addr () in 
+  let id = id_of_issue_asset ~ia_asset_id:ia_asset.Pb.a_id ~ia_issuer_addr () in 
   let ia_sig = sign_id ~id ~prv_key () in  
   ({Pb.ia_asset; ia_issuer_addr; ia_sig}, id) 
 
@@ -106,7 +106,7 @@ module Make_validation(App:App_sig) = struct
   }
   
   type validation_error =
-    | Invalid_asset_hash
+    | Invalid_asset_id
     | Duplicate_asset of string 
     | Invalid_signature  
     | Unknown_asset of string 
@@ -114,16 +114,16 @@ module Make_validation(App:App_sig) = struct
     | Asset_not_in_transfer of string 
 
   let string_of_validation_error = function
-    | Invalid_asset_hash -> "Invalid asset hash" 
-    | Duplicate_asset asset_hash -> 
-      Printf.sprintf "Duplicate asset, hash: %s" asset_hash 
+    | Invalid_asset_id -> "Invalid asset id" 
+    | Duplicate_asset asset_id -> 
+      Printf.sprintf "Duplicate asset, id: %s" asset_id 
     | Invalid_signature  -> "Invalid transaction signature" 
-    | Unknown_asset asset_hash -> 
-      Printf.sprintf "Unknown asset, hash: %s" asset_hash
-    | Attempt_to_transfer_in_transfer_asset asset_hash -> 
-      Printf.sprintf "Attempt to transfer an 'in transfer' asset, hash: %s" asset_hash
-    | Asset_not_in_transfer asset_hash -> 
-      Printf.sprintf "Asset is not in transfer, hash: %s" asset_hash 
+    | Unknown_asset asset_id -> 
+      Printf.sprintf "Unknown asset, id: %s" asset_id
+    | Attempt_to_transfer_in_transfer_asset asset_id -> 
+      Printf.sprintf "Attempt to transfer an 'in transfer' asset, id: %s" asset_id
+    | Asset_not_in_transfer asset_id -> 
+      Printf.sprintf "Asset is not in transfer, id: %s" asset_id 
 
   type 'a validation_result = 
     | Validation_ok of 'a ok_result  
@@ -136,7 +136,7 @@ module Make_validation(App:App_sig) = struct
 
   type issue_asset_ok = Cry.Pub.t  
   
-  let validate_asset {Pb.a_hash; _} ~url_content app = 
+  let validate_asset {Pb.a_id; _} ~url_content app = 
     (* 
      * TODO
      * Also check that [a_url] is not already in used by a previously issued
@@ -145,13 +145,13 @@ module Make_validation(App:App_sig) = struct
      * will succeed. However this is not correct since replaying the entire
      * transaction since inception will then fail. 
      *)
-    let a_hash' = Cry.Sha256.hash_strings [url_content] |> B58.encode_str in 
-    if a_hash' <> a_hash
-    then Error Invalid_asset_hash
+    let a_id' = Cry.Sha256.hash_strings [url_content] |> B58.encode_str in 
+    if a_id' <> a_id
+    then Error Invalid_asset_id
     else 
-      match App.find app a_hash with
+      match App.find app a_id with
       | None -> Ok ()
-      | Some _ -> Error (Duplicate_asset a_hash)
+      | Some _ -> Error (Duplicate_asset a_id)
 
   let validate_issue_asset issue_asset ~url_content app = 
     let {Pb.ia_asset; ia_issuer_addr; ia_sig} = issue_asset in 
@@ -159,7 +159,7 @@ module Make_validation(App:App_sig) = struct
     | Error e -> Validation_error e 
     | Ok () ->  
       let pub_key = pub_key_of_addr ia_issuer_addr in  
-      let id = id_of_issue_asset ~ia_asset_id:ia_asset.Pb.a_hash ~ia_issuer_addr () in  
+      let id = id_of_issue_asset ~ia_asset_id:ia_asset.Pb.a_id ~ia_issuer_addr () in  
       verify_id ~id ~pub_key ~sig_:ia_sig (fun () ->
         pub_key
       ) 
