@@ -18,12 +18,15 @@ module Asset_srv = Raft_app_srv.Make(struct
 end) (* Asset srv *)
 
 let process_validation_request app {Asset_srv.tx_data ; tx_id } =  
+  (* TODO handle exception ... in a run there was a cryptokit exception 
+   * which made the server crashed. 
+   *)
   Asset_app.handle_tx app tx_data 
   >|=(function 
     | Ok app ->
       (app, Raft_app_srv.({tx_id; result = Validation_result_ok})) 
     | Error error_msg -> 
-        (app, Raft_app_srv.({tx_id; result = Validation_result_error error_msg}))
+      (app, Raft_app_srv.({tx_id; result = Validation_result_error error_msg}))
   )
 
 (* 
@@ -54,14 +57,14 @@ let process_validation_requests _ (* logger *) app (validation_requests, send_va
 
 (* Boiler plate code for an application (ie logger, configuration, ...) *)
 
-let main configuration log () = 
+let main configuration log server_id () = 
   begin 
-    let to_file = if log then Some "app.log" else None in 
+    let to_file = if log then Some (Printf.sprintf "app%i.log" server_id) else None in 
     Raft_utl_lwt.make_logger ?to_file ()  
   end
   >>=(fun logger -> 
 
-    let request_stream = Asset_srv.start logger configuration  in 
+    let request_stream = Asset_srv.start logger configuration server_id in 
 
     Lwt_stream.fold_s (fun request app -> 
       process_validation_requests logger app request 
@@ -75,10 +78,13 @@ let () =
 
   let log = ref false in 
   let log_spec = Arg.Set log  in
+
+  let id, id_spec = Conf.get_id_cmdline configuration in 
   
   Arg.parse [
     ("--log", log_spec, " : enable logging");
+    ("--id", id_spec, " : raft server id");
   ] (fun _ -> ()) "asset_srv.native";
 
   Sys.set_signal Sys.sigpipe Sys.Signal_ignore ; 
-  Lwt_main.run (main configuration !log ())
+  Lwt_main.run (main configuration !log !id ())

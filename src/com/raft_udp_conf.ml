@@ -13,9 +13,27 @@ let default_configuration () = Pb.({
   });
 
   servers_ipc_configuration = [
-    {raft_id = 0; inet4_address = "127.0.0.1"; raft_port = 34765; client_port = 34865};
-    {raft_id = 1; inet4_address = "127.0.0.1"; raft_port = 34766; client_port = 34866};
-    {raft_id = 2; inet4_address = "127.0.0.1"; raft_port = 34767; client_port = 34867};
+    {
+      raft_id = 0; 
+      inet4_address = "127.0.0.1"; 
+      raft_port = 34765; 
+      client_port = 34865;
+      app_server_port = 40_000;
+    };
+    {
+      raft_id = 1; 
+      inet4_address = "127.0.0.1"; 
+      raft_port = 34766; 
+      client_port = 34866;
+      app_server_port = 40_001;
+    };
+    {
+      raft_id = 2; 
+      inet4_address = "127.0.0.1"; 
+      raft_port = 34767; 
+      client_port = 34867;
+      app_server_port = 40_002;
+    };
     (*
     {raft_id = 3; inet4_address = "127.0.0.1"; raft_port = 34768; client_port = 34868};
     {raft_id = 4; inet4_address = "127.0.0.1"; raft_port = 34769; client_port = 34869};
@@ -30,7 +48,6 @@ let default_configuration () = Pb.({
     log_record_directory = "/tmp/";
     compaction_directory = "/tmp/";
   };
-  app_server_port = 40_000;
 })
 
 let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port; _ } =
@@ -47,3 +64,21 @@ let sockaddr_of_server_id which configuration server_id =
   match List.find is_server configuration.Pb.servers_ipc_configuration with
   | server_config -> Some (sockaddr_of_server_config which server_config)
   | exception Not_found -> None
+
+let get_id_cmdline {Pb.servers_ipc_configuration; _ } = 
+  let nb_of_servers = List.length servers_ipc_configuration in 
+
+  let ids = 
+    let rec aux acc = function
+      | -1 -> acc
+      | n  -> aux ((string_of_int n)::acc) (n - 1)
+    in 
+    aux [] (nb_of_servers - 1)
+  in
+
+  let id   = ref (-1) in
+  let id_spec = Arg.Symbol (ids, fun s ->
+    id := int_of_string s
+  ) in
+
+  (id, id_spec) 

@@ -1,5 +1,5 @@
 module Pb = Asset_pb
-module Cry= Raft_cry
+module Cry = Raft_cry
   
 type tx_id = string 
 

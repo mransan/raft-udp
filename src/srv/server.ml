@@ -127,11 +127,11 @@ let get_next_compaction_f configuration = fun () ->
   Lwt_unix.sleep configuration.UPb.disk_backup.UPb.compaction_period
   >|=(fun () -> Event.Compaction_initiate)
 
-let get_app_ipc_f logger stats configuration = 
+let get_app_ipc_f logger stats configuration id = 
   let (
     send_app_request, 
     response_stream
-  ) = App_ipc.make logger configuration stats in 
+  ) = App_ipc.make logger configuration stats id in 
 
   let next_app_response () = 
     Lwt_stream.get response_stream
@@ -170,7 +170,7 @@ let run_server configuration id logger print_header slow =
   let (
     send_app_requests, 
     next_app_response
-  ) = get_app_ipc_f logger stats configuration in 
+  ) = get_app_ipc_f logger stats configuration id in 
 
   let rec server_loop threads state =
 
@@ -356,20 +356,8 @@ let () =
   Printf.printf ">>PID: %i\n%!" (Unix.getpid ());
   Random.self_init ();
   let configuration = Conf.default_configuration () in
-  let nb_of_servers = List.length configuration.UPb.servers_ipc_configuration in 
 
-  let ids = 
-    let rec aux acc = function
-      | -1 -> acc
-      | n  -> aux ((string_of_int n)::acc) (n - 1)
-    in 
-    aux [] (nb_of_servers - 1)
-  in
-
-  let id   = ref (-1) in
-  let id_spec = Arg.Symbol (ids, fun s ->
-    id := int_of_string s
-  ) in
+  let id, id_spec = Conf.get_id_cmdline configuration in 
 
   let print_header = ref false in 
   let print_header_spec = Arg.Set print_header in

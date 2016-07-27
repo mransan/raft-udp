@@ -143,7 +143,14 @@ let get_next_request_f logger request_stream =
         >|= Event.app_request request 
     )
 
-let make logger configuration (_:Server_stats.t)= 
+let make logger configuration (_:Server_stats.t) server_id = 
+
+  let {UPb.servers_ipc_configuration; _ } = configuration in 
+
+  assert(server_id < List.length servers_ipc_configuration); 
+  assert(server_id >= 0); 
+
+  let server_ipc_configuration = List.nth servers_ipc_configuration server_id in  
 
   let (
     request_stream, 
@@ -180,7 +187,7 @@ let make logger configuration (_:Server_stats.t)=
       begin match fd with 
       | None -> assert(false) 
       | Some fd2 -> 
-        send_request logger configuration fd2 request >>= loop fd  
+        send_request logger server_ipc_configuration fd2 request >>= loop fd  
       end 
 
     | Event.App_response response -> 
@@ -188,7 +195,7 @@ let make logger configuration (_:Server_stats.t)=
       next_request () >>= loop fd 
   in
 
-  let t : unit Lwt.t  = connect logger configuration () >>= loop None in 
+  let t : unit Lwt.t  = connect logger server_ipc_configuration () >>= loop None in 
   set_response_ref t; 
 
   (push_request_f, response_stream)

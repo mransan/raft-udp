@@ -22,8 +22,15 @@ val make : Lwt_log_core.logger -> Raft_udp_pb.configuration -> int -> t Lwt.t
     of in order to subsequently call the [append_commited_data] function
   *)
 
-val append_commited_data : Lwt_log_core.logger -> Raft_pb.log_entry list -> t -> unit Lwt.t 
-(** [append_commited_data log_entries handle] permanently record the [log_entries]. 
+val append_commited_data : 
+  logger:Lwt_log_core.logger -> 
+  rev_log_entries:Raft_pb.log_entry list -> 
+  t -> 
+  unit Lwt.t 
+(** [append_commited_data ~logger ~rev_log_entries handle] permanently record the [log_entries]. 
+    
+    As the [rev_log_entries] name suggest, the entries are expected to be in
+    chronological order. 
   *)
 
 

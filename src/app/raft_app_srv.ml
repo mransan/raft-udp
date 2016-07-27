@@ -233,13 +233,23 @@ module Make(App:App_sig) = struct
     | APb.Commit_tx {APb.tx_id; _ } -> 
       Lwt.return @@ APb.Commit_tx_ack {APb.tx_id}
 
-  let start logger configuration =
+  let start logger configuration server_id =
+    let {UPb.servers_ipc_configuration; _ } = configuration in 
+    
+      assert(server_id < List.length servers_ipc_configuration); 
+      assert(server_id >= 0); 
+    
+      let server_ipc_configuration = 
+        List.nth servers_ipc_configuration server_id 
+      in  
+
      let (
        validations_stream, 
        validations_push, 
        validations_set_ref
      ) = Lwt_stream.create_with_reference () in 
-     validations_set_ref @@ server_loop logger configuration (handle_app_request validations_push) (); 
+     validations_set_ref @@ 
+       server_loop logger server_ipc_configuration (handle_app_request validations_push) (); 
      validations_stream
 
 

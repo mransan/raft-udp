@@ -61,7 +61,7 @@ let append size_bytes log_entry handle =
     Lwt_io.write_from_exactly handle data_bytes 0 data_size 
   )
 
-let append_commited_data logger log_entries handle = 
+let append_commited_data ~logger ~rev_log_entries handle = 
 
   let size_bytes = Bytes.create 4 in 
   Lwt_list.iter_s (fun ({RPb.index; id; _} as log_entry) -> 
@@ -69,7 +69,7 @@ let append_commited_data logger log_entries handle =
     >>=(fun () -> 
       log_f ~logger ~level:Notice ~section "log_entry appended (index: %10i, id: %s)" 
         index id)
-  ) log_entries
+  ) rev_log_entries
   >>=(fun () -> Lwt_io.flush handle) 
 
 type read_result = 

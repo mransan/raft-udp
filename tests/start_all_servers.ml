@@ -40,16 +40,21 @@ let () =
 
   let nb_of_servers = List.length servers_ipc_configuration in 
 
-  begin 
-    let args = [| !task; "" |] in 
+
+  for i = 0 to (nb_of_servers - 1) 
+  do 
+    let args = [| !task; "--id" ; ""; ""|] in 
     begin 
       if !log 
-      then args.(1) <- "--log"
+      then args.(3) <- "--log"
     end;
+    args.(2) <- (string_of_int i); 
     match Unix.fork () with
     | 0 -> Unix.execv !task args
-    | _ -> Unix.sleep 2;
-  end;
+    | _ -> ()
+  done; 
+
+  Unix.sleep 2;
 
   let rec aux acc = function
     | 0 -> acc 

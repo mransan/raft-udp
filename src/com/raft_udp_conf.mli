@@ -14,3 +14,7 @@ val sockaddr_of_server_config:
   [< `Client | `Raft ] ->
   Raft_udp_pb.server_ipc_configuration->
   Unix.sockaddr
+
+val get_id_cmdline :
+  Raft_udp_pb.configuration -> 
+  (int ref * Arg.spec) 

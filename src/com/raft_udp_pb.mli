@@ -8,6 +8,7 @@ type server_ipc_configuration = {
   inet4_address : string;
   raft_port : int;
   client_port : int;
+  app_server_port : int;
 }
 
 type disk_backup_configuration = {
@@ -20,7 +21,6 @@ type configuration = {
   raft_configuration : Raft_pb.configuration;
   servers_ipc_configuration : server_ipc_configuration list;
   disk_backup : disk_backup_configuration;
-  app_server_port : int;
 }
 
 
@@ -31,6 +31,7 @@ val default_server_ipc_configuration :
   ?inet4_address:string ->
   ?raft_port:int ->
   ?client_port:int ->
+  ?app_server_port:int ->
   unit ->
   server_ipc_configuration
 (** [default_server_ipc_configuration ()] is the default value for type [server_ipc_configuration] *)
@@ -47,7 +48,6 @@ val default_configuration :
   ?raft_configuration:Raft_pb.configuration ->
   ?servers_ipc_configuration:server_ipc_configuration list ->
   ?disk_backup:disk_backup_configuration ->
-  ?app_server_port:int ->
   unit ->
   configuration
 (** [default_configuration ()] is the default value for type [configuration] *)
