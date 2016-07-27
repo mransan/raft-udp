@@ -180,7 +180,7 @@ let handle_notifications logger stats connection_state compaction_handle notific
             {APb.tx_id = id; tx_data = data;}
         ) rev_log_entries in
         
-        let app_request = APb.(Validate_txs {txs}) in 
+        let app_request = APb.(Commit_txs {txs}) in 
         let connection_state = {connection_state with pending_requests} in 
         (connection_state, client_responses, app_request::app_requests) 
 
@@ -396,11 +396,8 @@ let handle_app_response ~logger ~stats ~now state app_response =
   let {pending_requests; _} = connection_state in 
 
   match app_response with
-  | APb.Commit_tx_ack _ -> 
-    assert(false)
-      (* Not implemented yet *)
 
-  | APb.Validations {APb.validations} -> 
+  | APb.Committed_txs {APb.validations} -> 
 
     Lwt_list.fold_left_s (process_app_validation logger) (pending_requests, []) validations
     >|=(fun (pending_requests, client_responses) ->

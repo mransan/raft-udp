@@ -38,13 +38,12 @@ message ClientResponse {
 
 message AppRequest {
   
-  message ValidateTxs {
+  message Txs {
     repeated Tx txs = 1;
   }
 
   oneof app_request_payload {
-    ValidateTxs validate_txs = 3; 
-    Tx          commit_tx    = 4; 
+    Txs          commit_txs = 4; 
   }
 }
 
@@ -69,12 +68,7 @@ message AppResponse {
     repeated Validation validations = 1; 
   }
 
-  message CommitTxAck {
-    required string  tx_id = 2;
-  }
-
   oneof app_response_payload {
-    Validations     validations      = 4;
-    CommitTxAck    commit_tx_ack   = 5;
+    Validations committed_txs = 5;
   }
 }

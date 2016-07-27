@@ -205,7 +205,7 @@ module Make(App:App_sig) = struct
     {tx_id; tx_data = App.decode tx_data}
 
   let handle_app_request request_push = function
-    | APb.Validate_txs {APb.txs} ->
+    | APb.Commit_txs {APb.txs} ->
       let txs = List.map decode_tx txs in 
       let validations_t, validations_u = Lwt.wait () in  
       request_push (Some (txs, (fun r -> Lwt.wakeup validations_u r)));
@@ -227,11 +227,8 @@ module Make(App:App_sig) = struct
         ) validations 
       )
       >|=(fun validations -> 
-        APb.(Validations {validations}) 
+        APb.(Committed_txs {validations}) 
       )
-  
-    | APb.Commit_tx {APb.tx_id; _ } -> 
-      Lwt.return @@ APb.Commit_tx_ack {APb.tx_id}
 
   let start logger configuration server_id =
     let {UPb.servers_ipc_configuration; _ } = configuration in 

@@ -26,17 +26,16 @@ type client_response =
   | Add_log_validation_failure
   | Add_log_not_a_leader of client_response_add_log_not_aleader
 
-type app_request_validate_txs = {
+type app_request_txs = {
   txs : tx list;
 }
 
-and app_request_validate_txs_mutable = {
+and app_request_txs_mutable = {
   mutable txs : tx list;
 }
 
 type app_request =
-  | Validate_txs of app_request_validate_txs
-  | Commit_tx of tx
+  | Commit_txs of app_request_txs
 
 type app_response_validation_failure = {
   error_message : string;
@@ -70,17 +69,8 @@ and app_response_validations_mutable = {
   mutable validations : app_response_validation list;
 }
 
-type app_response_commit_tx_ack = {
-  tx_id : string;
-}
-
-and app_response_commit_tx_ack_mutable = {
-  mutable tx_id : string;
-}
-
 type app_response =
-  | Validations of app_response_validations
-  | Commit_tx_ack of app_response_commit_tx_ack
+  | Committed_txs of app_response_validations
 
 let rec default_tx 
   ?tx_id:((tx_id:string) = "")
@@ -109,17 +99,17 @@ and default_client_response_add_log_not_aleader_mutable () : client_response_add
 
 let rec default_client_response (): client_response = Add_log_success
 
-let rec default_app_request_validate_txs 
+let rec default_app_request_txs 
   ?txs:((txs:tx list) = [])
-  () : app_request_validate_txs  = {
+  () : app_request_txs  = {
   txs;
 }
 
-and default_app_request_validate_txs_mutable () : app_request_validate_txs_mutable = {
+and default_app_request_txs_mutable () : app_request_txs_mutable = {
   txs = [];
 }
 
-let rec default_app_request () : app_request = Validate_txs (default_app_request_validate_txs ())
+let rec default_app_request () : app_request = Commit_txs (default_app_request_txs ())
 
 let rec default_app_response_validation_failure 
   ?error_message:((error_message:string) = "")
@@ -159,17 +149,7 @@ and default_app_response_validations_mutable () : app_response_validations_mutab
   validations = [];
 }
 
-let rec default_app_response_commit_tx_ack 
-  ?tx_id:((tx_id:string) = "")
-  () : app_response_commit_tx_ack  = {
-  tx_id;
-}
-
-and default_app_response_commit_tx_ack_mutable () : app_response_commit_tx_ack_mutable = {
-  tx_id = "";
-}
-
-let rec default_app_response () : app_response = Validations (default_app_response_validations ())
+let rec default_app_response () : app_response = Committed_txs (default_app_response_validations ())
 
 let rec decode_tx d =
   let v = default_tx_mutable () in
@@ -246,8 +226,8 @@ let rec decode_client_response d =
   in
   loop ()
 
-let rec decode_app_request_validate_txs d =
-  let v = default_app_request_validate_txs_mutable () in
+let rec decode_app_request_txs d =
+  let v = default_app_request_txs_mutable () in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
@@ -258,20 +238,19 @@ let rec decode_app_request_validate_txs d =
       loop ()
     )
     | Some (1, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_request_validate_txs), field(1)", pk))
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_request_txs), field(1)", pk))
     )
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
-  let v:app_request_validate_txs = Obj.magic v in
+  let v:app_request_txs = Obj.magic v in
   v
 
 let rec decode_app_request d = 
   let rec loop () = 
     let ret:app_request = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
-      | Some (3, _) -> Validate_txs (decode_app_request_validate_txs (Pbrt.Decoder.nested d))
-      | Some (4, _) -> Commit_tx (decode_tx (Pbrt.Decoder.nested d))
+      | Some (4, _) -> Commit_txs (decode_app_request_txs (Pbrt.Decoder.nested d))
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
         loop () 
@@ -376,31 +355,11 @@ let rec decode_app_response_validations d =
   let v:app_response_validations = Obj.magic v in
   v
 
-let rec decode_app_response_commit_tx_ack d =
-  let v = default_app_response_commit_tx_ack_mutable () in
-  let rec loop () = 
-    match Pbrt.Decoder.key d with
-    | None -> (
-    )
-    | Some (2, Pbrt.Bytes) -> (
-      v.tx_id <- Pbrt.Decoder.string d;
-      loop ()
-    )
-    | Some (2, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_commit_tx_ack), field(2)", pk))
-    )
-    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
-  in
-  loop ();
-  let v:app_response_commit_tx_ack = Obj.magic v in
-  v
-
 let rec decode_app_response d = 
   let rec loop () = 
     let ret:app_response = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
-      | Some (4, _) -> Validations (decode_app_response_validations (Pbrt.Decoder.nested d))
-      | Some (5, _) -> Commit_tx_ack (decode_app_response_commit_tx_ack (Pbrt.Decoder.nested d))
+      | Some (5, _) -> Committed_txs (decode_app_response_validations (Pbrt.Decoder.nested d))
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
         loop () 
@@ -450,7 +409,7 @@ let rec encode_client_response (v:client_response) encoder =
     Pbrt.Encoder.nested (encode_client_response_add_log_not_aleader x) encoder;
   )
 
-let rec encode_app_request_validate_txs (v:app_request_validate_txs) encoder = 
+let rec encode_app_request_txs (v:app_request_txs) encoder = 
   List.iter (fun x -> 
     Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.nested (encode_tx x) encoder;
@@ -459,13 +418,9 @@ let rec encode_app_request_validate_txs (v:app_request_validate_txs) encoder =
 
 let rec encode_app_request (v:app_request) encoder = 
   match v with
-  | Validate_txs x -> (
-    Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.nested (encode_app_request_validate_txs x) encoder;
-  )
-  | Commit_tx x -> (
+  | Commit_txs x -> (
     Pbrt.Encoder.key (4, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.nested (encode_tx x) encoder;
+    Pbrt.Encoder.nested (encode_app_request_txs x) encoder;
   )
 
 let rec encode_app_response_validation_failure (v:app_response_validation_failure) encoder = 
@@ -509,20 +464,11 @@ let rec encode_app_response_validations (v:app_response_validations) encoder =
   ) v.validations;
   ()
 
-let rec encode_app_response_commit_tx_ack (v:app_response_commit_tx_ack) encoder = 
-  Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
-  Pbrt.Encoder.string v.tx_id encoder;
-  ()
-
 let rec encode_app_response (v:app_response) encoder = 
   match v with
-  | Validations x -> (
-    Pbrt.Encoder.key (4, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.nested (encode_app_response_validations x) encoder;
-  )
-  | Commit_tx_ack x -> (
+  | Committed_txs x -> (
     Pbrt.Encoder.key (5, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.nested (encode_app_response_commit_tx_ack x) encoder;
+    Pbrt.Encoder.nested (encode_app_response_validations x) encoder;
   )
 
 let rec pp_tx fmt (v:tx) = 
@@ -552,7 +498,7 @@ let rec pp_client_response fmt (v:client_response) =
   | Add_log_validation_failure  -> Format.fprintf fmt "Add_log_validation_failure"
   | Add_log_not_a_leader x -> Format.fprintf fmt "@[Add_log_not_a_leader(%a)@]" pp_client_response_add_log_not_aleader x
 
-let rec pp_app_request_validate_txs fmt (v:app_request_validate_txs) = 
+let rec pp_app_request_txs fmt (v:app_request_txs) = 
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
     Pbrt.Pp.pp_record_field "txs" (Pbrt.Pp.pp_list pp_tx) fmt v.txs;
@@ -562,8 +508,7 @@ let rec pp_app_request_validate_txs fmt (v:app_request_validate_txs) =
 
 let rec pp_app_request fmt (v:app_request) =
   match v with
-  | Validate_txs x -> Format.fprintf fmt "@[Validate_txs(%a)@]" pp_app_request_validate_txs x
-  | Commit_tx x -> Format.fprintf fmt "@[Commit_tx(%a)@]" pp_tx x
+  | Commit_txs x -> Format.fprintf fmt "@[Commit_txs(%a)@]" pp_app_request_txs x
 
 let rec pp_app_response_validation_failure fmt (v:app_response_validation_failure) = 
   let pp_i fmt () =
@@ -596,15 +541,6 @@ let rec pp_app_response_validations fmt (v:app_response_validations) =
   in
   Pbrt.Pp.pp_brk pp_i fmt ()
 
-let rec pp_app_response_commit_tx_ack fmt (v:app_response_commit_tx_ack) = 
-  let pp_i fmt () =
-    Format.pp_open_vbox fmt 1;
-    Pbrt.Pp.pp_record_field "tx_id" Pbrt.Pp.pp_string fmt v.tx_id;
-    Format.pp_close_box fmt ()
-  in
-  Pbrt.Pp.pp_brk pp_i fmt ()
-
 let rec pp_app_response fmt (v:app_response) =
   match v with
-  | Validations x -> Format.fprintf fmt "@[Validations(%a)@]" pp_app_response_validations x
-  | Commit_tx_ack x -> Format.fprintf fmt "@[Commit_tx_ack(%a)@]" pp_app_response_commit_tx_ack x
+  | Committed_txs x -> Format.fprintf fmt "@[Committed_txs(%a)@]" pp_app_response_validations x
