@@ -7,6 +7,7 @@ OCB_INC  += -I src/cry
 OCB_INC  += -I tests/
 OCB_INC  += -I tests/counter
 OCB_INC  += -I tests/asset
+OCB_INC  += -I tests/unit_tests/
 
 OCB_FLAGS = -use-ocamlfind -pkgs ocaml-protoc,raft,lwt.unix,ppx_deriving.show
 OCB       = ocamlbuild $(OCB_FLAGS) $(OCB_INC)
@@ -18,7 +19,7 @@ else
 endif
 
 .PHONY: test gen lib.native lib.byte lib.install lib.uninstall clean 
-.PHONY: framework counter asset
+.PHONY: framework counter asset unit
 
 all: framework counter asset
 
@@ -36,6 +37,10 @@ asset:
 	$(OCB) -pkgs cryptokit,base58 asset_test_02.native
 	$(OCB) -pkgs cryptokit,base58 asset_srv.native
 	$(OCB) -pkgs cryptokit,base58 asset_clt.native
+
+unit:
+	$(OCB) test_utl_encoding.native
+	./test_utl_encoding.native
 
 gen:
 	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_udp.proto

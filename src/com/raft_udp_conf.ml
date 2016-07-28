@@ -9,7 +9,7 @@ let default_configuration () = Pb.({
     election_timeout_range = 0.2;
     hearbeat_timeout = 0.1;
     max_nb_logs_per_message = 300;
-    log_interval_size = 10_000;
+    log_interval_size = 1_000;
   });
 
   servers_ipc_configuration = [
