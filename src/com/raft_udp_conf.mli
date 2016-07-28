@@ -18,3 +18,8 @@ val sockaddr_of_server_config:
 val get_id_cmdline :
   Raft_udp_pb.configuration -> 
   (int ref * Arg.spec) 
+
+val server_ipc_configuration : 
+  Raft_udp_pb.configuration -> 
+  int ->
+  Raft_udp_pb.server_ipc_configuration option 

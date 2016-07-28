@@ -82,3 +82,10 @@ let get_id_cmdline {Pb.servers_ipc_configuration; _ } =
   ) in
 
   (id, id_spec) 
+
+let server_ipc_configuration  {Pb.servers_ipc_configuration; _ }  server_id = 
+
+  if (server_id < List.length servers_ipc_configuration) && 
+     (server_id >= 0)
+  then Some (List.nth servers_ipc_configuration server_id) 
+  else None 

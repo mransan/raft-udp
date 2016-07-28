@@ -1,6 +1,7 @@
 open Lwt.Infix 
 open !Lwt_log_core
 
+module Conf = Raft_udp_conf
 module UPb = Raft_udp_pb 
 module APb = Raft_app_pb
 module Pb_util = Raft_udp_pbutil
@@ -13,7 +14,6 @@ type t = send_app_request_f * Raft_app_pb.app_response Lwt_stream.t
 
 let section = Section.make (Printf.sprintf "%10s" "AppIPC")
 
- 
 module Event = struct 
   
   (* Type *)
@@ -145,57 +145,54 @@ let get_next_request_f logger request_stream =
 
 let make logger configuration (_:Server_stats.t) server_id = 
 
-  let {UPb.servers_ipc_configuration; _ } = configuration in 
+  match Conf.server_ipc_configuration configuration server_id with
+  | None -> None
+  | Some server_ipc_configuration -> 
 
-  assert(server_id < List.length servers_ipc_configuration); 
-  assert(server_id >= 0); 
+    let (
+      request_stream, 
+      push_request_f
+    ) = Lwt_stream.create() in 
 
-  let server_ipc_configuration = List.nth servers_ipc_configuration server_id in  
+    let (
+      response_stream, 
+      push_response_f, 
+      set_response_ref
+    ) = Lwt_stream.create_with_reference () in 
 
-  let (
-    request_stream, 
-    push_request_f
-  ) = Lwt_stream.create() in 
+    let next_request = get_next_request_f logger request_stream in 
 
-  let (
-    response_stream, 
-    push_response_f, 
-    set_response_ref
-  ) = Lwt_stream.create_with_reference () in 
+    (* Main loop which after the connection with the 
+     * App server is established keeps on poping the next 
+     * app request from the stream, sends t to the App 
+     * server via the established connection then wait for the response. 
+     *
+     * Once the response comes back it is appended to the response
+     * stream for the client of this module to pick it up. 
+     *
+     * Therefore there is only one main thread in this loop. 
+     *)
+    let rec loop fd = function
+      | Event.Failure s -> 
+        log_f ~logger ~level:Error ~section "Failure in app IPC: %s" s 
+        >|=(fun () -> push_response_f None)
 
-  let next_request = get_next_request_f logger request_stream in 
+      | Event.Connection_established fd ->
+        next_request () >>= loop (Some fd) 
+      
+      | Event.App_request request ->   
+        begin match fd with 
+        | None -> assert(false) 
+        | Some fd2 -> 
+          send_request logger server_ipc_configuration fd2 request >>= loop fd  
+        end 
 
-  (* Main loop which after the connection with the 
-   * App server is established keeps on poping the next 
-   * app request from the stream, sends t to the App 
-   * server via the established connection then wait for the response. 
-   *
-   * Once the response comes back it is appended to the response
-   * stream for the client of this module to pick it up. 
-   *
-   * Therefore there is only one main thread in this loop. 
-   *)
-  let rec loop fd = function
-    | Event.Failure s -> 
-      log_f ~logger ~level:Error ~section "Failure in app IPC: %s" s 
-      >|=(fun () -> push_response_f None)
+      | Event.App_response response -> 
+        push_response_f (Some response); 
+        next_request () >>= loop fd 
+    in
 
-    | Event.Connection_established fd ->
-      next_request () >>= loop (Some fd) 
-    
-    | Event.App_request request ->   
-      begin match fd with 
-      | None -> assert(false) 
-      | Some fd2 -> 
-        send_request logger server_ipc_configuration fd2 request >>= loop fd  
-      end 
+    let t : unit Lwt.t  = connect logger server_ipc_configuration () >>= loop None in 
+    set_response_ref t; 
 
-    | Event.App_response response -> 
-      push_response_f (Some response); 
-      next_request () >>= loop fd 
-  in
-
-  let t : unit Lwt.t  = connect logger server_ipc_configuration () >>= loop None in 
-  set_response_ref t; 
-
-  (push_request_f, response_stream)
+    Some (push_request_f, response_stream)

@@ -21,11 +21,13 @@ module  Event = struct
       (** New request successfully received and decoded *)
 
     | App_response of APb.app_response * Lwt_unix.file_descr  
+      (** The application notified of a response *)
 
     | Connection_close 
       (** A connection was closed *)
     
     | Response_sent of Lwt_unix.file_descr
+      (** The response was sent to the RAFT server *)
 
   let close_connection fd () = 
     U.close fd >|= (fun () -> Connection_close) 
@@ -51,12 +53,18 @@ let get_next_connection_f logger {UPb.app_server_port; _} () =
   U.listen fd 1; 
 
   (* Function to keep accepting new connections
+   *
+   * TODO: Only a single active connection should ever be open at 
+   * a time based on the protocol between the RAFT server and the App server.
    *)
   fun () -> 
     Lwt.catch (fun () ->
       U.accept fd
       >>=(fun (fd2, ad) ->
-        log_f ~logger ~level:Notice "New connection accepted, details: %s" (Raft_utl_unix.string_of_sockaddr ad)
+        log_f 
+          ~logger 
+          ~level:Notice 
+          "New connection accepted, details: %s" (Raft_utl_unix.string_of_sockaddr ad)
         >|= Event.new_connection fd2 
       )
     ) (* with *) (fun exn ->
@@ -68,21 +76,43 @@ let decode_request bytes =
   let decoder = Pbrt.Decoder.of_bytes bytes in 
   APb.decode_app_request decoder 
 
-let next_request  =
+let request_buffer_size = 1024 
+(* TODO
+ *
+ * This size will not fit all applications, since the request type is
+ * defined by the application, this generic code should not assume 
+ * the maximum size of the request. 
+ *
+ * Simple solution:
+ * Make this buffer size configurable. This would fit a lot of application
+ * which message size is pretty much constant. However for more dynamic 
+ * application which request size might vary this would not work. 
+ *
+ * Better solution: 
+ * Introduce a fixed size message header when the RAFT server is sending 
+ * the request. This header would contain the message size of the request 
+ * and this code could then adapt the buffer length. 
+ *) 
 
-  let buffer = Bytes.create 1024 in
+let next_request =
+
+  let buffer = Bytes.create request_buffer_size in
     (*  Only needs to create the buffer once
      *)
 
   fun logger fd -> 
     Lwt.catch (fun () ->
-      U.read fd buffer 0 1024 
+      U.read fd buffer 0 request_buffer_size
       >>=(function
         | 0 -> 
           log ~logger ~level:Warning "Connection closed by client (read size = 0)" 
           >>= Event.close_connection fd
 
-        | 1024 -> 
+        | n when n = request_buffer_size -> 
+          (* This can happen if the application request is larger than we 
+           * expected. As previously mentioned having this size configurable
+           * would help. 
+           *)
           log ~logger ~level:Warning "Larger then expected request from client... closing connection" 
           >>= Event.close_connection fd
           
@@ -119,11 +149,25 @@ let send_app_response logger fd app_response =
     U.write fd bytes 0 len
     >>=(function
       | 0 -> Event.close_connection fd () 
-      | n -> 
+
+      | n when n = len -> 
         assert(len = n); 
         log_f ~logger ~level:Notice "Response sent (byte length: %i): %s" n 
           (Pb_util.string_of_app_response app_response)
         >|= Event.response_sent fd 
+
+      | n -> 
+        (* 
+         * TODO: check the documentation of Lwt to see if the Lwt library
+         * implements the loop over the entire data size. If not 
+         * we could easily add here a "write" loop to make sure 
+         * all the data is sent. 
+         *)
+        log_f 
+          ~logger 
+          ~level:Error 
+          "Failed to write full response data, total size: %i, written size: %i" len n 
+        >>= Event.close_connection fd 
     )  
   ) (* with *) (fun exn -> 
     log_f ~logger ~level:Error "Failed to send response, details: %s, response: %s" 
@@ -146,7 +190,7 @@ let server_loop logger configuration handle_app_request () =
 
       List.fold_left (fun non_terminated_threads -> function 
         | Event.Failure error -> (
-          Printf.eprintf "App.native: Error, details: %s\n%!" error; 
+          Printf.eprintf "App server internal error: %s\n%!" error; 
           exit 1
         ) 
 
@@ -231,23 +275,22 @@ module Make(App:App_sig) = struct
       )
 
   let start logger configuration server_id =
-    let {UPb.servers_ipc_configuration; _ } = configuration in 
     
-      assert(server_id < List.length servers_ipc_configuration); 
-      assert(server_id >= 0); 
-    
-      let server_ipc_configuration = 
-        List.nth servers_ipc_configuration server_id 
-      in  
+    match Conf.server_ipc_configuration configuration server_id with
+    | None -> None 
+    | Some server_ipc_configuration -> 
 
-     let (
-       validations_stream, 
-       validations_push, 
-       validations_set_ref
-     ) = Lwt_stream.create_with_reference () in 
-     validations_set_ref @@ 
-       server_loop logger server_ipc_configuration (handle_app_request validations_push) (); 
-     validations_stream
+       let (
+         validations_stream, 
+         validations_push, 
+         validations_set_ref
+       ) = Lwt_stream.create_with_reference () in 
 
+       let handle_app_f = handle_app_request validations_push in 
+       let loop_t:unit Lwt.t = 
+         server_loop logger server_ipc_configuration handle_app_f () 
+       in 
+       validations_set_ref @@ loop_t;  
+       Some validations_stream
 
 end 

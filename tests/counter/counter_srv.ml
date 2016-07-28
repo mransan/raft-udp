@@ -93,13 +93,16 @@ let main configuration log server_id () =
   end
   >>=(fun logger -> 
 
-    let request_stream = Counter_srv.start logger configuration server_id in 
+    match Counter_srv.start logger configuration server_id with
+    | None -> 
+      Lwt.fail_with "Error starting App server" 
 
-    Lwt_stream.fold_s (fun request state -> 
-      process_demo_app_request logger request state
-    ) request_stream State.empty
+    | Some request_stream -> 
+      Lwt_stream.fold_s (fun request state -> 
+        process_demo_app_request logger request state
+      ) request_stream State.empty
 
-    >|= ignore 
+      >|= ignore 
   )
 
 let () = 

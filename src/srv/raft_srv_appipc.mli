@@ -17,5 +17,5 @@ val make :
   Raft_udp_pb.configuration -> 
   Raft_srv_serverstats.t -> 
   int -> 
-  t 
+  t option 
 (** [make logger configuration stats server_id] initialize and return the IPC with the APP server. *) 

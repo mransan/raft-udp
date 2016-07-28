@@ -128,25 +128,27 @@ let get_next_compaction_f configuration = fun () ->
   >|=(fun () -> Event.Compaction_initiate)
 
 let get_app_ipc_f logger stats configuration id = 
-  let (
-    send_app_request, 
-    response_stream
-  ) = App_ipc.make logger configuration stats id in 
+  
+  match App_ipc.make logger configuration stats id with
+  | None -> 
+    failwith (Printf.sprintf "Error starting App Ipc for server id: %i" id)
 
-  let next_app_response () = 
-    Lwt_stream.get response_stream
-    >|=(function
-      | None  -> Event.Failure "App IPC"
-      | Some r-> Event.App_response r 
-    )
-  in
+  | Some (send_app_request, response_stream) ->
 
-  let send_app_requests = fun app_requests -> 
-    List.iter (fun request -> 
-      send_app_request (Some request)
-    ) app_requests
-  in 
-  (send_app_requests, next_app_response)
+    let next_app_response () = 
+      Lwt_stream.get response_stream
+      >|=(function
+        | None  -> Event.Failure "App IPC"
+        | Some r-> Event.App_response r 
+      )
+    in
+
+    let send_app_requests = fun app_requests -> 
+      List.iter (fun request -> 
+        send_app_request (Some request)
+      ) app_requests
+    in 
+    (send_app_requests, next_app_response)
 
 let run_server configuration id logger print_header slow =
 
