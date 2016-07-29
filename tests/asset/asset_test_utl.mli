@@ -18,13 +18,13 @@ module type App_sig = sig
 
   val content_of_url : string -> string Lwt.t 
 
-  val handle_tx : t -> Asset_pb.tx -> (t, string) result Lwt.t  
+  val handle_tx : logger:Lwt_log_core.logger -> t -> Asset_pb.tx -> (t, string) result Lwt.t  
 
 end 
 
 module Make(App:App_sig) : sig 
 
-  val execute_test : test -> App.t -> (test * App.t) Lwt.t  
+  val execute_test : logger:Lwt_log_core.logger -> test -> App.t -> (test * App.t) Lwt.t  
 
 end 
 

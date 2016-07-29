@@ -24,8 +24,11 @@ module App = struct
   let content_of_url url = 
     Lwt.return @@ "This is a dummy content of course" ^ url
 
-  let handle_tx t tx = 
-    Asset_clt.send t tx 
+  let handle_tx ~logger t tx = 
+    log_f ~logger ~level:Notice "Sending tx: %s" (Asset_pb.show_tx tx)
+    >>=(fun () ->
+      Asset_clt.send t tx 
+    )
     >|=(function 
       | Raft_app_clt.Send_result_ok -> Ok t 
       | Raft_app_clt.Send_result_error s -> 
@@ -67,7 +70,7 @@ let execute_nth_test logger ~nth ~app l =
       else 
         log_f ~logger ~level:Notice "Executing test nth: %i" nth
         >>=(fun () -> 
-          Test_utl_exec.execute_test test app 
+          Test_utl_exec.execute_test ~logger test app 
           >|=(fun (test, app) -> (test::tl, app))
         )
 

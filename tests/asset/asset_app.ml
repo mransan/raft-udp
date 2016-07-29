@@ -1,4 +1,5 @@
 open Lwt.Infix
+open !Lwt_log_core
 
 module Pb = Asset_pb
 
@@ -84,22 +85,28 @@ module Validation = Asset_utl.Make_validation(struct
   let find = find  
 end) 
 
-let handle_tx t = function 
+let handle_tx ~logger t = function 
   | Pb.Issue_asset issue_asset ->
     let {Pb.a_url; a_id} = issue_asset.Pb.ia_asset in
     content_of_url a_url 
-    >|= (function url_content ->
-      match Validation.validate_issue_asset issue_asset ~url_content t with
-      | Validation.Validation_ok {Validation.tx_id; ok_data = owner} ->
-        let asset = { 
-          url = a_url; 
-          id  = a_id;
-          prev_tx_id = tx_id; 
-          state = Owned owner;
-        } in 
-        Ok (add t a_id asset) 
-      | Validation.Validation_error e -> 
-        Error (Validation.string_of_validation_error e) 
+    >>= (function url_content ->
+      log_f 
+        ~logger 
+        ~level:Notice 
+        "Validating issue asset: %s" (Asset_pb.show_issue_asset issue_asset)
+      >|=(fun () ->
+        match Validation.validate_issue_asset issue_asset ~url_content t with
+        | Validation.Validation_ok {Validation.tx_id; ok_data = owner} ->
+          let asset = { 
+            url = a_url; 
+            id  = a_id;
+            prev_tx_id = tx_id; 
+            state = Owned owner;
+          } in 
+          Ok (add t a_id asset) 
+        | Validation.Validation_error e -> 
+          Error (Validation.string_of_validation_error e) 
+      )
     )
   
   | Pb.Transfer transfer ->

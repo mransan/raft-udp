@@ -40,6 +40,9 @@ module  Event = struct
 
   let new_request app_request fd () = 
     New_request (app_request, fd) 
+
+  let failure msg () = 
+    Failure msg 
 end 
 
 let get_next_connection_f logger {UPb.app_server_port; _} () =
@@ -114,7 +117,15 @@ let next_request =
            * would help. 
            *)
           log ~logger ~level:Warning "Larger then expected request from client... closing connection" 
+          (*
           >>= Event.close_connection fd
+          *)
+          >|= Event.failure "Error reading request"  
+          (* Note that falure to read a message means that the message will be
+           * lost for this APP server. Since the protocol between RAFT and APP
+           * does not yet handle a recovery phase at connection initialization,
+           * it is best to exit the server completely.
+           *)
           
         | n -> 
           log_f ~logger ~level:Notice "Request received, size: %i" n

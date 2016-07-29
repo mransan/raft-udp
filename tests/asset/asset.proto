@@ -1,3 +1,5 @@
+option (ocaml_all_types_ppx) = "deriving show";
+
 message Asset {
   required string a_url = 1; 
     // URL of the document describing the asset 

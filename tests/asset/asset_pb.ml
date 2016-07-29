@@ -4,6 +4,7 @@ type asset = {
   a_url : string;
   a_id : string;
 }
+[@@deriving show]
 
 and asset_mutable = {
   mutable a_url : string;
@@ -15,6 +16,7 @@ type issue_asset = {
   ia_issuer_addr : string;
   ia_sig : string;
 }
+[@@deriving show]
 
 and issue_asset_mutable = {
   mutable ia_asset : asset;
@@ -27,6 +29,7 @@ type transfer = {
   tr_dest_addr : string;
   tr_sig : string;
 }
+[@@deriving show]
 
 and transfer_mutable = {
   mutable tr_asset_id : string;
@@ -38,6 +41,7 @@ type accept_transfer = {
   at_asset_id : string;
   at_sig : string;
 }
+[@@deriving show]
 
 and accept_transfer_mutable = {
   mutable at_asset_id : string;
@@ -48,6 +52,7 @@ type tx =
   | Issue_asset of issue_asset
   | Transfer of transfer
   | Accept_transfer of accept_transfer
+[@@deriving show]
 
 let rec default_asset 
   ?a_url:((a_url:string) = "")

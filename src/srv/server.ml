@@ -224,7 +224,7 @@ let run_server configuration id logger print_header slow =
         )
 
         | Event.Failure context -> (
-          Printf.eprintf "Exiting, context: %s\n" context; 
+          Printf.eprintf "Exiting server %i, context: %s\n" id context; 
           exit 1
         )
 

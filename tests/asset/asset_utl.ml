@@ -54,6 +54,14 @@ let verify_id ~id ~sig_ ~pub_key () =
   let sig_ = sig_ |> B58.decode_str |> Cry.Sig.from_binary in 
   Cry.Pub.verify pub_key id sig_
 
+let pub_key_of_addr addr = 
+  addr
+  |> B58.decode_str 
+  |> Cry.Pub.from_binary 
+
+let addr_of_pub_key pub_key = 
+  pub_key |> Cry.Pub.to_binary |> B58.encode_str 
+
 let make_asset ~url ~url_content () = 
   let a_id = 
     Cry.Sha256.hash_strings [url_content]
@@ -93,10 +101,6 @@ let make_accept_transfer ~prev_tx_id ~asset_id ~prv_key () =
   let at_sig = sign_id ~id ~prv_key () in  
   ({Pb.at_asset_id; at_sig}, id) 
 
-let pub_key_of_addr addr = 
-  addr
-  |> B58.decode_str 
-  |> Cry.Pub.from_binary 
    
 module Make_validation(App:App_sig) = struct 
 
@@ -108,20 +112,32 @@ module Make_validation(App:App_sig) = struct
   type validation_error =
     | Invalid_asset_id
     | Duplicate_asset of string 
-    | Invalid_signature  
+    | Invalid_signature of string * string * string * (string option)  
     | Unknown_asset of string 
     | Attempt_to_transfer_in_transfer_asset of string  
     | Asset_not_in_transfer of string 
 
   let string_of_validation_error = function
     | Invalid_asset_id -> "Invalid asset id" 
+
     | Duplicate_asset asset_id -> 
       Printf.sprintf "Duplicate asset, id: %s" asset_id 
-    | Invalid_signature  -> "Invalid transaction signature" 
+
+    | Invalid_signature  (id, sig_, pub_key, error_msg) -> 
+      let error_msg = match error_msg with
+        | None -> "No detail error msg"
+        | Some error_msg -> error_msg
+      in 
+      Printf.sprintf 
+        "Invalid transaction signature, id in base58: %s, sig in base58: %s, public key in base58: %s, error_msg: %s" 
+        id sig_ pub_key error_msg
+
     | Unknown_asset asset_id -> 
       Printf.sprintf "Unknown asset, id: %s" asset_id
+
     | Attempt_to_transfer_in_transfer_asset asset_id -> 
       Printf.sprintf "Attempt to transfer an 'in transfer' asset, id: %s" asset_id
+
     | Asset_not_in_transfer asset_id -> 
       Printf.sprintf "Asset is not in transfer, id: %s" asset_id 
 
@@ -129,10 +145,19 @@ module Make_validation(App:App_sig) = struct
     | Validation_ok of 'a ok_result  
     | Validation_error of validation_error  
 
+  let make_invalid_signature ?error_msg ~id ~sig_ ~pub_key () = 
+    Validation_error (
+      Invalid_signature (B58.encode_str id, sig_, addr_of_pub_key pub_key, error_msg)
+    ) 
+     
   let verify_id ~id ~sig_ ~pub_key f = 
-    if verify_id ~id ~sig_ ~pub_key () 
-    then Validation_ok {tx_id = id; ok_data = (f ())} 
-    else Validation_error Invalid_signature  
+    try
+      if verify_id ~id ~sig_ ~pub_key () 
+      then Validation_ok {tx_id = id; ok_data = (f ())} 
+      else make_invalid_signature ~id ~sig_ ~pub_key () 
+    with 
+    | Cry.Cry_failure error_msg -> 
+      make_invalid_signature ~error_msg ~id ~sig_ ~pub_key ()
 
   type issue_asset_ok = Cry.Pub.t  
   

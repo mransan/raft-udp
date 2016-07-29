@@ -17,11 +17,14 @@ module Asset_srv = Raft_app_srv.Make(struct
    
 end) (* Asset srv *)
 
-let process_validation_request app {Asset_srv.tx_data ; tx_id } =  
+let process_validation_request ~logger app {Asset_srv.tx_data ; tx_id } =  
   (* TODO handle exception ... in a run there was a cryptokit exception 
    * which made the server crashed. 
    *)
-  Asset_app.handle_tx app tx_data 
+  log_f ~logger ~level:Notice "Processing tx: %s" (Asset_pb.show_tx tx_data)
+  >>=(fun () ->
+    Asset_app.handle_tx ~logger app tx_data 
+  )
   >|=(function 
     | Ok app ->
       (app, Raft_app_srv.({tx_id; result = Validation_result_ok})) 
@@ -33,7 +36,7 @@ let process_validation_request app {Asset_srv.tx_data ; tx_id } =
  * Reminder: The Raft_app_srv module API enforces on the client to validate
  * a bulk of request at a time
  *)
-let process_validation_requests _ (* logger *) app (validation_requests, send_validations) = 
+let process_validation_requests logger app (validation_requests, send_validations) = 
  
   let rec aux app validation_results = function
     | [] -> 
@@ -41,7 +44,7 @@ let process_validation_requests _ (* logger *) app (validation_requests, send_va
       Lwt.return app 
 
     | validation_request :: tl -> 
-      process_validation_request app validation_request 
+      process_validation_request ~logger app validation_request 
       >>=(fun (app, validation_result) -> 
         (*
         log_f ~logger ~level:Notice "Application after validation:\n%s"

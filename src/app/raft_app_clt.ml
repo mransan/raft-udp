@@ -26,6 +26,9 @@ type send_result =
   | Send_result_ok 
   | Send_result_error of string 
 
+let tx_id_of_client_request = function
+  | APb.Add_tx {APb.tx_id; _} -> tx_id 
+
 module Event = struct 
 
   type e = 
@@ -185,9 +188,22 @@ let handle_request ({state; logger; _ }) client_request response_wakener =
       U.write fd buffer 0 buffer_len
       >>= (fun nb_byte_written ->
         if nb_byte_written <>  buffer_len
-        then Event.connection_closed fd () 
+        then 
+          log_f 
+            ~logger 
+            ~level:Notice 
+            "Request (tx_id: %s) failed to send to server id %i, invalid nb byte written (buffer length: %i, written: %i)" 
+            (tx_id_of_client_request client_request) 
+            server_id 
+            buffer_len
+            nb_byte_written
+           >>= Event.connection_closed fd
         else
-          log_f ~logger ~level:Notice "Request sent to server id: %i" server_id 
+          log_f 
+            ~logger 
+            ~level:Notice 
+            "Request (tx_id: %s) sent to server id: %i (size: %i)" 
+            (tx_id_of_client_request client_request) server_id buffer_len 
           >>=(fun () -> 
             let buffer = Bytes.create 1024 in
             U.read fd buffer 0 1024

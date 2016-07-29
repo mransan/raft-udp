@@ -4,6 +4,10 @@ module Hex = struct
     Cryptokit.transform_string transform 
 end 
 
+exception Cry_failure of string  
+
+let cry_failure msg = raise (Cry_failure msg)
+
 let size          = 256 (* Bits *) 
 let size_in_bytes = 256 / 8 
 
@@ -16,6 +20,23 @@ module Sig = struct
   let from_binary s = s
 
 end 
+
+let string_of_cryptokit_exception = function
+  | Cryptokit.Wrong_key_size -> "Wrong_key_size"
+  | Cryptokit.Wrong_IV_size -> "Wrong_IV_size"
+  | Cryptokit.Wrong_data_length -> "Wrong_data_length"
+  | Cryptokit.Bad_padding -> "Bad_padding"
+  | Cryptokit.Output_buffer_overflow -> "Output_buffer_overflow"
+  | Cryptokit.Incompatible_block_size -> "Incompatible_block_size"
+  | Cryptokit.Number_too_long -> "Number_too_long"
+  | Cryptokit.Seed_too_short -> "Seed_too_short"
+  | Cryptokit.Message_too_long -> "Message_too_long"
+  | Cryptokit.Bad_encoding -> "Bad_encoding"
+  | Cryptokit.Compression_error (s1, s2) -> 
+    Printf.sprintf "Compression_error(%s, %s)" s1 s2
+  | Cryptokit.No_entropy_source -> "No_entropy_source"
+  | Cryptokit.Entropy_source_closed -> "Entropy_source_closed"
+  | Cryptokit.Compression_not_supported -> "Compression_not_supported"
 
 module Pub = struct 
 
@@ -38,14 +59,18 @@ module Pub = struct
       e = String.sub s size_in_bytes size_in_bytes;
     } 
 
-  let verify {n;e} msg sign = 
-    let ckey = Cryptokit.({
-      RSA.size; n; e; d = ""; p = ""; q = ""; dp = ""; dq = ""; qinv = "";
-    }) in 
-    let hash     = Cryptokit.Hash.sha256 () in
-    let msg_hash = String.sub (Cryptokit.hash_string hash msg) 0 31 in 
-    let msg_hash'= String.sub (Cryptokit.RSA.unwrap_signature ckey sign) 1 31 in 
-    msg_hash = msg_hash' 
+  let verify {n;e} msg sign =
+    try 
+      let ckey = Cryptokit.({
+        RSA.size; n; e; d = ""; p = ""; q = ""; dp = ""; dq = ""; qinv = "";
+      }) in 
+      let hash     = Cryptokit.Hash.sha256 () in
+      let msg_hash = String.sub (Cryptokit.hash_string hash msg) 0 31 in 
+      let msg_hash'= String.sub (Cryptokit.RSA.unwrap_signature ckey sign) 1 31 in 
+      msg_hash = msg_hash' 
+     with 
+     | Cryptokit.Error e -> cry_failure @@ string_of_cryptokit_exception e
+     | exn -> cry_failure @@ Printexc.to_string exn
 
   let pp fmt {n;e} = 
     Format.fprintf fmt "{n: %s; e: %s}" (Hex.encode n) (Hex.encode e) 

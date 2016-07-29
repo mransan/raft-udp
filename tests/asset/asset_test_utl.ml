@@ -58,7 +58,7 @@ module type App_sig = sig
 
   val content_of_url : string -> string Lwt.t 
 
-  val handle_tx : t -> Asset_pb.tx -> (t, string) result Lwt.t  
+  val handle_tx : logger:Lwt_log_core.logger -> t -> Asset_pb.tx -> (t, string) result Lwt.t  
 
 end 
 
@@ -75,7 +75,7 @@ module Make(App:App_sig) = struct
     App.content_of_url url 
     >|=(fun url_content -> (url, url_content)) 
 
-  let execute_test ({remaining_transfers; env; execution} as test) app = 
+  let execute_test ~logger ({remaining_transfers; env; execution} as test) app = 
     match execution, remaining_transfers with
     | Accepted _ , rt when rt <= 0 -> 
       (* Nothing to be done here the test should have not been 
@@ -90,7 +90,7 @@ module Make(App:App_sig) = struct
         let issue_asset, prev_tx_id = 
           Asset_utl.make_issue_asset ~url ~url_content ~prv_key ()
         in
-        App.handle_tx app (Pb.Issue_asset issue_asset) 
+        App.handle_tx ~logger app (Pb.Issue_asset issue_asset) 
         >>= handle_error ~tx_type:"Issue_asset"
         >|=(fun app -> 
           let asset_info = {
@@ -114,7 +114,7 @@ module Make(App:App_sig) = struct
         ~prv_key
         ()
       in 
-      App.handle_tx app (Pb.Transfer transfer)
+      App.handle_tx ~logger app (Pb.Transfer transfer)
       >>= handle_error ~tx_type:"Transfer"
       >|=(fun app ->
         let asset_info = {asset_info with prev_tx_id; prv_key = receiver; } in
@@ -133,7 +133,7 @@ module Make(App:App_sig) = struct
           ~prv_key
           ()
         in 
-        App.handle_tx app (Pb.Accept_transfer accept_transfer) 
+        App.handle_tx ~logger app (Pb.Accept_transfer accept_transfer) 
         >>=handle_error ~tx_type:"Accept_transfer"
         >|=(fun app ->
           (*

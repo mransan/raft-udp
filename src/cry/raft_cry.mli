@@ -1,3 +1,7 @@
+(** Crytography utilities *)
+
+exception Cry_failure of string  
+
 (** Signature module *)
 module Sig : sig 
 

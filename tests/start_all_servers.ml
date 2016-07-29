@@ -68,7 +68,7 @@ let () =
   let processes = aux [] nb_of_servers in 
 
   let rec aux server_to_kill processes = 
-    Unix.sleep 10; 
+    Unix.sleep 10_000; 
     let server_to_kill = (server_to_kill + 1) mod nb_of_servers in 
     let processes = List.map (fun (server_id, pid) -> 
       if server_to_kill  = server_id

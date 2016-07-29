@@ -97,7 +97,7 @@ module Make_validation(App:App_sig) : sig
        The asset being issued already exists.
        *) 
 
-    | Invalid_signature  
+    | Invalid_signature of string * string * string * (string option) (* (id, signature, public key) *)  
       (** 
        The signature associated with the transaction is invalid. This can 
        be due to:

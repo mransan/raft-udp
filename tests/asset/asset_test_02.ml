@@ -26,7 +26,7 @@ let main () =
     aux nb_of_tests
   in 
 
-  let execute_nth_test ~nth ~app l = 
+  let execute_nth_test ~logger ~nth ~app l = 
     let rec aux nth l = 
       match nth, l with
       | 0, test::tl -> 
@@ -34,7 +34,7 @@ let main () =
         then 
           Lwt.return (tl, app) 
         else 
-          Test_utl_exec.execute_test test app >|=(fun (test, app) -> (test::tl, app))
+          Test_utl_exec.execute_test ~logger test app >|=(fun (test, app) -> (test::tl, app))
 
       | nth, test::tl -> 
         aux (nth - 1) tl  
@@ -47,20 +47,20 @@ let main () =
     aux nth l 
   in 
 
-  let rec execute_all_tests app = function
+  let rec execute_all_tests ~logger app = function
     | [] -> 
       Lwt_io.printf 
         "- App after all tests:\n> %s\n" 
         (Asset_app.show app); 
     | l  -> 
       let nth = Random.int @@ List.length l in  
-      execute_nth_test ~nth ~app l
+      execute_nth_test ~logger ~nth ~app l
       >>=(fun (l, app) ->
-        execute_all_tests app l 
+        execute_all_tests ~logger app l 
       )
   in 
   
-  execute_all_tests (Asset_app.make ()) tests  
+  execute_all_tests ~logger:Lwt_log_core.null (Asset_app.make ()) tests  
 
 let () = Random.self_init () 
 let () = Lwt_main.run (main ()) 
