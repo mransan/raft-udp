@@ -6,3 +6,6 @@ let make_logger ?to_file () =
     let template  = "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" in
     Lwt_log.file ~mode:`Append ~template ~file_name ()
 
+let tap f t = 
+  let open Lwt.Infix in 
+  f t >|= (fun () -> t ) 

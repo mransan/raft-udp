@@ -11,13 +11,19 @@ type t = Lwt_io.output_channel
 let filename {Pb.disk_backup = {Pb.log_record_directory; _}; _ } server_id  = 
   Filename.concat log_record_directory (Printf.sprintf "record_%03i.data" server_id)
 
-let make logger configuration server_id = 
+let make ~logger configuration server_id = 
   let filename = filename configuration  server_id in 
-  Lwt_io.open_file ~flags:[Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND] ~mode:Lwt_io.output filename  
-  >>=(fun file -> 
+
+  Lwt_io.open_file 
+    ~flags:[Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND] 
+    ~mode:Lwt_io.output 
+    filename  
+
+  >>= Raft_utl_lwt.tap (fun _ -> 
     log_f ~logger ~level:Notice ~section "Creating log record file: %s\n" filename
-    >|=(fun () -> file)
   ) 
+
+let close = Lwt_io.close 
 
 let append size_bytes log_entry handle = 
 
@@ -34,6 +40,11 @@ let append size_bytes log_entry handle =
   Lwt_io.write_from_exactly handle size_bytes 0 4 
   >>=(fun () -> 
     Lwt_io.write_from_exactly handle data_bytes 0 data_size 
+  )
+
+
+  >>=(fun () ->
+    Lwt_io.flush handle
   )
 
 let append_commited_data ~logger ~rev_log_entries handle = 
@@ -87,19 +98,41 @@ let read_log_entry_from_file size_bytes file =
       >|=(fun () -> Error (Printf.sprintf "Error reading log records, details: %s" (Printexc.to_string exn))) 
   )
 
-let read_log_records configuration server_id f e0 =
+let read_log_records ~logger configuration server_id f e0 =
 
+  let size_bytes = Bytes.create Raft_utl_encoding.Int32LE.size in 
+    (* Allocated once since and reused for each log entry 
+     *)
   let filename = filename configuration server_id in 
   Lwt.catch (fun () ->
     Lwt_io.open_file ~mode:Lwt_io.input filename
+
+    >>= Raft_utl_lwt.tap (fun _ -> 
+      log_f 
+        ~logger ~level:Notice ~section 
+        "Successfully opened log record file: %s" 
+        filename
+    ) 
+
     >>=(fun file ->
-      let bytes = Bytes.create 4 in 
       let rec aux acc = 
-        read_log_entry_from_file bytes file 
+        read_log_entry_from_file size_bytes file 
         >>=(function
-          | Done    -> Lwt.return acc
+          | Done    -> 
+            log_f 
+              ~logger ~level:Notice ~section 
+              "Done reading log record file: %s" 
+              filename 
+            >|= (fun () -> acc) 
+
           | Ok x    -> aux (f acc x)
-          | Error s -> Lwt.fail_with s
+
+          | Error s -> 
+            log_f 
+              ~logger ~level:Notice ~section 
+              "Error reading log record file %s, details: %s" 
+              filename s 
+            >>=(fun () -> Lwt.fail_with s)
         ) 
       in
       aux e0 

@@ -298,7 +298,7 @@ let run_server configuration id logger print_header slow =
     let builder2 = RLog.Builder.t2_of_t1 builder1 in 
     log ~logger ~level:Notice ~section "Global cache done..."
     >>=(fun () ->
-      Log_record.read_log_records configuration id (fun builder2 log_entry ->
+      Log_record.read_log_records ~logger configuration id (fun builder2 log_entry ->
         RLog.Builder.add_log_entry builder2 log_entry
       ) builder2 
       >|= RLog.Builder.log_of_t2 
@@ -313,7 +313,7 @@ let run_server configuration id logger print_header slow =
     )
   )
   >>=(fun initial_raft_state ->
-    Log_record.make logger configuration id 
+    Log_record.make ~logger configuration id 
     >>=(fun handle ->
 
       let {

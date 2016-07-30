@@ -41,6 +41,8 @@ asset:
 unit:
 	$(OCB) test_utl_encoding.native
 	./test_utl_encoding.native
+	$(OCB) test_srv_logrecord.native
+	./test_srv_logrecord.native
 
 gen:
 	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_udp.proto
