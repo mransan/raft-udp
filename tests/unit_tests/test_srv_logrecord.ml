@@ -116,7 +116,7 @@ let main =
         "Error removing tmp directory: %s, rcode: %i\n" 
         dirname rcode 
     end; 
-    Printf.printf "Success...\n"
+    Printf.printf "[test_srv_logrecord] Success...\n"
   )
 
 let () =

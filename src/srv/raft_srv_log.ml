@@ -26,6 +26,14 @@ let string_of_message_type = function
   | RPb.Append_entries_request  _ -> "Append Entries Request"
   | RPb.Append_entries_response _ -> "Append Entries Response"
 
+let string_of_rev_log_entries l = 
+  "[\n" 
+  ^ (String.concat ",\n" @@ List.map (fun {RPb.index; id; term; _ } -> 
+    Printf.sprintf "{index: %010i, id: %s, term: %i}" 
+      index id term
+  ) l) 
+  ^ "]"
+
 let print_msg_details logger section msg () = 
   match msg with
   | RPb.Request_vote_request r -> 
@@ -51,11 +59,12 @@ let print_msg_details logger section msg () =
         r.RPb.prev_log_term
         r.RPb.leader_commit
     | _ -> 
-      log_f ~logger ~section ~level:Notice "\t New entries - nb: %4i, prev index: %10i, prev term: %10i, leader commit: %10i"
+      log_f ~logger ~section ~level:Notice "\t New entries - nb: %4i, prev index: %10i, prev term: %10i, leader commit: %10i:%s"
         (List.length r.RPb.rev_log_entries) 
         r.RPb.prev_log_index
         r.RPb.prev_log_term
         r.RPb.leader_commit
+        (string_of_rev_log_entries r.RPb.rev_log_entries)
     end 
   
   | RPb.Append_entries_response r-> 

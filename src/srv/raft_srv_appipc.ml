@@ -1,10 +1,10 @@
 open Lwt.Infix 
 open !Lwt_log_core
 
-module Conf = Raft_udp_conf
+module Conf = Raft_com_conf
 module UPb = Raft_udp_pb 
 module APb = Raft_app_pb
-module Pb_util = Raft_udp_pbutil
+module Pb_util = Raft_com_pbutil
 module Server_stats = Raft_srv_serverstats
 module U = Lwt_unix
 
@@ -45,7 +45,7 @@ module Event = struct
   let failure context () = 
     Failure context
   
-  let failure_lwt context = 
+  let failure_lwt context () = 
     Lwt.return (Failure context)
 
 end 
@@ -82,53 +82,78 @@ let next_response =
     (* TODO make the buffer size configurable *)
 
   fun logger configuration fd () -> 
-   U.read fd buffer 0 1024
-   >>=(function
-     | 0 ->  
-       connect logger configuration () 
-       (* Event.failure_lwt "Connection closed by App server"
-        *)
 
-     | received when received = 1024 -> 
-       Event.failure_lwt "Response by App server is too large"
+    Raft_com_appmsg.read_message_header fd 
+    >>=(fun header ->
+      let message_size = Raft_com_appmsg.message_size header in 
+      let buffer = 
+        if message_size <= 1024
+        then buffer 
+        else Bytes.create message_size 
+      in 
+      U.read fd buffer 0 message_size 
+      >|= (fun nb_byte_read -> (buffer, nb_byte_read))
+    ) 
+    >>=(fun (buffer, nb_byte_read) ->
+      match nb_byte_read with
+      | 0 ->  
+        connect logger configuration () 
+        (* Event.failure_lwt "Connection closed by App server"
+         *)
 
-     | received -> 
-       log_f ~logger ~level:Notice ~section "Response received from app server (size: %i)" received
-       >>=(fun () ->
+      | received when received = 1024 -> 
+        Event.failure_lwt "Response by App server is too large" ()
 
-         let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 received) in 
-         match APb.decode_app_response decoder with
-         | app_response -> (
-           log_f ~logger ~level:Notice ~section "Response decoded with success: %s"
-             (Pb_util.string_of_app_response app_response) 
-           >|= Event.app_response app_response 
-         )
-         | exception exn -> (
-           log_f ~logger ~level:Error ~section "Error decoding app response: %s" 
-             (Printexc.to_string exn)
+      | received -> 
+        log_f ~logger ~level:Notice ~section "Response received from app server (size: %i)" received
+        >>=(fun () ->
 
-           >|= Event.failure "Error decoding App server response" 
-         )
-       )
-   )
+          let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 received) in 
+          match APb.decode_app_response decoder with
+          | app_response -> (
+            log_f ~logger ~level:Notice ~section "Response decoded with success: %s"
+              (Pb_util.string_of_app_response app_response) 
+            >|= Event.app_response app_response 
+          )
+          | exception exn -> (
+            log_f ~logger ~level:Error ~section "Error decoding app response: %s" 
+              (Printexc.to_string exn)
+
+            >|= Event.failure "Error decoding App server response" 
+          )
+        )
+    )
 
 let send_request logger configuration fd app_request = 
-  let bytes = 
-    let encoder = Pbrt.Encoder.create () in 
-    APb.encode_app_request  app_request encoder; 
-    Pbrt.Encoder.to_bytes encoder 
-  in 
-  let bytes_len = Bytes.length bytes in 
-  U.write fd bytes 0 bytes_len
-  >>=(function
-    | 0 -> Event.failure_lwt "Failed to send request to APP server"
-    | n -> 
-      assert(n = bytes_len); 
-      log_f ~logger ~level:Notice ~section "App request successfully sent:\n%s" 
-        (Pb_util.string_of_app_request app_request)
 
-      >>= next_response logger configuration fd
-  )  
+  Lwt.catch (fun () ->
+    let bytes = 
+      let encoder = Pbrt.Encoder.create () in 
+      APb.encode_app_request  app_request encoder; 
+      Pbrt.Encoder.to_bytes encoder 
+    in 
+    let message_size = Bytes.length bytes in 
+    Raft_com_appmsg.write_message_header ~message_size fd () 
+    >>=(fun () ->
+      U.write fd bytes 0 message_size
+    )
+    >>=(function
+      | 0 -> Event.failure_lwt "Failed to send request to APP server" ()
+      | n -> 
+        assert(n = message_size); 
+        log_f ~logger ~level:Notice ~section "App request successfully sent:\n%s" 
+          (Pb_util.string_of_app_request app_request)
+
+        >>= next_response logger configuration fd
+    )  
+  ) (* with *) (fun exn -> 
+    log_f 
+      ~logger 
+      ~level:Error 
+      "Failed to send new request to AP server, details: %s" 
+      (Printexc.to_string exn)
+    >>= Event.failure_lwt "Failed to send request to APP server"
+  )
 
 
 let get_next_request_f logger request_stream = 
@@ -136,7 +161,7 @@ let get_next_request_f logger request_stream =
   fun () -> 
     Lwt_stream.get request_stream 
     >>=(function 
-      | None -> Event.failure_lwt "Request stream is closed"
+      | None -> Event.failure_lwt "Request stream is closed" ()
       | Some request ->
         log_f ~logger ~level:Notice ~section "New request from stream: %s"
           (Pb_util.string_of_app_request request)

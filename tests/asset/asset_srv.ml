@@ -4,8 +4,8 @@ module U  = Lwt_unix
 
 module UPb = Raft_udp_pb
 module APb = Raft_app_pb
-module Pb_util = Raft_udp_pbutil
-module Conf = Raft_udp_conf
+module Pb_util = Raft_com_pbutil
+module Conf = Raft_com_conf
 
 module Asset_srv = Raft_app_srv.Make(struct 
   

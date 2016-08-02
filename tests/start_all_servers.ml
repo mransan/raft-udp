@@ -17,7 +17,7 @@ let arg_of_server log i =
   end;
   arg
 
-module Conf = Raft_udp_conf
+module Conf = Raft_com_conf
 module Udp  = Raft_udp_pb
    
 let () = 

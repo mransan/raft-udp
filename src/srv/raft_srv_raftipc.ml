@@ -1,15 +1,16 @@
 open Lwt.Infix 
-open !Lwt_log_core
 
-module Counter      = Raft_utl_counter
+module L = Lwt_log_core
 
-module UPb          = Raft_udp_pb
-module APb          = Raft_app_pb
+module Counter = Raft_utl_counter
+
+module UPb = Raft_udp_pb
+module APb = Raft_app_pb
 module Server_stats = Raft_srv_serverstats
-module Client_ipc   = Raft_srv_clientipc 
-module Log          = Raft_srv_log 
-module Log_record   = Raft_srv_logrecord
-module Conf         = Raft_udp_conf
+module Client_ipc = Raft_srv_clientipc 
+module Log = Raft_srv_log 
+module Log_record = Raft_srv_logrecord
+module Conf = Raft_com_conf
 
 module RState = Raft_state
 module RLog   = Raft_log
@@ -21,7 +22,7 @@ type client_responses = client_response list
 type app_requests = Raft_app_pb.app_request list 
 type app_response = Raft_app_pb.app_response 
 
-let section = Section.make (Printf.sprintf "%10s" "RaftIPC")
+let section = L.Section.make (Printf.sprintf "%10s" "RaftIPC")
 
 type event = 
   | Raft_message of Raft_pb.message
@@ -95,9 +96,9 @@ type connection_state = {
   pending_requests : Pending_requests.t;
     (* Keeps track of pending request from client *)
   outgoing_message_processing : unit Lwt.t; 
-    (* Threads which sends the outgoing messages *)
+    (* Threads which sends the outgoing RAFT messages *)
   push_outgoing_message : (RPb.message * int) option -> unit;
-    (* Function to push an outgoing message in the stream *)
+    (* Function to push an outgoing RAFT message to be sent in the stream *)
 }
 
 let initialize configuration = 
@@ -132,12 +133,12 @@ let initialize configuration =
              * supports message not being delivered and will
              * ensure that it will recover. 
              *)
-          | nb_bytes when nb_bytes = remaining ->
+          | nb_bytes_sent when nb_bytes_sent = remaining ->
             Lwt.return_unit
             (* All good message is delivered
              *)
-          | nb_bytes -> 
-            sendto (from + nb_bytes) (remaining - nb_bytes)
+          | nb_bytes_sent -> 
+            sendto (from + nb_bytes_sent) (remaining - nb_bytes_sent)
         )
       in
       sendto 0 buffer_size
@@ -235,7 +236,7 @@ let handle_raft_message ~logger ~stats ~now state msg =
     log_record_handle; 
   } = state in 
 
-  log ~logger ~level:Notice ~section "Raft Message Received"
+  L.log ~logger ~level:L.Notice ~section "Raft Message Received"
   >>=(fun () -> Log.print_state logger section raft_state)
   >>=(fun () -> Log.print_msg_received logger section msg raft_state.RState.id)
   >>=(fun () ->
@@ -260,7 +261,7 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
   begin match timeout_type with
   | RPb.Heartbeat -> (
     Server_stats.tick_heartbeat stats;
-    log ~logger ~section ~level:Notice "Heartbeat timeout" 
+    L.log ~logger ~section ~level:L.Notice "Heartbeat timeout" 
     >|= (fun () ->
       Counter.Perf.f2 (Server_stats.hb_processing stats)
         Raft_logic.handle_heartbeat_timeout raft_state now
@@ -270,7 +271,7 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
 
   | RPb.New_leader_election -> (
     Printf.printf "NEW LEADER ELECTION [%2i] \n%!" raft_state.RState.id;
-    log ~logger ~level:Notice ~section "Leader Election timeout"
+    L.log ~logger ~level:L.Notice ~section "Leader Election timeout"
     >|= (fun () ->
       Raft_logic.handle_new_election_timeout raft_state now
     ))
@@ -307,7 +308,7 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
   match new_log_response with
   | Raft_logic.Delay
   | Raft_logic.Forward_to_leader _ -> 
-    log ~logger ~level:Notice ~section "Log Rejected "
+    L.log ~logger ~level:L.Notice ~section "Log Rejected "
     >|= (fun () ->
 
       let client_responses = List.fold_left (fun client_responses (_, handle) -> 
@@ -320,7 +321,10 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
     )
 
   | Raft_logic.Appended (raft_state, outgoing_messages) -> 
-    log_f ~logger ~level:Notice ~section "Log Added (log size: %i) (nb logs: %i)" 
+    L.log_f 
+      ~logger 
+      ~level:L.Notice 
+      ~section "Logs Added (log size: %i) (nb logs: %i)" 
       raft_state.RState.log.RLog.log_size (List.length datas)  
     >>= (fun () ->
       let {connection_state; _ } = state in 
@@ -355,7 +359,7 @@ let process_app_validation logger (pending_requests, client_responses) validatio
      * this stage. 
      * However not critical for now. 
      *)
-    log_f ~logger ~level:Warning ~section "Could not find pending request after validation for tx_id: %s" tx_id 
+    L.log_f ~logger ~level:L.Warning ~section "Could not find pending request after validation for tx_id: %s" tx_id 
     >|=(fun () -> 
       (pending_requests, client_responses)
     ) 
@@ -365,7 +369,7 @@ let process_app_validation logger (pending_requests, client_responses) validatio
      * has been retrieved, we can insert start the addition of the request
      * from the RAFT protocol point of view. 
      *) 
-    log_f ~logger ~level:Notice ~section 
+    L.log_f ~logger ~level:L.Notice ~section 
       "Validation success from App for tx_id: %s" tx_id 
     >|= (fun () -> 
       let client_response = APb.Add_log_success in 
@@ -378,7 +382,7 @@ let process_app_validation logger (pending_requests, client_responses) validatio
      * back to the client which initiated the request and the log entry is never
      * created in the RAFT consensus. 
      *)
-    log_f ~logger ~level:Notice ~section 
+    L.log_f ~logger ~level:L.Notice ~section 
       "Validation failure from App, tx_id: %s, code: %i, msg: %s" tx_id error_code error_message
     >|=(fun () -> 
       let client_response = APb.Add_log_validation_failure in 

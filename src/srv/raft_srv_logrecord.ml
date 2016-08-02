@@ -38,13 +38,9 @@ let append size_bytes log_entry handle =
   Raft_utl_encoding.Int32LE.encode 0 size_bytes (Int32.of_int data_size); 
 
   Lwt_io.write_from_exactly handle size_bytes 0 4 
+
   >>=(fun () -> 
     Lwt_io.write_from_exactly handle data_bytes 0 data_size 
-  )
-
-
-  >>=(fun () ->
-    Lwt_io.flush handle
   )
 
 let append_commited_data ~logger ~rev_log_entries handle = 
@@ -56,6 +52,7 @@ let append_commited_data ~logger ~rev_log_entries handle =
       log_f ~logger ~level:Notice ~section "log_entry appended (index: %10i, id: %s)" 
         index id)
   ) rev_log_entries
+
   >>=(fun () -> Lwt_io.flush handle) 
 
 type read_result = 

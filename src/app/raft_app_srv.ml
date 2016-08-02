@@ -3,10 +3,18 @@ open !Lwt_log_core
 
 module UPb = Raft_udp_pb
 module APb = Raft_app_pb
-module Pb_util = Raft_udp_pbutil
-module Conf = Raft_udp_conf
+module Pb_util = Raft_com_pbutil
+module Conf = Raft_com_conf
 
 module U  = Lwt_unix 
+
+type connection = Lwt_unix.file_descr * bytes 
+
+let request_buffer_size = 1024 
+(* Default buffer size TODO make this a configuration *) 
+
+let make_connection ~fd () = 
+  (fd, Bytes.create request_buffer_size)
 
 module  Event = struct 
 
@@ -14,32 +22,32 @@ module  Event = struct
     | Failure        of string 
       (** Fatal failure of the IPC *)
 
-    | New_connection of Lwt_unix.file_descr 
+    | New_connection of connection 
       (** TCP IPC accepted a new connection *)
 
-    | New_request    of APb.app_request * Lwt_unix.file_descr  
+    | New_request    of APb.app_request * connection
       (** New request successfully received and decoded *)
 
-    | App_response of APb.app_response * Lwt_unix.file_descr  
+    | App_response of APb.app_response * connection
       (** The application notified of a response *)
 
     | Connection_close 
       (** A connection was closed *)
     
-    | Response_sent of Lwt_unix.file_descr
+    | Response_sent of connection
       (** The response was sent to the RAFT server *)
 
-  let close_connection fd () = 
+  let close_connection (fd, _)  () = 
     U.close fd >|= (fun () -> Connection_close) 
 
-  let response_sent fd () = 
-    Response_sent fd
+  let response_sent connection () = 
+    Response_sent connection
 
-  let new_connection fd () = 
-    New_connection fd
+  let new_connection connection () = 
+    New_connection connection
 
-  let new_request app_request fd () = 
-    New_request (app_request, fd) 
+  let new_request app_request connection () = 
+    New_request (app_request, connection) 
 
   let failure msg () = 
     Failure msg 
@@ -68,7 +76,7 @@ let get_next_connection_f logger {UPb.app_server_port; _} () =
           ~logger 
           ~level:Notice 
           "New connection accepted, details: %s" (Raft_utl_unix.string_of_sockaddr ad)
-        >|= Event.new_connection fd2 
+        >|= Event.new_connection @@ make_connection ~fd:fd2 () 
       )
     ) (* with *) (fun exn ->
       let error = Printf.sprintf "Accept failed: %s\n" (Printexc.to_string exn) in 
@@ -79,37 +87,35 @@ let decode_request bytes =
   let decoder = Pbrt.Decoder.of_bytes bytes in 
   APb.decode_app_request decoder 
 
-let request_buffer_size = 1024 
-(* TODO
- *
- * This size will not fit all applications, since the request type is
- * defined by the application, this generic code should not assume 
- * the maximum size of the request. 
- *
- * Simple solution:
- * Make this buffer size configurable. This would fit a lot of application
- * which message size is pretty much constant. However for more dynamic 
- * application which request size might vary this would not work. 
- *
- * Better solution: 
- * Introduce a fixed size message header when the RAFT server is sending 
- * the request. This header would contain the message size of the request 
- * and this code could then adapt the buffer length. 
- *) 
 
 let next_request =
 
-  let buffer = Bytes.create request_buffer_size in
-    (*  Only needs to create the buffer once
-     *)
-
-  fun logger fd -> 
+  fun logger ((fd, buffer) as connection) -> 
     Lwt.catch (fun () ->
-      U.read fd buffer 0 request_buffer_size
-      >>=(function
+
+      Raft_com_appmsg.read_message_header fd
+      >>= Raft_utl_lwt.tap (fun header -> 
+        log_f 
+          ~logger 
+          ~level:Notice 
+          "Message header decoded, message size: %i"
+          (Raft_com_appmsg.message_size header) 
+      )
+      >>=(fun header ->
+        let message_size = Raft_com_appmsg.message_size header in 
+        let buffer = 
+          if message_size <= request_buffer_size
+          then buffer
+          else Bytes.create message_size
+        in 
+        U.read fd buffer 0 message_size
+        >|= (fun nb_byte_read -> (buffer, nb_byte_read))
+      ) 
+      >>=(fun (buffer, nb_byte_read) ->
+        match nb_byte_read with
         | 0 -> 
           log ~logger ~level:Warning "Connection closed by client (read size = 0)" 
-          >>= Event.close_connection fd
+          >>= Event.close_connection connection
 
         | n when n = request_buffer_size -> 
           (* This can happen if the application request is larger than we 
@@ -133,39 +139,47 @@ let next_request =
             match decode_request (Bytes.sub buffer 0 n) with
             | app_request ->
               log_f ~logger ~level:Notice "Request decoded: %s" (Pb_util.string_of_app_request app_request)
-              >|= Event.new_request app_request fd 
+              >|= Event.new_request app_request connection
 
             | exception exn -> 
               log_f ~logger ~level:Error "Failed to decode request, details: %s" (Printexc.to_string exn)
-              >>= Event.close_connection fd 
-              
+              >>= Event.close_connection connection
           )
       ) 
     ) (* with *) (fun exn -> 
-      log_f ~logger ~level:Error "Failed to read new request, details: %s" (Printexc.to_string exn)
-      >>= Event.close_connection fd
+      log_f 
+        ~logger 
+        ~level:Error 
+        "Failed to read new request, details: %s" 
+        (Printexc.to_string exn)
+      >>= Event.close_connection connection
     ) 
 
-let send_app_response logger fd app_response = 
-  (* Encode to bytes *)
-  let bytes = 
-    let encoder = Pbrt.Encoder.create () in 
-    APb.encode_app_response  app_response encoder; 
-    Pbrt.Encoder.to_bytes encoder 
-  in
-  let len = Bytes.length bytes in 
-
-  (* Send the bytes *)
+let send_app_response logger connection app_response = 
   Lwt.catch (fun () -> 
-    U.write fd bytes 0 len
+    let (fd, _) = connection in 
+    (* Encode to bytes *)
+    let bytes = 
+      let encoder = Pbrt.Encoder.create () in 
+      APb.encode_app_response  app_response encoder; 
+      Pbrt.Encoder.to_bytes encoder 
+    in
+    let len = Bytes.length bytes in 
+
+    (* Send the header *)
+    Raft_com_appmsg.write_message_header ~message_size:len fd () 
+    >>=(fun () ->
+      (* Send the bytes *)
+      U.write fd bytes 0 len
+    )
     >>=(function
-      | 0 -> Event.close_connection fd () 
+      | 0 -> Event.close_connection connection () 
 
       | n when n = len -> 
         assert(len = n); 
         log_f ~logger ~level:Notice "Response sent (byte length: %i): %s" n 
           (Pb_util.string_of_app_response app_response)
-        >|= Event.response_sent fd 
+        >|= Event.response_sent connection
 
       | n -> 
         (* 
@@ -178,13 +192,13 @@ let send_app_response logger fd app_response =
           ~logger 
           ~level:Error 
           "Failed to write full response data, total size: %i, written size: %i" len n 
-        >>= Event.close_connection fd 
+        >>= Event.close_connection connection
     )  
   ) (* with *) (fun exn -> 
     log_f ~logger ~level:Error "Failed to send response, details: %s, response: %s" 
       (Printexc.to_string exn) 
       (Pb_util.string_of_app_response app_response) 
-    >>= Event.close_connection fd 
+    >>= Event.close_connection connection
   ) 
 
 let server_loop logger configuration handle_app_request () =
@@ -205,24 +219,24 @@ let server_loop logger configuration handle_app_request () =
           exit 1
         ) 
 
-        | Event.New_connection fd -> 
-          (next_connection ())::(next_request logger fd)::non_terminated_threads 
+        | Event.New_connection connection -> 
+          (next_connection ())::(next_request logger connection)::non_terminated_threads 
 
-        | Event.New_request (request, fd) -> 
+        | Event.New_request (request, connection) -> 
           let t = 
             handle_app_request request 
-            >|=(fun response -> Event.App_response (response, fd))
+            >|=(fun response -> Event.App_response (response, connection))
           in 
           t::non_terminated_threads 
 
-        | Event.App_response (response, fd) -> 
-          (send_app_response logger fd response)::non_terminated_threads
+        | Event.App_response (response, connection) -> 
+          (send_app_response logger connection response)::non_terminated_threads
 
         | Event.Connection_close -> 
           non_terminated_threads
         
-        | Event.Response_sent fd -> 
-          (next_request logger fd)::non_terminated_threads
+        | Event.Response_sent connection -> 
+          (next_request logger connection)::non_terminated_threads
 
       ) non_terminated_threads events
       |> aux 

@@ -3,8 +3,8 @@ open !Lwt_log_core
 
 module UPb = Raft_udp_pb
 module APb = Raft_app_pb
-module Pb_util = Raft_udp_pbutil
-module Conf = Raft_udp_conf
+module Pb_util = Raft_com_pbutil
+module Conf = Raft_com_conf
 
 module U  = Lwt_unix 
 
@@ -111,7 +111,7 @@ let () =
   let log = ref false in 
   let log_spec = Arg.Set log  in
 
-  let id, id_spec = Raft_udp_conf.get_id_cmdline configuration in
+  let id, id_spec = Raft_com_conf.get_id_cmdline configuration in
   
   Arg.parse [
     ("--log", log_spec, " : enable logging");

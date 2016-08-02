@@ -22,3 +22,7 @@ let string_of_app_response = function
       Printf.sprintf "%20s - %s" tx_id result
     ) validations in 
     Printf.sprintf "Committed txs [\n%s]" validations 
+
+let string_of_client_request = function
+  | APb.Add_tx {APb.tx_id; tx_data} -> 
+    Printf.sprintf "{tx_id: %s; tx_data length: %i}" tx_id (Bytes.length tx_data) 

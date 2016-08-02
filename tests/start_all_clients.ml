@@ -7,7 +7,7 @@ let arg_of_server ~task ~log _ =
   begin if log then arg.(1) <- "--log"; end; 
   arg
 
-module Conf = Raft_udp_conf
+module Conf = Raft_com_conf
 module Udp  = Raft_udp_pb
    
 
@@ -27,7 +27,7 @@ let () =
 
   assert(!task <> "");
 
-  let nb_of_children = 10 in 
+  let nb_of_children = 2 in 
 
   for i = 1 to nb_of_children do
     match Unix.fork () with

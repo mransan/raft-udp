@@ -1,9 +1,11 @@
 open Lwt.Infix 
 open Lwt_log_core 
 
-module Conf = Raft_udp_conf 
+module Conf = Raft_com_conf 
 
 module Test_utl = Asset_test_utl 
+
+let section = Section.make (Printf.sprintf "%10s" "AssetClt")
 
 module Asset_clt = Raft_app_clt.Make(struct
 
@@ -25,7 +27,11 @@ module App = struct
     Lwt.return @@ "This is a dummy content of course" ^ url
 
   let handle_tx ~logger t tx = 
-    log_f ~logger ~level:Notice "Sending tx: %s" (Asset_pb.show_tx tx)
+    log_f 
+      ~logger 
+      ~level:Notice 
+      ~section 
+      "Sending tx: %s" (Asset_pb.show_tx tx)
     >>=(fun () ->
       Asset_clt.send t tx 
     )
@@ -65,10 +71,18 @@ let execute_nth_test logger ~nth ~app l =
     | 0, test::tl -> 
       if Test_utl.is_done test 
       then 
-        log_f ~logger ~level:Notice "Test nth: %i is done" nth
+        log_f 
+          ~logger 
+          ~level:Notice 
+          ~section 
+          "Test nth: %i is done" nth
         >|=(fun () -> (tl, app))
       else 
-        log_f ~logger ~level:Notice "Executing test nth: %i" nth
+        log_f 
+          ~logger 
+          ~level:Notice 
+          ~section 
+          "Executing test nth: %i" nth
         >>=(fun () -> 
           Test_utl_exec.execute_test ~logger test app 
           >|=(fun (test, app) -> (test::tl, app))
