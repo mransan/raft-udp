@@ -19,11 +19,12 @@ module RPb    = Raft_pb
 
 module Raft_ipc = Raft_srv_raftipc
 
-type client_request   = Raft_app_pb.client_request * Raft_srv_clientipc.handle
-type client_response  = Raft_app_pb.client_response * Raft_srv_clientipc.handle 
+type client_request = Raft_srv_clientipc.request
+type client_response = Raft_srv_clientipc.response 
 type client_responses = client_response list 
-type app_requests = Raft_app_pb.app_request list 
-type app_response = Raft_app_pb.app_response 
+type app_requests = Raft_srv_appipc.request list 
+type app_response = Raft_srv_appipc.response
+type raft_messages  = (Raft_pb.message * int) list
 
 let section = L.Section.make (Printf.sprintf "%10s" "RaftIPC")
 
@@ -104,7 +105,7 @@ let make ~logger ~stats ~ipc ~raft_state ~log_record_handle () =
     }
   }
 
-type result = (state * client_responses * app_requests) 
+type result = (state * client_responses * app_requests * raft_messages) 
 
 let handle_notifications logger stats connection_state compaction_handle notifications = 
 
@@ -163,10 +164,7 @@ let handle_notifications logger stats connection_state compaction_handle notific
   ) notifications
   >|=(fun () -> (connection_state, client_responses, app_requests))
 
-let send_raft_messages {ipc; _ } messages  = 
-  Raft_ipc.send_messages ipc messages 
-
-let handle_raft_message ~now state msg = 
+let handle_raft_message state now msg = 
   let { 
     logger;
     stats;
@@ -184,17 +182,20 @@ let handle_raft_message ~now state msg =
     let perf = Server_stats.msg_processing stats in 
     let ret  = Counter.Perf.f3 perf Raft_logic.handle_message raft_state msg now in
 
-    let (raft_state, outgoing_messages, notifications) = ret in 
+    let (raft_state, raft_messages, notifications) = ret in 
 
     handle_notifications logger stats connection_state log_record_handle notifications 
     >|=(fun (connection_state, client_responses, app_requests) ->
-      send_raft_messages connection_state outgoing_messages;
-
-      ({state with raft_state; connection_state}, client_responses, app_requests)
+      (
+        {state with raft_state; connection_state}, 
+        client_responses, 
+        app_requests, 
+        raft_messages
+      )
     )
   )
 
-let handle_timeout ~now state timeout_type = 
+let handle_timeout state now timeout_type = 
   let { 
     logger; 
     stats; 
@@ -210,7 +211,7 @@ let handle_timeout ~now state timeout_type =
       Counter.Perf.f2 (Server_stats.hb_processing stats)
         Raft_logic.handle_heartbeat_timeout raft_state now
     )
-    >|= (fun (raft_state, outgoing_messages) -> (raft_state, outgoing_messages, []))
+    >|= (fun (raft_state, raft_messages) -> (raft_state, raft_messages, []))
   )
 
   | RPb.New_leader_election -> (
@@ -221,20 +222,25 @@ let handle_timeout ~now state timeout_type =
     ))
   end
 
-  >>=(fun (raft_state, outgoing_messages, notifications) ->
+  >>=(fun (raft_state, raft_messages, notifications) ->
 
-    handle_notifications logger stats connection_state log_record_handle notifications 
+    handle_notifications 
+      logger 
+      stats 
+      connection_state 
+      log_record_handle 
+      notifications 
     >|=(fun (connection_state, client_responses, app_requests) ->
-      send_raft_messages connection_state outgoing_messages;
       (
         {state with raft_state; connection_state}, 
         client_responses,
-        app_requests
+        app_requests, 
+        raft_messages
       )
     )
   ) 
 
-let handle_client_requests ~now  state client_requests = 
+let handle_client_requests state now client_requests = 
 
   let _  = now in 
 
@@ -262,10 +268,10 @@ let handle_client_requests ~now  state client_requests =
         }), handle)::client_responses
       ) [] client_requests in  
 
-      (state, client_responses, [] (* app_requests *))
+      (state, client_responses, [] (* app_requests *), [])
     )
 
-  | Raft_logic.Appended (raft_state, outgoing_messages) -> 
+  | Raft_logic.Appended (raft_state, raft_messages) -> 
     L.log_f 
       ~logger 
       ~level:L.Notice 
@@ -282,10 +288,14 @@ let handle_client_requests ~now  state client_requests =
 
       let connection_state = {connection_state with pending_requests; } in  
 
-      send_raft_messages connection_state outgoing_messages;
       let client_responses = [] in 
       let app_requests = [] in 
-      ({state with raft_state; connection_state}, client_responses, app_requests)
+      (
+        {state with raft_state; connection_state}, 
+        client_responses, 
+        app_requests,
+        raft_messages
+      )
     )
       
 let process_app_validation logger (pending_requests, client_responses) validation = 
@@ -333,7 +343,7 @@ let process_app_validation logger (pending_requests, client_responses) validatio
       (pending_requests, client_response::client_responses)
     )
 
-let handle_app_response ~now state app_response = 
+let handle_app_response state now app_response = 
 
   let _ = now in 
 
@@ -347,7 +357,7 @@ let handle_app_response ~now state app_response =
     >|=(fun (pending_requests, client_responses) ->
       let connection_state = {connection_state with pending_requests } in 
       let state = {state with connection_state} in 
-      (state, client_responses, [] (* app_requests *))
+      (state, client_responses, [] (* app_requests *), [])
     )
 
 let handle_compaction_update compacted_intervals state = 

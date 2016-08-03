@@ -38,9 +38,11 @@ let make_connection ~fd () =
   let buffer = Bytes.create default_buffer_size in 
   (fd, get_new_connection_uid (), buffer) 
 
-type client_request = APb.client_request * connection
+type request = APb.client_request * connection
 
-type send_response_f = (APb.client_response * connection) option -> unit 
+type response = APb.client_response * connection 
+
+type send_response_f = response -> unit 
 
 module Event = struct 
 
@@ -53,7 +55,7 @@ module Event = struct
       (* In TCP each new client must initiate a dedicated connection, this 
        * event notifies of such new connection (ie file descriptor). 
        *)
-    | Client_connection_read_ok of client_request
+    | Client_connection_read_ok of request
       (* A new request has been succesfully received and decoded from 
        * a client connection. 
        *)
@@ -276,7 +278,7 @@ let create_response_stream logger () =
   in
   (next_response, response_push)
 
-type t = client_request Lwt_stream.t * send_response_f 
+type t = request Lwt_stream.t * send_response_f 
 
 
 (*
@@ -360,6 +362,8 @@ let make logger configuration stats server_id =
     next_response, 
     response_push
   ) = create_response_stream logger  () in 
+
+  let send_response_f response = response_push (Some response) in
 
   (*
    * This is the main client IPC loop.
@@ -453,4 +457,4 @@ let make logger configuration stats server_id =
      * does not reclaim the thread. 
      *)
 
-  (request_stream, response_push)
+  (request_stream, send_response_f)

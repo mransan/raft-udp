@@ -6,15 +6,17 @@
 
 (** {2 Types} *)
 
-type client_request = Raft_app_pb.client_request * Raft_srv_clientipc.handle
+type client_request = Raft_srv_clientipc.request
 
-type client_response = Raft_app_pb.client_response * Raft_srv_clientipc.handle 
+type client_response = Raft_srv_clientipc.response 
 
 type client_responses = client_response list 
 
-type app_requests = Raft_app_pb.app_request list 
+type app_requests = Raft_srv_appipc.request list 
 
-type app_response = Raft_app_pb.app_response 
+type app_response = Raft_srv_appipc.response
+
+type raft_messages = (Raft_pb.message * int) list 
 
 type t
 
@@ -36,11 +38,11 @@ val raft_state : t -> Raft_state.t
 
 (** {2 Logic } *) 
 
-type result = (t * client_responses * app_requests) 
+type result = (t * client_responses * app_requests * raft_messages) 
 
 val handle_raft_message :
-  now   : float -> 
   t -> 
+  float -> 
   Raft_pb.message ->
   result Lwt.t  
 (** [handle_raft_message ~logger ~stats ~now state msg] handles RAFT protocol 
@@ -48,8 +50,8 @@ val handle_raft_message :
   *)
 
 val handle_timeout :
-  now   : float -> 
   t ->
+  float -> 
   Raft_pb.timeout_event_time_out_type ->
   result Lwt.t  
 (** [handle_raft_message ~logger ~stats ~now state msg] handles RAFT protocol 
@@ -57,8 +59,8 @@ val handle_timeout :
   *)
 
 val handle_client_requests :
-  now   : float -> 
   t ->
+  float -> 
   client_request list ->
   result Lwt.t  
 (** [handle_client_request ~logger ~stats ~now state msg] handles RAFT protocol 
@@ -66,8 +68,8 @@ val handle_client_requests :
   *)
 
 val handle_app_response :
-  now   : float -> 
   t ->
+  float -> 
   app_response ->
   result Lwt.t  
 (** [handle_app_response ~logger ~stats ~now state msg] handles the response received

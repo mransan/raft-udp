@@ -8,9 +8,13 @@ module Pb_util = Raft_com_pbutil
 module Server_stats = Raft_srv_serverstats
 module U = Lwt_unix
 
-type send_app_request_f  = Raft_app_pb.app_request option -> unit 
+type request = Raft_app_pb.app_request 
 
-type t = send_app_request_f * Raft_app_pb.app_response Lwt_stream.t 
+type response = Raft_app_pb.app_response 
+
+type send_app_request_f  = request -> unit 
+
+type t = send_app_request_f * response Lwt_stream.t 
 
 let section = Section.make (Printf.sprintf "%10s" "AppIPC")
 
@@ -179,6 +183,8 @@ let make logger configuration (_:Server_stats.t) server_id =
       push_request_f
     ) = Lwt_stream.create() in 
 
+    let send_app_request_f request = push_request_f (Some request) in  
+
     let (
       response_stream, 
       push_response_f, 
@@ -220,4 +226,4 @@ let make logger configuration (_:Server_stats.t) server_id =
     let t : unit Lwt.t  = connect logger server_ipc_configuration () >>= loop None in 
     set_response_ref t; 
 
-    Some (push_request_f, response_stream)
+    Some (send_app_request_f, response_stream)

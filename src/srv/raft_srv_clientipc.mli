@@ -11,18 +11,20 @@ type handle
   * Internally this is the file descriptor. 
   *)
 
-type client_request = Raft_app_pb.client_request * handle
+type request = Raft_app_pb.client_request * handle
 (* type client_request  = Raft_udp_pb.client_request * handle 
  *)
 
+type response = Raft_app_pb.client_response * handle 
+
 (** Client request type *)
 
-type send_response_f = (Raft_app_pb.client_response * handle) option -> unit 
+type send_response_f = response -> unit 
 (** Sender function for the caller to send a response 
  *)
 
 
-type t = client_request Lwt_stream.t * send_response_f 
+type t = request Lwt_stream.t * send_response_f 
 (** Client IPC type. The Client IPC consists in 2 parts:
     
     {ul
