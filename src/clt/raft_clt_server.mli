@@ -11,11 +11,11 @@ type handle
   * Internally this is the file descriptor. 
   *)
 
-type request = Raft_app_pb.client_request * handle
+type request = Raft_clt_pb.client_request * handle
 (* type client_request  = Raft_udp_pb.client_request * handle 
  *)
 
-type response = Raft_app_pb.client_response * handle 
+type response = Raft_clt_pb.client_response * handle 
 
 (** Client request type *)
 

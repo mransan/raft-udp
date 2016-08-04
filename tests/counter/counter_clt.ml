@@ -3,7 +3,7 @@ open Lwt_log_core
 
 module Conf = Raft_com_conf 
 
-module Counter_clt = Raft_app_clt.Make(struct
+module Counter_clt = Raft_clt_client.Make(struct
 
   type tx = Counter_pb.tx 
 
@@ -20,8 +20,8 @@ let rec loop logger client counter_value () =
     process_id = Unix.getpid (); 
   }) 
   >>=(function
-    | Raft_app_clt.Send_result_ok -> Lwt.return_unit 
-    | Raft_app_clt.Send_result_error msg -> 
+    | Raft_clt_client.Send_result_ok -> Lwt.return_unit 
+    | Raft_clt_client.Send_result_error msg -> 
       log_f ~logger ~level:Warning "Error, details: %s\n" msg
   )
   >>= loop logger client (counter_value + 1) 
@@ -34,7 +34,7 @@ let main log () =
   in 
   Raft_utl_lwt.make_logger ?to_file () 
   >>=(fun logger -> 
-    Raft_app_clt.make logger (Conf.default_configuration ()) 
+    Raft_clt_client.make logger (Conf.default_configuration ()) 
     >>= (fun client -> loop logger client 0 ()) 
   ) 
 

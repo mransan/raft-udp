@@ -1,9 +1,11 @@
-module APb = Raft_app_pb 
+module App_pb = Raft_app_pb 
+module Com_pb = Raft_com_pb 
+module Clt_pb = Raft_clt_pb 
 
 let string_of_app_request = function
-  | APb.Commit_txs {APb.txs} ->
+  | App_pb.Commit_txs {App_pb.txs} ->
       
-    let log_entries = String.concat ", \n" @@ List.map (fun ({APb.tx_id; _ } : APb.tx) -> 
+    let log_entries = String.concat ", \n" @@ List.map (fun ({Com_pb.tx_id; _ } : Com_pb.tx) -> 
       Printf.sprintf "%20s" tx_id 
     ) txs in 
     Printf.sprintf "Commit txs [\n%s]" log_entries
@@ -11,12 +13,12 @@ let string_of_app_request = function
 
 let string_of_app_response = function
 
-  | APb.Committed_txs {APb.validations} ->  
-    let validations = String.concat ",\n" @@ List.map (fun {APb.result;tx_id} -> 
+  | App_pb.Committed_txs {App_pb.validations} ->  
+    let validations = String.concat ",\n" @@ List.map (fun {App_pb.result;tx_id} -> 
       let result = match result with
-        | APb.Validation_success  -> 
+        | App_pb.Validation_success  -> 
           "Success"
-        | APb.Validation_failure {APb.error_message; _} -> 
+        | App_pb.Validation_failure {App_pb.error_message; _} -> 
           Printf.sprintf "Failure (details: %s)" error_message
       in 
       Printf.sprintf "%20s - %s" tx_id result
@@ -24,5 +26,5 @@ let string_of_app_response = function
     Printf.sprintf "Committed txs [\n%s]" validations 
 
 let string_of_client_request = function
-  | APb.Add_tx {APb.tx_id; tx_data} -> 
+  | Clt_pb.Add_tx {Com_pb.tx_id; tx_data} -> 
     Printf.sprintf "{tx_id: %s; tx_data length: %i}" tx_id (Bytes.length tx_data) 

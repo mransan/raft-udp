@@ -3,7 +3,7 @@ open !Lwt_log_core
 
 module Conf = Raft_com_conf
 module UPb = Raft_udp_pb 
-module APb = Raft_app_pb
+module App_pb = Raft_app_pb
 module Pb_util = Raft_com_pbutil
 module Server_stats = Raft_srv_serverstats
 module U = Lwt_unix
@@ -29,10 +29,10 @@ module Event = struct
     | Connection_established of Lwt_unix.file_descr
       (* The connection is established to the App server *)
 
-    | App_request  of APb.app_request 
+    | App_request  of App_pb.app_request 
       (* An App request is requested to be sent *)
 
-    | App_response of APb.app_response 
+    | App_response of App_pb.app_response 
       (* An App response is received from the App server *)
 
   (* Builder functions *)
@@ -113,7 +113,7 @@ let next_response =
         >>=(fun () ->
 
           let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 received) in 
-          match APb.decode_app_response decoder with
+          match App_pb.decode_app_response decoder with
           | app_response -> (
             log_f ~logger ~level:Notice ~section "Response decoded with success: %s"
               (Pb_util.string_of_app_response app_response) 
@@ -133,7 +133,7 @@ let send_request logger configuration fd app_request =
   Lwt.catch (fun () ->
     let bytes = 
       let encoder = Pbrt.Encoder.create () in 
-      APb.encode_app_request  app_request encoder; 
+      App_pb.encode_app_request  app_request encoder; 
       Pbrt.Encoder.to_bytes encoder 
     in 
     let message_size = Bytes.length bytes in 

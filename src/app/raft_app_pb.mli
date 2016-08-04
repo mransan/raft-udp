@@ -3,25 +3,8 @@
 
 (** {2 Types} *)
 
-type tx = {
-  tx_id : string;
-  tx_data : bytes;
-}
-
-type client_request =
-  | Add_tx of tx
-
-type client_response_add_log_not_aleader = {
-  leader_id : int option;
-}
-
-type client_response =
-  | Add_log_success
-  | Add_log_validation_failure
-  | Add_log_not_a_leader of client_response_add_log_not_aleader
-
 type app_request_txs = {
-  txs : tx list;
+  txs : Raft_com_pb.tx list;
 }
 
 type app_request =
@@ -51,27 +34,8 @@ type app_response =
 
 (** {2 Default values} *)
 
-val default_tx : 
-  ?tx_id:string ->
-  ?tx_data:bytes ->
-  unit ->
-  tx
-(** [default_tx ()] is the default value for type [tx] *)
-
-val default_client_request : unit -> client_request
-(** [default_client_request ()] is the default value for type [client_request] *)
-
-val default_client_response_add_log_not_aleader : 
-  ?leader_id:int option ->
-  unit ->
-  client_response_add_log_not_aleader
-(** [default_client_response_add_log_not_aleader ()] is the default value for type [client_response_add_log_not_aleader] *)
-
-val default_client_response : unit -> client_response
-(** [default_client_response ()] is the default value for type [client_response] *)
-
 val default_app_request_txs : 
-  ?txs:tx list ->
+  ?txs:Raft_com_pb.tx list ->
   unit ->
   app_request_txs
 (** [default_app_request_txs ()] is the default value for type [app_request_txs] *)
@@ -108,18 +72,6 @@ val default_app_response : unit -> app_response
 
 (** {2 Protobuf Decoding} *)
 
-val decode_tx : Pbrt.Decoder.t -> tx
-(** [decode_tx decoder] decodes a [tx] value from [decoder] *)
-
-val decode_client_request : Pbrt.Decoder.t -> client_request
-(** [decode_client_request decoder] decodes a [client_request] value from [decoder] *)
-
-val decode_client_response_add_log_not_aleader : Pbrt.Decoder.t -> client_response_add_log_not_aleader
-(** [decode_client_response_add_log_not_aleader decoder] decodes a [client_response_add_log_not_aleader] value from [decoder] *)
-
-val decode_client_response : Pbrt.Decoder.t -> client_response
-(** [decode_client_response decoder] decodes a [client_response] value from [decoder] *)
-
 val decode_app_request_txs : Pbrt.Decoder.t -> app_request_txs
 (** [decode_app_request_txs decoder] decodes a [app_request_txs] value from [decoder] *)
 
@@ -144,18 +96,6 @@ val decode_app_response : Pbrt.Decoder.t -> app_response
 
 (** {2 Protobuf Toding} *)
 
-val encode_tx : tx -> Pbrt.Encoder.t -> unit
-(** [encode_tx v encoder] encodes [v] with the given [encoder] *)
-
-val encode_client_request : client_request -> Pbrt.Encoder.t -> unit
-(** [encode_client_request v encoder] encodes [v] with the given [encoder] *)
-
-val encode_client_response_add_log_not_aleader : client_response_add_log_not_aleader -> Pbrt.Encoder.t -> unit
-(** [encode_client_response_add_log_not_aleader v encoder] encodes [v] with the given [encoder] *)
-
-val encode_client_response : client_response -> Pbrt.Encoder.t -> unit
-(** [encode_client_response v encoder] encodes [v] with the given [encoder] *)
-
 val encode_app_request_txs : app_request_txs -> Pbrt.Encoder.t -> unit
 (** [encode_app_request_txs v encoder] encodes [v] with the given [encoder] *)
 
@@ -179,18 +119,6 @@ val encode_app_response : app_response -> Pbrt.Encoder.t -> unit
 
 
 (** {2 Formatters} *)
-
-val pp_tx : Format.formatter -> tx -> unit 
-(** [pp_tx v] formats v *)
-
-val pp_client_request : Format.formatter -> client_request -> unit 
-(** [pp_client_request v] formats v *)
-
-val pp_client_response_add_log_not_aleader : Format.formatter -> client_response_add_log_not_aleader -> unit 
-(** [pp_client_response_add_log_not_aleader v] formats v *)
-
-val pp_client_response : Format.formatter -> client_response -> unit 
-(** [pp_client_response v] formats v *)
 
 val pp_app_request_txs : Format.formatter -> app_request_txs -> unit 
 (** [pp_app_request_txs v] formats v *)

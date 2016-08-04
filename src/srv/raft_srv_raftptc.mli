@@ -6,15 +6,15 @@
 
 (** {2 Types} *)
 
-type client_request = Raft_srv_clientipc.request
+type client_request = Raft_clt_server.request
 
-type client_response = Raft_srv_clientipc.response 
+type client_response = Raft_clt_server.response 
 
 type client_responses = client_response list 
 
-type app_requests = Raft_srv_appipc.request list 
+type app_requests = Raft_app_client.request list 
 
-type app_response = Raft_srv_appipc.response
+type app_response = Raft_app_client.response
 
 type raft_messages = (Raft_pb.message * int) list 
 
@@ -25,7 +25,6 @@ type t
 val make : 
   logger:Lwt_log_core.logger -> 
   stats:Raft_srv_serverstats.t -> 
-  ipc:Raft_srv_raftipc.t -> 
   raft_state:Raft_state.t ->
   log_record_handle:Raft_srv_logrecord.t ->
   unit -> 

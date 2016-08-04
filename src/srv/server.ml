@@ -8,15 +8,15 @@ module RLog = Raft_log
 module RState = Raft_state
 
 module UPb = Raft_udp_pb
-module APb = Raft_app_pb
+module App_pb = Raft_app_pb
 module Conf = Raft_com_conf
 module Server_stats = Raft_srv_serverstats
 module Raft_ipc = Raft_srv_raftipc
 module Raft_ptc = Raft_srv_raftptc
-module Client_ipc = Raft_srv_clientipc
+module Client_ipc = Raft_clt_server
 module Compaction = Raft_srv_compaction
 module Log_record = Raft_srv_logrecord
-module App_ipc = Raft_srv_appipc
+module App_ipc = Raft_app_client
 
 let section = Section.make (Printf.sprintf "%10s" "server")
 
@@ -52,7 +52,7 @@ module Event = struct
           of modified log intervals. 
         *)
 
-    | App_response   of APb.app_response 
+    | App_response   of App_pb.app_response 
       (** A response was received from the App server *)
 
   type threads = {
@@ -361,7 +361,6 @@ let run_server configuration id logger print_header slow =
       let state = Raft_ptc.make
         ~logger 
         ~stats
-        ~ipc:raft_ipc
         ~raft_state:initial_raft_state
         ~log_record_handle:handle
         () 

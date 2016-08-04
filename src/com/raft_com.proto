@@ -1,0 +1,8 @@
+option (int32_type) = int_t;
+
+package raft.com;
+
+message Tx {
+  required string tx_id   = 1; 
+  required bytes  tx_data = 2;
+}

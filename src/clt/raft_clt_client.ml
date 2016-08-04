@@ -4,7 +4,8 @@ open !Lwt_log_core
 module Conf = Raft_com_conf
 module U    = Lwt_unix
 module UPb  = Raft_udp_pb
-module APb  = Raft_app_pb
+module App_pb = Raft_app_pb
+module Com_pb = Raft_com_pb
 
 let section = Section.make (Printf.sprintf "%10s" "AppClt")
 
@@ -29,7 +30,7 @@ type send_result =
   | Send_result_error of string 
 
 let tx_id_of_client_request = function
-  | APb.Add_tx {APb.tx_id; _} -> tx_id 
+  | Raft_clt_pb.Add_tx {Com_pb.tx_id; _} -> tx_id 
 
 module Event = struct 
 
@@ -43,9 +44,9 @@ module Event = struct
       (* The connection with a server closed (brutal) 
        *)
 
-    | Request  of APb.client_request * send_result Lwt.u  
+    | Request  of Raft_clt_pb.client_request * send_result Lwt.u  
     
-    | Response of APb.client_response * send_result Lwt.u  
+    | Response of Raft_clt_pb.client_response * send_result Lwt.u  
 
     | Failure of string  
       (** System failure (unexpected) *)
@@ -123,7 +124,7 @@ module State = struct
 
 end 
 
-type pending_request = APb.client_request * send_result Lwt.u 
+type pending_request = Raft_clt_pb.client_request * send_result Lwt.u 
 
 type t = {
   mutable state : State.t; 
@@ -194,7 +195,7 @@ let handle_request ({state; logger; _ }) client_request response_wakener =
 
   | State.Established (server_id, fd) -> 
     let encoder = Pbrt.Encoder.create () in
-    APb.encode_client_request client_request encoder;
+    Raft_clt_pb.encode_client_request client_request encoder;
     let buffer     = Pbrt.Encoder.to_bytes encoder in
     let buffer_len = Bytes.length buffer in
 
@@ -234,7 +235,8 @@ let handle_request ({state; logger; _ }) client_request response_wakener =
               if bytes_read <> 0 && bytes_read <> 1024
               then
                 let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 bytes_read) in
-                Event.lwt_response (APb.decode_client_response decoder) response_wakener ()
+                Event.lwt_response (Raft_clt_pb.decode_client_response decoder) response_wakener ()
+                (* TODO handle decoding error *)
               else
                 Event.connection_closed fd () 
             )
@@ -253,15 +255,15 @@ let handle_request ({state; logger; _ }) client_request response_wakener =
 let handle_response (_:t) client_response response_wakener = 
 
   match client_response with
-  | APb.Add_log_success -> 
+  | Raft_clt_pb.Add_log_success -> 
     Lwt.wakeup response_wakener Send_result_ok ; 
     `Next_request  
 
-  | APb.Add_log_validation_failure -> 
+  | Raft_clt_pb.Add_log_validation_failure -> 
     Lwt.wakeup response_wakener (Send_result_error "validation failure");
     `Next_request 
 
-  | APb.Add_log_not_a_leader {APb.leader_id} -> 
+  | Raft_clt_pb.Add_log_not_a_leader {Raft_clt_pb.leader_id} -> 
     `Not_a_leader leader_id 
     
 let next_request ({request_stream; pending_request; _ } as t) () = 
@@ -367,9 +369,9 @@ module Make(App:App_sig) = struct
   let send {request_push; _} tx = 
     let t, u = Lwt.wait () in
     let bytes = App.encode tx  in
-    let tx = Raft_app_pb.(Add_tx {
-      tx_id = unique_id (); 
-      tx_data = bytes;
+    let tx = Raft_clt_pb.(Add_tx {
+      Raft_com_pb.tx_id = unique_id (); 
+      Raft_com_pb.tx_data = bytes;
     }) in 
     request_push (Some (tx, u)); 
     t

@@ -2,13 +2,13 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module UPb = Raft_udp_pb
-module APb = Raft_app_pb
+module App_pb = Raft_app_pb
 module Pb_util = Raft_com_pbutil
 module Conf = Raft_com_conf
 
 module U  = Lwt_unix 
 
-module Counter_srv = Raft_app_srv.Make(struct
+module Counter_srv = Raft_app_server.Make(struct
 
   type tx_data = Counter_pb.tx 
 
@@ -65,17 +65,17 @@ let process_demo_app_request logger (validations, notify) state =
     | state -> 
       log_f ~logger ~level:Notice "Added: (%06i, %6i) from tx_id: %s" counter_value process_id tx_id
       >|= (fun () -> 
-        let tx_validation = Raft_app_srv.({
+        let tx_validation = Raft_app_server.({
           tx_id; 
-          result = Raft_app_srv.Validation_result_ok; 
+          result = Raft_app_server.Validation_result_ok; 
         }) in 
         (tx_validation::tx_validations, state) 
       )
 
     | exception Not_found -> 
-      let tx_validation = Raft_app_srv.({
+      let tx_validation = Raft_app_server.({
         tx_id; 
-        result = Raft_app_srv.Validation_result_error "Not a valid counter value"; 
+        result = Raft_app_server.Validation_result_error "Not a valid counter value"; 
       }) in 
       Lwt.return (tx_validation::tx_validations, state)
 

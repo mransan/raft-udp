@@ -170,10 +170,10 @@ let print_state logger section state =
     role; _ 
   } = state in
 
-  let print_role (oc:unit) = function
-    | RPb.Follower x -> print_follower oc x 
-    | RPb.Leader x -> print_leader oc x 
-    | RPb.Candidate x -> print_candidate oc x 
+  let print_role () = function
+    | RPb.Follower x -> print_follower () x 
+    | RPb.Leader x -> print_leader () x 
+    | RPb.Candidate x -> print_candidate () x 
   in 
 
   let fmt = 

@@ -2,7 +2,8 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module UPb = Raft_udp_pb
-module APb = Raft_app_pb
+module App_pb = Raft_app_pb
+module Com_pb = Raft_com_pb
 module Pb_util = Raft_com_pbutil
 module Conf = Raft_com_conf
 
@@ -25,10 +26,10 @@ module  Event = struct
     | New_connection of connection 
       (** TCP IPC accepted a new connection *)
 
-    | New_request    of APb.app_request * connection
+    | New_request    of App_pb.app_request * connection
       (** New request successfully received and decoded *)
 
-    | App_response of APb.app_response * connection
+    | App_response of App_pb.app_response * connection
       (** The application notified of a response *)
 
     | Connection_close 
@@ -85,7 +86,7 @@ let get_next_connection_f logger {UPb.app_server_port; _} () =
 
 let decode_request bytes = 
   let decoder = Pbrt.Decoder.of_bytes bytes in 
-  APb.decode_app_request decoder 
+  App_pb.decode_app_request decoder 
 
 
 let next_request =
@@ -161,7 +162,7 @@ let send_app_response logger connection app_response =
     (* Encode to bytes *)
     let bytes = 
       let encoder = Pbrt.Encoder.create () in 
-      APb.encode_app_response  app_response encoder; 
+      App_pb.encode_app_response  app_response encoder; 
       Pbrt.Encoder.to_bytes encoder 
     in
     let len = Bytes.length bytes in 
@@ -270,11 +271,11 @@ module Make(App:App_sig) = struct
   
   type validations = tx list * (tx_validation_result list -> unit) 
 
-  let decode_tx {APb.tx_id; APb.tx_data; } = 
+  let decode_tx {Com_pb.tx_id; Com_pb.tx_data; } = 
     {tx_id; tx_data = App.decode tx_data}
 
   let handle_app_request request_push = function
-    | APb.Commit_txs {APb.txs} ->
+    | App_pb.Commit_txs {App_pb.txs} ->
       let txs = List.map decode_tx txs in 
       let validations_t, validations_u = Lwt.wait () in  
       request_push (Some (txs, (fun r -> Lwt.wakeup validations_u r)));
@@ -284,19 +285,19 @@ module Make(App:App_sig) = struct
           let result = 
             match result with
             | Validation_result_ok -> 
-              APb.Validation_success
+              App_pb.Validation_success
 
             | Validation_result_error error_message -> 
-              APb.(Validation_failure {
+              App_pb.(Validation_failure {
                 error_message; 
                 error_code  = 1;
               })  
           in 
-          {APb.result; tx_id}
+          {App_pb.result; tx_id}
         ) validations 
       )
       >|=(fun validations -> 
-        APb.(Committed_txs {validations}) 
+        App_pb.(Committed_txs {validations}) 
       )
 
   let start logger configuration server_id =

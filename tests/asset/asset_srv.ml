@@ -3,11 +3,11 @@ open !Lwt_log_core
 module U  = Lwt_unix 
 
 module UPb = Raft_udp_pb
-module APb = Raft_app_pb
+module App_pb = Raft_app_pb
 module Pb_util = Raft_com_pbutil
 module Conf = Raft_com_conf
 
-module Asset_srv = Raft_app_srv.Make(struct 
+module Asset_srv = Raft_app_server.Make(struct 
   
   type tx_data = Asset_pb.tx
 
@@ -27,13 +27,13 @@ let process_validation_request ~logger app {Asset_srv.tx_data ; tx_id } =
   )
   >|=(function 
     | Ok app ->
-      (app, Raft_app_srv.({tx_id; result = Validation_result_ok})) 
+      (app, Raft_app_server.({tx_id; result = Validation_result_ok})) 
     | Error error_msg -> 
-      (app, Raft_app_srv.({tx_id; result = Validation_result_error error_msg}))
+      (app, Raft_app_server.({tx_id; result = Validation_result_error error_msg}))
   )
 
 (* 
- * Reminder: The Raft_app_srv module API enforces on the client to validate
+ * Reminder: The Raft_app_server module API enforces on the client to validate
  * a bulk of request at a time
  *)
 let process_validation_requests logger app (validation_requests, send_validations) = 

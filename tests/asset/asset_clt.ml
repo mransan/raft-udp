@@ -7,7 +7,7 @@ module Test_utl = Asset_test_utl
 
 let section = Section.make (Printf.sprintf "%10s" "AssetClt")
 
-module Asset_clt = Raft_app_clt.Make(struct
+module Asset_clt = Raft_clt_client.Make(struct
 
   type tx = Asset_pb.tx 
 
@@ -21,7 +21,7 @@ end)
 (** App module for the test execution *)
 module App = struct 
 
-  type t = Raft_app_clt.t 
+  type t = Raft_clt_client.t 
 
   let content_of_url url = 
     Lwt.return @@ "This is a dummy content of course" ^ url
@@ -36,8 +36,8 @@ module App = struct
       Asset_clt.send t tx 
     )
     >|=(function 
-      | Raft_app_clt.Send_result_ok -> Ok t 
-      | Raft_app_clt.Send_result_error s -> 
+      | Raft_clt_client.Send_result_ok -> Ok t 
+      | Raft_clt_client.Send_result_error s -> 
         let error_msg = Printf.sprintf "Send error in handle_tx, details: %s" s in
         Error error_msg
     ) 
@@ -118,7 +118,7 @@ let main log () =
   in 
   Raft_utl_lwt.make_logger ?to_file ()  
   >>=(fun logger -> 
-    Raft_app_clt.make logger (Conf.default_configuration ()) 
+    Raft_clt_client.make logger (Conf.default_configuration ()) 
     >>= (fun client -> execute_all_tests logger client tests)
   ) 
 
