@@ -21,7 +21,7 @@ endif
 .PHONY: test gen lib.native lib.byte lib.install lib.uninstall clean 
 .PHONY: framework counter asset unit
 
-all: framework counter asset
+all: framework counter asset unit
 
 framework: 
 	$(OCB) server.native

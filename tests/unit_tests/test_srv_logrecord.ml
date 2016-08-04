@@ -1,8 +1,8 @@
 open Lwt.Infix 
 module LR = Raft_srv_logrecord 
 
-module Conf = Raft_udp_conf 
-module UPb = Raft_udp_pb 
+module Conf = Raft_com_conf 
+module Com_pb = Raft_com_pb 
 
 let logger = Lwt_log_core.null 
 
@@ -25,11 +25,11 @@ let main =
      * by running the test
      *)
     let configuration = Conf.default_configuration () in 
-    let disk_backup = configuration.UPb.disk_backup in 
+    let disk_backup = configuration.Com_pb.disk_backup in 
     let disk_backup = {disk_backup with
-      UPb.log_record_directory = dirname;
+      Com_pb.log_record_directory = dirname;
     } in 
-    {configuration with UPb.disk_backup}
+    {configuration with Com_pb.disk_backup}
   in 
   
   let server_id = 0 in 
