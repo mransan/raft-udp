@@ -35,7 +35,7 @@ type t = request Lwt_stream.t * send_response_f
 
 val make : 
   Lwt_log_core.logger -> 
-  Raft_udp_pb.configuration ->
+  Raft_com_pb.configuration ->
   Raft_srv_serverstats.t ->
   int -> 
   t

@@ -4,7 +4,7 @@ module Conf = Raft_com_conf
 module U = Lwt_unix 
 module L = Lwt_log_core 
 module RPb = Raft_pb
-module UPb = Raft_udp_pb
+module UCom_pb = Raft_com_pb
 module Server_stats = Raft_srv_serverstats
 
 let section = L.Section.make (Printf.sprintf "%10s" "RaftPtc")
@@ -49,10 +49,10 @@ let make ~logger ~stats ~configuration ~server_id () =
   (* 
    * Create the mapping of outgoing server_id to the sockaddr
    *)
-  let server_addresses = List.map (fun ({UPb.raft_id; _ } as server_config) ->
+  let server_addresses = List.map (fun ({UCom_pb.raft_id; _ } as server_config) ->
     let fd = U.socket U.PF_INET U.SOCK_DGRAM 0 in
     (raft_id, (Conf.sockaddr_of_server_config `Raft server_config, fd))
-  ) configuration.UPb.servers_ipc_configuration in
+  ) configuration.UCom_pb.servers_ipc_configuration in
 
   let (
     outgoing_message_stream, 

@@ -2,7 +2,7 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module Conf = Raft_com_conf
-module UPb = Raft_udp_pb 
+module Com_pb = Raft_com_pb 
 module App_pb = Raft_app_pb
 module Pb_util = Raft_com_pbutil
 module Server_stats = Raft_srv_serverstats
@@ -54,7 +54,7 @@ module Event = struct
 
 end 
 
-let connect logger {UPb.app_server_port; _} () = 
+let connect logger {Com_pb.app_server_port; _} () = 
   let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", app_server_port) in 
   let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
 

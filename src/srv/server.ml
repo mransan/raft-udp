@@ -7,7 +7,7 @@ module RRole = Raft_role
 module RLog = Raft_log
 module RState = Raft_state
 
-module UPb = Raft_udp_pb
+module Com_pb = Raft_com_pb 
 module App_pb = Raft_app_pb
 module Conf = Raft_com_conf
 module Server_stats = Raft_srv_serverstats
@@ -160,7 +160,7 @@ let init_raft_ipc logger stats id configuration =
 
 let init_compaction configuration = 
   let next_compaction = fun () ->
-    Lwt_unix.sleep configuration.UPb.disk_backup.UPb.compaction_period
+    Lwt_unix.sleep configuration.Com_pb.disk_backup.Com_pb.compaction_period
     >|=(fun () -> Event.Compaction_initiate)
   in 
   next_compaction 
@@ -304,7 +304,7 @@ let run_server configuration id logger print_header slow =
   in
 
   let initial_raft_state = RRole.Follower.create
-    ~configuration:configuration.UPb.raft_configuration 
+    ~configuration:configuration.Com_pb.raft_configuration 
     ~now:(get_now ()) 
     ~id () 
   in

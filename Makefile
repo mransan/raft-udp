@@ -45,10 +45,9 @@ unit:
 	./test_srv_logrecord.native
 
 gen:
-	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_udp.proto
-	ocaml-protoc -ml_out src/com src/com/raft_com.proto
-	ocaml-protoc -I src/com -ml_out src/clt src/clt/raft_clt.proto
-	ocaml-protoc -I src/com -ml_out src/app src/app/raft_app.proto
+	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_com.proto
+	ocaml-protoc -I ../raft.git/src/ -I src/com -ml_out src/clt src/clt/raft_clt.proto
+	ocaml-protoc -I ../raft.git/src/ -I src/com -ml_out src/app src/app/raft_app.proto
 	ocaml-protoc -I ../raft.git/src/ -ml_out tests/counter  tests/counter/counter.proto
 	ocaml-protoc -I ../raft.git/src/ -ml_out tests/asset  tests/asset/asset.proto
 

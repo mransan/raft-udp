@@ -2,13 +2,13 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module RPb = Raft_pb
-module Pb  = Raft_udp_pb
+module Com_pb  = Raft_com_pb
 
 let section = Section.make (Printf.sprintf "%10s" "LogRecord")
 
 type t = Lwt_io.output_channel  
 
-let filename {Pb.disk_backup = {Pb.log_record_directory; _}; _ } server_id  = 
+let filename {Com_pb.disk_backup = {Com_pb.log_record_directory; _}; _ } server_id  = 
   Filename.concat log_record_directory (Printf.sprintf "record_%03i.data" server_id)
 
 let make ~logger configuration server_id = 

@@ -4,7 +4,6 @@ module L = Lwt_log_core
 
 module Counter = Raft_utl_counter
 
-module UPb = Raft_udp_pb
 module App_pb = Raft_app_pb
 module Com_pb = Raft_com_pb
 module Server_stats = Raft_srv_serverstats

@@ -17,7 +17,7 @@ type t
 
 val make : 
   logger:Lwt_log_core.logger -> 
-  Raft_udp_pb.configuration -> 
+  Raft_com_pb.configuration -> 
   int -> 
   t Lwt.t 
 (** [make logger configuration server_id] initialize the disk based log recoding. 
@@ -45,7 +45,7 @@ val append_commited_data :
 
 val read_log_records : 
   logger:Lwt_log_core.logger -> 
-  Raft_udp_pb.configuration -> 
+  Raft_com_pb.configuration -> 
   int -> 
   ('a -> Raft_pb.log_entry -> 'a) -> 
   'a -> 

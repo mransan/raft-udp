@@ -8,7 +8,7 @@ let arg_of_server ~task ~log _ =
   arg
 
 module Conf = Raft_com_conf
-module Udp  = Raft_udp_pb
+module Com_pb = Raft_com_pb
    
 
 let () = 

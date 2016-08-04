@@ -4,7 +4,7 @@ type t
 val make : 
   logger:Lwt_log_core.logger -> 
   stats:Raft_srv_serverstats.t -> 
-  configuration:Raft_udp_pb.configuration -> 
+  configuration:Raft_com_pb.configuration -> 
   server_id:int ->
   unit ->
   t 

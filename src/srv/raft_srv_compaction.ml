@@ -5,7 +5,7 @@ module RState = Raft_state
 module RPb    = Raft_pb
 module RLog = Raft_log
 
-module Pb = Raft_udp_pb
+module Com_pb = Raft_com_pb
 
 let section = Section.make (Printf.sprintf "%10s" "Compaction")
 
@@ -14,7 +14,7 @@ let compaction_filename ~server_id ~prev_index ~configuration () =
     server_id 
     prev_index
   in
-  Filename.concat configuration.Pb.disk_backup.Pb.compaction_directory filename
+  Filename.concat configuration.Com_pb.disk_backup.Com_pb.compaction_directory filename
 
 
 (* 

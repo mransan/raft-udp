@@ -18,7 +18,7 @@ let arg_of_server log i =
   arg
 
 module Conf = Raft_com_conf
-module Udp  = Raft_udp_pb
+module Com_pb = Raft_com_pb
    
 let () = 
   
@@ -36,7 +36,7 @@ let () =
 
   assert(!task <> "");
 
-  let {Udp.servers_ipc_configuration ;_  } = Conf.default_configuration () in 
+  let {Com_pb.servers_ipc_configuration ;_  } = Conf.default_configuration () in 
 
   let nb_of_servers = List.length servers_ipc_configuration in 
 

@@ -1,8 +1,8 @@
 
-module Pb  = Raft_udp_pb
+module Com_pb = Raft_com_pb
 module RPb = Raft_pb 
 
-let default_configuration () = Pb.({
+let default_configuration () = Com_pb.({
   raft_configuration = RPb.({
     nb_of_server = 3;
     election_timeout = 0.50;
@@ -50,7 +50,7 @@ let default_configuration () = Pb.({
   };
 })
 
-let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port; _ } =
+let sockaddr_of_server_config which {Com_pb.inet4_address; raft_port; client_port; _ } =
   let port = match which with
     | `Client  -> client_port 
     | `Raft    -> raft_port
@@ -58,14 +58,14 @@ let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port; _
   Unix.ADDR_INET (Unix.inet_addr_of_string inet4_address, port)
 
 let sockaddr_of_server_id which configuration server_id =
-  let is_server {Pb.raft_id; _ } =
+  let is_server {Com_pb.raft_id; _ } =
     raft_id = server_id
   in
-  match List.find is_server configuration.Pb.servers_ipc_configuration with
+  match List.find is_server configuration.Com_pb.servers_ipc_configuration with
   | server_config -> Some (sockaddr_of_server_config which server_config)
   | exception Not_found -> None
 
-let get_id_cmdline {Pb.servers_ipc_configuration; _ } = 
+let get_id_cmdline {Com_pb.servers_ipc_configuration; _ } = 
   let nb_of_servers = List.length servers_ipc_configuration in 
 
   let ids = 
@@ -83,7 +83,7 @@ let get_id_cmdline {Pb.servers_ipc_configuration; _ } =
 
   (id, id_spec) 
 
-let server_ipc_configuration  {Pb.servers_ipc_configuration; _ }  server_id = 
+let server_ipc_configuration  {Com_pb.servers_ipc_configuration; _ }  server_id = 
 
   if (server_id < List.length servers_ipc_configuration) && 
      (server_id >= 0)

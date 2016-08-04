@@ -2,7 +2,7 @@
 
 val perform_compaction : 
   Lwt_log_core.logger -> 
-  Raft_udp_pb.configuration ->
+  Raft_com_pb.configuration ->
   Raft_state.t -> 
   Raft_pb.log_interval list Lwt.t 
 (** [perform_compaction logger state] compact or expands the required 
@@ -22,7 +22,7 @@ val update_state :
 
 val load_previous_log_intervals : 
   Lwt_log_core.logger ->
-  Raft_udp_pb.configuration ->
+  Raft_com_pb.configuration ->
   int ->
   Raft_pb.log_interval list Lwt.t 
 (** [load_previous_log_intervals] loads from disk all the saved [log_interval]. This

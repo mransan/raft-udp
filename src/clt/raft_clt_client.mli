@@ -14,7 +14,7 @@ end
 
 type t 
 
-val make : Lwt_log_core.logger -> Raft_udp_pb.configuration -> t Lwt.t 
+val make : Lwt_log_core.logger -> Raft_com_pb.configuration -> t Lwt.t 
 
 type send_result = 
   | Send_result_ok 

@@ -41,7 +41,7 @@ module Make(App:App_sig) : sig
 
   val start : 
     Lwt_log_core.logger -> 
-    Raft_udp_pb.configuration -> 
+    Raft_com_pb.configuration -> 
     int -> 
     validations Lwt_stream.t option 
   (** [start logger configuration server_id] returns the continuous stream of request to be validated
