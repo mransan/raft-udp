@@ -1,5 +1,5 @@
 open Lwt.Infix 
-open Lwt_log_core 
+open !Lwt_log_core 
 
 module Conf = Raft_com_conf 
 
@@ -20,9 +20,22 @@ let rec loop logger client counter_value () =
     process_id = Unix.getpid (); 
   }) 
   >>=(function
-    | Raft_clt_client.Send_result_ok -> Lwt.return_unit 
-    | Raft_clt_client.Send_result_error msg -> 
-      log_f ~logger ~level:Warning "Error, details: %s\n" msg
+    | Raft_clt_client.Send_result_app_ok -> Lwt.return_unit 
+
+    | Raft_clt_client.Send_result_app_error msg -> 
+      log_f ~logger ~level:Warning "Error, details: %s" msg
+
+    | Raft_clt_client.Send_result_internal_error msg -> 
+      log_f ~logger ~level:Fatal "Error, details: %s" msg
+      >>=(fun () -> 
+        Lwt.fail_with "RAFT Client code internal error"
+      ) 
+
+    | Raft_clt_client.Send_result_failure -> 
+      log ~logger ~level:Fatal "Connection to RAFT has failed"
+      >>=(fun () -> 
+        Lwt.fail_with "RAFT Client code failure"
+      ) 
   )
   >>= loop logger client (counter_value + 1) 
 

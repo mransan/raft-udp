@@ -36,10 +36,18 @@ module App = struct
       Asset_clt.send t tx 
     )
     >|=(function 
-      | Raft_clt_client.Send_result_ok -> Ok t 
-      | Raft_clt_client.Send_result_error s -> 
-        let error_msg = Printf.sprintf "Send error in handle_tx, details: %s" s in
+      | Raft_clt_client.Send_result_app_ok -> Ok t 
+
+      | Raft_clt_client.Send_result_app_error s -> 
+        let error_msg = Printf.sprintf "Invalid transaction, details: %s" s in
         Error error_msg
+
+      | Raft_clt_client.Send_result_internal_error s -> 
+        let error_msg = Printf.sprintf "Error in sending tx, details: %s" s in
+        Error error_msg
+
+      | Raft_clt_client.Send_result_failure -> 
+        Error "Connection failure"
     ) 
 
 end (* App *)

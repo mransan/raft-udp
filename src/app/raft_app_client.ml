@@ -87,9 +87,9 @@ let next_response =
 
   fun logger configuration fd () -> 
 
-    Raft_com_appmsg.read_message_header fd 
+    Raft_com_msgheader.read_message_header fd 
     >>=(fun header ->
-      let message_size = Raft_com_appmsg.message_size header in 
+      let message_size = Raft_com_msgheader.message_size header in 
       let buffer = 
         if message_size <= 1024
         then buffer 
@@ -137,7 +137,7 @@ let send_request logger configuration fd app_request =
       Pbrt.Encoder.to_bytes encoder 
     in 
     let message_size = Bytes.length bytes in 
-    Raft_com_appmsg.write_message_header ~message_size fd () 
+    Raft_com_msgheader.write_message_header ~message_size fd () 
     >>=(fun () ->
       U.write fd bytes 0 message_size
     )

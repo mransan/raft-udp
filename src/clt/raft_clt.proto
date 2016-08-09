@@ -2,9 +2,9 @@
 // ---------------------------------
 //
 
-option (int32_type) = int_t;
-
 import "raft_com.proto";
+
+option (int32_type) = int_t;
 
 package raft.clt;
 

@@ -1,7 +1,5 @@
 (** Common utility function for the messages between RAFT and APP servers *)
 
-
-
 val write_message_header : 
   message_size:int -> 
   Lwt_unix.file_descr -> 

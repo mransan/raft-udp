@@ -93,16 +93,16 @@ let next_request =
   fun logger ((fd, buffer) as connection) -> 
     Lwt.catch (fun () ->
 
-      Raft_com_appmsg.read_message_header fd
+      Raft_com_msgheader.read_message_header fd
       >>= Raft_utl_lwt.tap (fun header -> 
         log_f 
           ~logger 
           ~level:Notice 
           "Message header decoded, message size: %i"
-          (Raft_com_appmsg.message_size header) 
+          (Raft_com_msgheader.message_size header) 
       )
       >>=(fun header ->
-        let message_size = Raft_com_appmsg.message_size header in 
+        let message_size = Raft_com_msgheader.message_size header in 
         let buffer = 
           if message_size <= request_buffer_size
           then buffer
@@ -167,7 +167,7 @@ let send_app_response logger connection app_response =
     let len = Bytes.length bytes in 
 
     (* Send the header *)
-    Raft_com_appmsg.write_message_header ~message_size:len fd () 
+    Raft_com_msgheader.write_message_header ~message_size:len fd () 
     >>=(fun () ->
       (* Send the bytes *)
       U.write fd bytes 0 len
