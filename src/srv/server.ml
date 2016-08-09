@@ -7,15 +7,16 @@ module RRole = Raft_role
 module RLog = Raft_log
 module RState = Raft_state
 
-module UPb = Raft_udp_pb
-module APb = Raft_app_pb
-module Conf = Raft_udp_conf
+module Com_pb = Raft_com_pb 
+module App_pb = Raft_app_pb
+module Conf = Raft_com_conf
 module Server_stats = Raft_srv_serverstats
 module Raft_ipc = Raft_srv_raftipc
-module Client_ipc = Raft_srv_clientipc
+module Raft_ptc = Raft_srv_raftptc
+module Client_ipc = Raft_clt_server
 module Compaction = Raft_srv_compaction
 module Log_record = Raft_srv_logrecord
-module App_ipc = Raft_srv_appipc
+module App_ipc = Raft_app_client
 
 let section = Section.make (Printf.sprintf "%10s" "server")
 
@@ -37,7 +38,7 @@ module Event = struct
     | Raft_message   of Raft_pb.message 
       (** A RAFT message was received from one of the other RAFT servers *)
 
-    | Client_request of Client_ipc.client_request list
+    | Client_request of Client_ipc.request list
       (** A Client request was received *)
 
     | Timeout        of Raft_pb.timeout_event_time_out_type  
@@ -51,7 +52,7 @@ module Event = struct
           of modified log intervals. 
         *)
 
-    | App_response   of APb.app_response 
+    | App_response   of App_pb.app_response 
       (** A response was received from the App server *)
 
   type threads = {
@@ -78,16 +79,19 @@ module Event = struct
 
 end 
 
-let get_next_raft_message_f configuration id =
-  let f = Raft_ipc.get_next_raft_message_f_for_server configuration id in
-  fun () ->
-    f ()
-    >|= (function
-      | Raft_ipc.Failure        -> Event.Failure "Raft IPC"
-      | Raft_ipc.Raft_message x -> Event.Raft_message x
-    ) 
+let set_server_role state stats = 
+  let role = match state.RState.role with
+    | RPb.Follower _ -> Server_stats.Follower  
+    | RPb.Candidate _ -> Server_stats.Candidate
+    | RPb.Leader _ -> Server_stats.Leader
+  in 
+  (Server_stats.set_server_role stats role:unit) 
 
-let get_client_ipc_f logger stats configuration id = 
+let next_timeout timeout timeout_type = 
+  Lwt_unix.sleep timeout 
+  >|= (fun () -> Event.Timeout timeout_type)
+
+let init_client_ipc logger stats configuration id = 
   let (
     req_stream, 
     send_client_response 
@@ -104,49 +108,62 @@ let get_client_ipc_f logger stats configuration id =
   in 
 
   let send_client_responses = fun client_responses -> 
-    List.iter (fun response -> 
-      send_client_response (Some response)
+    List.iter (fun client_response -> 
+      send_client_response client_response
     ) client_responses 
   in
 
   (next_client_request, send_client_responses)
 
-let set_server_role state stats = 
-  let role = match state.RState.role with
-    | RPb.Follower _ -> Server_stats.Follower  
-    | RPb.Candidate _ -> Server_stats.Candidate
-    | RPb.Leader _ -> Server_stats.Leader
-  in 
-  (Server_stats.set_server_role stats role:unit) 
+let init_app_ipc logger stats configuration id = 
   
-let next_timeout timeout timeout_type = 
-  Lwt_unix.sleep timeout 
-  >|= (fun () -> Event.Timeout timeout_type)
+  match App_ipc.make logger configuration stats id with
+  | None -> 
+    failwith (Printf.sprintf "Error starting App Ipc for server id: %i" id)
 
-let get_next_compaction_f configuration = fun () ->
-  Lwt_unix.sleep configuration.UPb.disk_backup.UPb.compaction_period
-  >|=(fun () -> Event.Compaction_initiate)
+  | Some (send_app_request, response_stream) ->
 
-let get_app_ipc_f logger stats configuration = 
-  let (
-    send_app_request, 
-    response_stream
-  ) = App_ipc.make logger configuration stats in 
+    let next_app_response () = 
+      Lwt_stream.get response_stream
+      >|=(function
+        | None  -> Event.Failure "App IPC"
+        | Some r-> Event.App_response r 
+      )
+    in
 
-  let next_app_response () = 
-    Lwt_stream.get response_stream
-    >|=(function
-      | None  -> Event.Failure "App IPC"
-      | Some r-> Event.App_response r 
-    )
-  in
+    let send_app_requests = fun app_requests -> 
+      List.iter (fun app_request -> 
+        send_app_request app_request
+      ) app_requests
+    in 
+    (send_app_requests, next_app_response)
 
-  let send_app_requests = fun app_requests -> 
-    List.iter (fun request -> 
-      send_app_request (Some request)
-    ) app_requests
+
+let init_raft_ipc logger stats id configuration = 
+
+  let raft_ipc = 
+    Raft_srv_raftipc.make ~logger ~stats ~server_id:id ~configuration ()  
   in 
-  (send_app_requests, next_app_response)
+  
+  let next_raft_message  = fun () -> 
+    Raft_srv_raftipc.next_message raft_ipc 
+    >|= (function 
+      | Ok raft_message -> Event.Raft_message raft_message 
+      | Error error_message -> Event.Failure error_message 
+    )  
+  in 
+
+  let send_raft_messages raft_messages = 
+    Raft_ipc.send_messages raft_ipc raft_messages; 
+  in 
+  (next_raft_message, send_raft_messages) 
+
+let init_compaction configuration = 
+  let next_compaction = fun () ->
+    Lwt_unix.sleep configuration.Com_pb.disk_backup.Com_pb.compaction_period
+    >|=(fun () -> Event.Compaction_initiate)
+  in 
+  next_compaction 
 
 let run_server configuration id logger print_header slow =
 
@@ -158,19 +175,29 @@ let run_server configuration id logger print_header slow =
       ~id ()
   in
   
-  let next_raft_message  = get_next_raft_message_f configuration id in 
-  
   let (
     next_client_request, 
     send_client_responses
-  ) = get_client_ipc_f logger stats configuration id in 
-
-  let next_compaction = get_next_compaction_f configuration in 
-
+  ) = init_client_ipc logger stats configuration id in 
+  
   let (
     send_app_requests, 
     next_app_response
-  ) = get_app_ipc_f logger stats configuration in 
+  ) = init_app_ipc logger stats configuration id in 
+
+  let (
+    next_raft_message, 
+    send_raft_messages
+  ) = init_raft_ipc logger stats id configuration in 
+
+  let next_compaction = init_compaction configuration in 
+
+  let handle_ptc_result (state, client_responses, app_requests, raft_messages) =  
+    send_client_responses client_responses;
+    send_app_requests app_requests;
+    send_raft_messages raft_messages; 
+    state
+  in 
 
   let rec server_loop threads state =
 
@@ -178,9 +205,11 @@ let run_server configuration id logger print_header slow =
 
     >>=(fun events -> 
 
-      let handle_follow_up_action threads  ({Raft_ipc.raft_state;_} as state) = 
+      let handle_follow_up_action threads state =  
         let now = get_now () in
-        let {RPb.timeout; timeout_type } = RHelper.Timeout_event.next raft_state now in
+        let {RPb.timeout; timeout_type } = 
+          RHelper.Timeout_event.next (Raft_ptc.raft_state state) now 
+        in
         Lwt.cancel threads.Event.next_timeout_t;
         let threads = {threads with 
           Event.next_timeout_t = next_timeout timeout timeout_type
@@ -189,9 +218,12 @@ let run_server configuration id logger print_header slow =
       in
       
       let now = get_now () in
-      
-      Server_stats.set_log_count stats state.Raft_ipc.raft_state.RState.log.RLog.log_size;
-      set_server_role state.Raft_ipc.raft_state stats;
+
+      begin 
+        let raft_state = Raft_ptc.raft_state state in 
+        Server_stats.set_log_count stats raft_state.RState.log.RLog.log_size;
+        set_server_role raft_state stats;
+      end; 
 
       Lwt_list.fold_left_s (fun (state, threads) event -> 
         match event with
@@ -202,35 +234,32 @@ let run_server configuration id logger print_header slow =
             else Lwt.return_unit 
           end
           >>=(fun () -> 
-            Raft_ipc.handle_raft_message ~logger ~stats ~now state msg 
-          )
-          >|=(fun (state, client_responses, app_requests) ->
-            send_client_responses client_responses;
-            send_app_requests app_requests;
-            let threads = {threads with Event.next_raft_message_t = next_raft_message (); } in
-            (state, threads)
+            Raft_ptc.handle_raft_message state now msg 
+            >|= handle_ptc_result 
+            >|= (fun state ->
+              let threads = {threads with 
+                Event.next_raft_message_t = next_raft_message (); 
+              } in
+              (state, threads)
+            )
           )
         )
 
         | Event.Timeout timeout_type -> (
-          Raft_ipc.handle_timeout ~logger ~stats ~now state timeout_type
-          >|=(fun (state, client_responses, app_requests) ->
-            send_client_responses client_responses;
-            send_app_requests app_requests;
-            (state, threads)
-          )
+          Raft_ptc.handle_timeout state now timeout_type
+          >|= handle_ptc_result 
+          >|=(fun state -> (state, threads))
         )
 
         | Event.Failure context -> (
-          Printf.eprintf "Exiting, context: %s\n" context; 
+          Printf.eprintf "Exiting server %i, context: %s\n" id context; 
           exit 1
         )
 
         | Event.Client_request client_requests -> (
-          Raft_ipc.handle_client_requests ~logger ~stats ~now state client_requests
-          >|=(fun (state, client_responses, app_requests) ->
-            send_client_responses client_responses;
-            send_app_requests app_requests;
+          Raft_ptc.handle_client_requests state now client_requests
+          >|= handle_ptc_result 
+          >|=(fun state ->
             let threads = { threads with
               Event.next_client_request_t = next_client_request  ();
             } in
@@ -239,7 +268,7 @@ let run_server configuration id logger print_header slow =
         )
 
         | Event.Compaction_initiate -> (
-          let {Raft_ipc.raft_state; _ } = state in 
+          let raft_state= Raft_ptc.raft_state state in 
           let compaction_t = 
             Compaction.perform_compaction logger configuration raft_state  
             >|=(fun compacted_intervals -> 
@@ -251,19 +280,17 @@ let run_server configuration id logger print_header slow =
         )
 
         | Event.Compaction_update compacted_intervals -> (
-          let {Raft_ipc.raft_state; _ } = state in 
-          Compaction.update_state logger compacted_intervals raft_state 
-          >|=(fun raft_state -> 
+          Raft_ptc.handle_compaction_update compacted_intervals state
+          >|=(fun state ->
             let threads = {threads with Event.compaction_t = next_compaction  ()} in 
-            ({state with Raft_ipc.raft_state}, threads)
+            (state, threads) 
           )
         ) 
 
         | Event.App_response app_response -> (
-          Raft_ipc.handle_app_response ~logger ~stats ~now state app_response
-          >|=(fun (state, client_responses, app_requests) ->
-            send_client_responses client_responses;
-            send_app_requests app_requests;
+          Raft_ptc.handle_app_response state now app_response
+          >|= handle_ptc_result 
+          >|=(fun state ->
             let threads = { threads with
               Event.next_app_reponse_t = next_app_response ();
             } in
@@ -277,11 +304,10 @@ let run_server configuration id logger print_header slow =
   in
 
   let initial_raft_state = RRole.Follower.create
-    ~configuration:configuration.UPb.raft_configuration 
+    ~configuration:configuration.Com_pb.raft_configuration 
     ~now:(get_now ()) 
     ~id () 
   in
-
 
   Compaction.load_previous_log_intervals logger configuration id 
   >|=(fun log_intervals ->
@@ -296,7 +322,7 @@ let run_server configuration id logger print_header slow =
     let builder2 = RLog.Builder.t2_of_t1 builder1 in 
     log ~logger ~level:Notice ~section "Global cache done..."
     >>=(fun () ->
-      Log_record.read_log_records configuration id (fun builder2 log_entry ->
+      Log_record.read_log_records ~logger configuration id (fun builder2 log_entry ->
         RLog.Builder.add_log_entry builder2 log_entry
       ) builder2 
       >|= RLog.Builder.log_of_t2 
@@ -306,12 +332,17 @@ let run_server configuration id logger print_header slow =
       let commit_index, current_term = RLog.last_log_index_and_term initial_raft_state.RState.log in 
       let initial_raft_state = {initial_raft_state with RState.commit_index; current_term} in 
       
-      log_f ~logger ~level:Notice ~section "Log read done, commit index: %i, current term: %i" commit_index current_term
+      log_f 
+        ~logger 
+        ~level:Notice 
+        ~section 
+        "Log read done, commit index: %i, current term: %i" 
+        commit_index current_term
       >|=(fun () -> initial_raft_state)
     )
   )
   >>=(fun initial_raft_state ->
-    Log_record.make logger configuration id 
+    Log_record.make ~logger configuration id 
     >>=(fun handle ->
 
       let {
@@ -327,11 +358,14 @@ let run_server configuration id logger print_header slow =
         next_app_reponse_t  = next_app_response ();
       }) in 
 
-      server_loop initial_threads Raft_ipc.({
-        raft_state = initial_raft_state; 
-        connection_state = initialize configuration;
-        log_record_handle = handle;
-      })
+      let state = Raft_ptc.make
+        ~logger 
+        ~stats
+        ~raft_state:initial_raft_state
+        ~log_record_handle:handle
+        () 
+      in 
+      server_loop initial_threads state 
     )
   )
 
@@ -356,20 +390,8 @@ let () =
   Printf.printf ">>PID: %i\n%!" (Unix.getpid ());
   Random.self_init ();
   let configuration = Conf.default_configuration () in
-  let nb_of_servers = List.length configuration.UPb.servers_ipc_configuration in 
 
-  let ids = 
-    let rec aux acc = function
-      | -1 -> acc
-      | n  -> aux ((string_of_int n)::acc) (n - 1)
-    in 
-    aux [] (nb_of_servers - 1)
-  in
-
-  let id   = ref (-1) in
-  let id_spec = Arg.Symbol (ids, fun s ->
-    id := int_of_string s
-  ) in
+  let id, id_spec = Conf.get_id_cmdline configuration in 
 
   let print_header = ref false in 
   let print_header_spec = Arg.Set print_header in

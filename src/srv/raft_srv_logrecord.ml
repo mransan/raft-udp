@@ -2,47 +2,28 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module RPb = Raft_pb
-module Pb  = Raft_udp_pb
+module Com_pb  = Raft_com_pb
 
 let section = Section.make (Printf.sprintf "%10s" "LogRecord")
 
-module Int32_encoding = struct 
-  
-  let byte pos bytes = 
-    int_of_char (Bytes.get bytes pos)
-  
-  let decode_int pos bytes =
-    let b1 = byte (pos + 0) bytes in
-    let b2 = byte (pos + 1) bytes in
-    let b3 = byte (pos + 2) bytes in
-    let b4 = byte (pos + 3) bytes in
-    Int32.(add (shift_left (of_int b4) 24)
-           (add (shift_left (of_int b3) 16)
-            (add (shift_left (of_int b2) 8)
-             (of_int b1))))
-    |> Int32.to_int 
-
-  let encode_int pos i bytes = 
-    let i = Int32.of_int i in 
-    Bytes.set bytes (pos + 0) (char_of_int Int32.(to_int (logand 0xffl i)));
-    Bytes.set bytes (pos + 1) (char_of_int Int32.(to_int (logand 0xffl (shift_right i 8))));
-    Bytes.set bytes (pos + 2) (char_of_int Int32.(to_int (logand 0xffl (shift_right i 16))));
-    Bytes.set bytes (pos + 3) (char_of_int Int32.(to_int (logand 0xffl (shift_right i 24))))
-
-end 
-
 type t = Lwt_io.output_channel  
 
-let filename {Pb.disk_backup = {Pb.log_record_directory; _}; _ } server_id  = 
+let filename {Com_pb.disk_backup = {Com_pb.log_record_directory; _}; _ } server_id  = 
   Filename.concat log_record_directory (Printf.sprintf "record_%03i.data" server_id)
 
-let make logger configuration server_id = 
+let make ~logger configuration server_id = 
   let filename = filename configuration  server_id in 
-  Lwt_io.open_file ~flags:[Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND] ~mode:Lwt_io.output filename  
-  >>=(fun file -> 
+
+  Lwt_io.open_file 
+    ~flags:[Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND] 
+    ~mode:Lwt_io.output 
+    filename  
+
+  >>= Raft_utl_lwt.tap (fun _ -> 
     log_f ~logger ~level:Notice ~section "Creating log record file: %s\n" filename
-    >|=(fun () -> file)
   ) 
+
+let close = Lwt_io.close 
 
 let append size_bytes log_entry handle = 
 
@@ -54,14 +35,15 @@ let append size_bytes log_entry handle =
 
   let data_size = Bytes.length data_bytes in 
 
-  Int32_encoding.encode_int 0 data_size size_bytes; 
+  Raft_utl_encoding.Int32LE.encode 0 size_bytes (Int32.of_int data_size); 
 
   Lwt_io.write_from_exactly handle size_bytes 0 4 
+
   >>=(fun () -> 
     Lwt_io.write_from_exactly handle data_bytes 0 data_size 
   )
 
-let append_commited_data logger log_entries handle = 
+let append_commited_data ~logger ~rev_log_entries handle = 
 
   let size_bytes = Bytes.create 4 in 
   Lwt_list.iter_s (fun ({RPb.index; id; _} as log_entry) -> 
@@ -69,7 +51,8 @@ let append_commited_data logger log_entries handle =
     >>=(fun () -> 
       log_f ~logger ~level:Notice ~section "log_entry appended (index: %10i, id: %s)" 
         index id)
-  ) log_entries
+  ) rev_log_entries
+
   >>=(fun () -> Lwt_io.flush handle) 
 
 type read_result = 
@@ -94,7 +77,7 @@ let read_log_entry_from_file size_bytes file =
   Lwt.catch (fun () -> 
     Lwt_io.read_into_exactly file size_bytes 0 4 
     >>=(fun () ->
-      let data_len = Int32_encoding.decode_int 0 size_bytes in 
+      let data_len = Raft_utl_encoding.Int32LE.decode 0 size_bytes |> Int32.to_int in 
       let data = Bytes.create data_len in 
       Lwt_io.read_into_exactly file data 0 data_len
       >|=(fun () ->
@@ -112,19 +95,41 @@ let read_log_entry_from_file size_bytes file =
       >|=(fun () -> Error (Printf.sprintf "Error reading log records, details: %s" (Printexc.to_string exn))) 
   )
 
-let read_log_records configuration server_id f e0 =
+let read_log_records ~logger configuration server_id f e0 =
 
+  let size_bytes = Bytes.create Raft_utl_encoding.Int32LE.size in 
+    (* Allocated once since and reused for each log entry 
+     *)
   let filename = filename configuration server_id in 
   Lwt.catch (fun () ->
     Lwt_io.open_file ~mode:Lwt_io.input filename
+
+    >>= Raft_utl_lwt.tap (fun _ -> 
+      log_f 
+        ~logger ~level:Notice ~section 
+        "Successfully opened log record file: %s" 
+        filename
+    ) 
+
     >>=(fun file ->
-      let bytes = Bytes.create 4 in 
       let rec aux acc = 
-        read_log_entry_from_file bytes file 
+        read_log_entry_from_file size_bytes file 
         >>=(function
-          | Done    -> Lwt.return acc
+          | Done    -> 
+            log_f 
+              ~logger ~level:Notice ~section 
+              "Done reading log record file: %s" 
+              filename 
+            >|= (fun () -> acc) 
+
           | Ok x    -> aux (f acc x)
-          | Error s -> Lwt.fail_with s
+
+          | Error s -> 
+            log_f 
+              ~logger ~level:Notice ~section 
+              "Error reading log record file %s, details: %s" 
+              filename s 
+            >>=(fun () -> Lwt.fail_with s)
         ) 
       in
       aux e0 

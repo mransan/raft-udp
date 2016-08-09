@@ -1,9 +1,9 @@
 open Lwt.Infix 
-open Lwt_log_core 
+open !Lwt_log_core 
 
-module Conf = Raft_udp_conf 
+module Conf = Raft_com_conf 
 
-module Counter_clt = Raft_app_clt.Make(struct
+module Counter_clt = Raft_clt_client.Make(struct
 
   type tx = Counter_pb.tx 
 
@@ -14,32 +14,40 @@ module Counter_clt = Raft_app_clt.Make(struct
 
 end)
 
-
 let rec loop logger client counter_value () = 
   Counter_clt.send client Counter_pb.({
     counter_value; 
     process_id = Unix.getpid (); 
   }) 
   >>=(function
-    | Raft_app_clt.Ok -> Lwt.return_unit 
-    | Raft_app_clt.Error msg -> 
-      log_f ~logger ~level:Warning "Error, details: %s\n" msg
+    | Raft_clt_client.Send_result_app_ok -> Lwt.return_unit 
+
+    | Raft_clt_client.Send_result_app_error msg -> 
+      log_f ~logger ~level:Warning "Error, details: %s" msg
+
+    | Raft_clt_client.Send_result_internal_error msg -> 
+      log_f ~logger ~level:Fatal "Error, details: %s" msg
+      >>=(fun () -> 
+        Lwt.fail_with "RAFT Client code internal error"
+      ) 
+
+    | Raft_clt_client.Send_result_failure -> 
+      log ~logger ~level:Fatal "Connection to RAFT has failed"
+      >>=(fun () -> 
+        Lwt.fail_with "RAFT Client code failure"
+      ) 
   )
   >>= loop logger client (counter_value + 1) 
 
 let main log () = 
-  begin 
+  let to_file = 
     if log 
-    then 
-      let file_name = Printf.sprintf "client%i.log" (Unix.getpid ()) in 
-      Printf.printf "log file: %s\n%!" file_name;
-      let template  = "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" in
-      Lwt_log.file ~mode:`Truncate ~template ~file_name ()
-    else 
-      Lwt.return Lwt_log_core.null 
-  end 
+    then Some (Printf.sprintf "client%i.log" (Unix.getpid ())) 
+    else None
+  in 
+  Raft_utl_lwt.make_logger ?to_file () 
   >>=(fun logger -> 
-    Raft_app_clt.make logger (Conf.default_configuration ()) 
+    Raft_clt_client.make logger (Conf.default_configuration ()) 
     >>= (fun client -> loop logger client 0 ()) 
   ) 
 

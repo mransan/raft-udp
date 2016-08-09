@@ -1,10 +1,21 @@
 [@@@ocaml.warning "-27-30-39"]
 
+type tx = {
+  tx_id : string;
+  tx_data : bytes;
+}
+
+and tx_mutable = {
+  mutable tx_id : string;
+  mutable tx_data : bytes;
+}
+
 type server_ipc_configuration = {
   raft_id : int;
   inet4_address : string;
   raft_port : int;
   client_port : int;
+  app_server_port : int;
 }
 
 and server_ipc_configuration_mutable = {
@@ -12,6 +23,7 @@ and server_ipc_configuration_mutable = {
   mutable inet4_address : string;
   mutable raft_port : int;
   mutable client_port : int;
+  mutable app_server_port : int;
 }
 
 type disk_backup_configuration = {
@@ -30,14 +42,25 @@ type configuration = {
   raft_configuration : Raft_pb.configuration;
   servers_ipc_configuration : server_ipc_configuration list;
   disk_backup : disk_backup_configuration;
-  app_server_port : int;
 }
 
 and configuration_mutable = {
   mutable raft_configuration : Raft_pb.configuration;
   mutable servers_ipc_configuration : server_ipc_configuration list;
   mutable disk_backup : disk_backup_configuration;
-  mutable app_server_port : int;
+}
+
+let rec default_tx 
+  ?tx_id:((tx_id:string) = "")
+  ?tx_data:((tx_data:bytes) = Bytes.create 64)
+  () : tx  = {
+  tx_id;
+  tx_data;
+}
+
+and default_tx_mutable () : tx_mutable = {
+  tx_id = "";
+  tx_data = Bytes.create 64;
 }
 
 let rec default_server_ipc_configuration 
@@ -45,11 +68,13 @@ let rec default_server_ipc_configuration
   ?inet4_address:((inet4_address:string) = "")
   ?raft_port:((raft_port:int) = 0)
   ?client_port:((client_port:int) = 0)
+  ?app_server_port:((app_server_port:int) = 0)
   () : server_ipc_configuration  = {
   raft_id;
   inet4_address;
   raft_port;
   client_port;
+  app_server_port;
 }
 
 and default_server_ipc_configuration_mutable () : server_ipc_configuration_mutable = {
@@ -57,6 +82,7 @@ and default_server_ipc_configuration_mutable () : server_ipc_configuration_mutab
   inet4_address = "";
   raft_port = 0;
   client_port = 0;
+  app_server_port = 0;
 }
 
 let rec default_disk_backup_configuration 
@@ -79,20 +105,43 @@ let rec default_configuration
   ?raft_configuration:((raft_configuration:Raft_pb.configuration) = Raft_pb.default_configuration ())
   ?servers_ipc_configuration:((servers_ipc_configuration:server_ipc_configuration list) = [])
   ?disk_backup:((disk_backup:disk_backup_configuration) = default_disk_backup_configuration ())
-  ?app_server_port:((app_server_port:int) = 0)
   () : configuration  = {
   raft_configuration;
   servers_ipc_configuration;
   disk_backup;
-  app_server_port;
 }
 
 and default_configuration_mutable () : configuration_mutable = {
   raft_configuration = Raft_pb.default_configuration ();
   servers_ipc_configuration = [];
   disk_backup = default_disk_backup_configuration ();
-  app_server_port = 0;
 }
+
+let rec decode_tx d =
+  let v = default_tx_mutable () in
+  let rec loop () = 
+    match Pbrt.Decoder.key d with
+    | None -> (
+    )
+    | Some (1, Pbrt.Bytes) -> (
+      v.tx_id <- Pbrt.Decoder.string d;
+      loop ()
+    )
+    | Some (1, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(tx), field(1)", pk))
+    )
+    | Some (2, Pbrt.Bytes) -> (
+      v.tx_data <- Pbrt.Decoder.bytes d;
+      loop ()
+    )
+    | Some (2, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(tx), field(2)", pk))
+    )
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+  in
+  loop ();
+  let v:tx = Obj.magic v in
+  v
 
 let rec decode_server_ipc_configuration d =
   let v = default_server_ipc_configuration_mutable () in
@@ -127,6 +176,13 @@ let rec decode_server_ipc_configuration d =
     )
     | Some (4, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(server_ipc_configuration), field(4)", pk))
+    )
+    | Some (5, Pbrt.Varint) -> (
+      v.app_server_port <- Pbrt.Decoder.int_as_varint d;
+      loop ()
+    )
+    | Some (5, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(server_ipc_configuration), field(5)", pk))
     )
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
@@ -195,18 +251,18 @@ let rec decode_configuration d =
     | Some (3, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(configuration), field(3)", pk))
     )
-    | Some (6, Pbrt.Varint) -> (
-      v.app_server_port <- Pbrt.Decoder.int_as_varint d;
-      loop ()
-    )
-    | Some (6, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(configuration), field(6)", pk))
-    )
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   let v:configuration = Obj.magic v in
   v
+
+let rec encode_tx (v:tx) encoder = 
+  Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
+  Pbrt.Encoder.string v.tx_id encoder;
+  Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
+  Pbrt.Encoder.bytes v.tx_data encoder;
+  ()
 
 let rec encode_server_ipc_configuration (v:server_ipc_configuration) encoder = 
   Pbrt.Encoder.key (1, Pbrt.Varint) encoder; 
@@ -217,6 +273,8 @@ let rec encode_server_ipc_configuration (v:server_ipc_configuration) encoder =
   Pbrt.Encoder.int_as_varint v.raft_port encoder;
   Pbrt.Encoder.key (4, Pbrt.Varint) encoder; 
   Pbrt.Encoder.int_as_varint v.client_port encoder;
+  Pbrt.Encoder.key (5, Pbrt.Varint) encoder; 
+  Pbrt.Encoder.int_as_varint v.app_server_port encoder;
   ()
 
 let rec encode_disk_backup_configuration (v:disk_backup_configuration) encoder = 
@@ -237,9 +295,16 @@ let rec encode_configuration (v:configuration) encoder =
   ) v.servers_ipc_configuration;
   Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
   Pbrt.Encoder.nested (encode_disk_backup_configuration v.disk_backup) encoder;
-  Pbrt.Encoder.key (6, Pbrt.Varint) encoder; 
-  Pbrt.Encoder.int_as_varint v.app_server_port encoder;
   ()
+
+let rec pp_tx fmt (v:tx) = 
+  let pp_i fmt () =
+    Format.pp_open_vbox fmt 1;
+    Pbrt.Pp.pp_record_field "tx_id" Pbrt.Pp.pp_string fmt v.tx_id;
+    Pbrt.Pp.pp_record_field "tx_data" Pbrt.Pp.pp_bytes fmt v.tx_data;
+    Format.pp_close_box fmt ()
+  in
+  Pbrt.Pp.pp_brk pp_i fmt ()
 
 let rec pp_server_ipc_configuration fmt (v:server_ipc_configuration) = 
   let pp_i fmt () =
@@ -248,6 +313,7 @@ let rec pp_server_ipc_configuration fmt (v:server_ipc_configuration) =
     Pbrt.Pp.pp_record_field "inet4_address" Pbrt.Pp.pp_string fmt v.inet4_address;
     Pbrt.Pp.pp_record_field "raft_port" Pbrt.Pp.pp_int fmt v.raft_port;
     Pbrt.Pp.pp_record_field "client_port" Pbrt.Pp.pp_int fmt v.client_port;
+    Pbrt.Pp.pp_record_field "app_server_port" Pbrt.Pp.pp_int fmt v.app_server_port;
     Format.pp_close_box fmt ()
   in
   Pbrt.Pp.pp_brk pp_i fmt ()
@@ -268,7 +334,6 @@ let rec pp_configuration fmt (v:configuration) =
     Pbrt.Pp.pp_record_field "raft_configuration" Raft_pb.pp_configuration fmt v.raft_configuration;
     Pbrt.Pp.pp_record_field "servers_ipc_configuration" (Pbrt.Pp.pp_list pp_server_ipc_configuration) fmt v.servers_ipc_configuration;
     Pbrt.Pp.pp_record_field "disk_backup" pp_disk_backup_configuration fmt v.disk_backup;
-    Pbrt.Pp.pp_record_field "app_server_port" Pbrt.Pp.pp_int fmt v.app_server_port;
     Format.pp_close_box fmt ()
   in
   Pbrt.Pp.pp_brk pp_i fmt ()

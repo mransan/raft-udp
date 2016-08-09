@@ -1,0 +1,46 @@
+// App Server <---> RAFT Server protocol
+// ---------------------------------------
+//
+
+import "raft_com.proto";
+
+option (int32_type) = int_t;
+
+package raft.app;
+
+message AppRequest {
+  
+  message Txs {
+    repeated raft.com.Tx txs = 1;
+  }
+
+  oneof app_request_payload {
+    Txs          commit_txs = 4; 
+  }
+}
+
+message AppResponse {
+
+  message Validation {
+
+    message Success { }
+    message Failure {
+      required string error_message = 1; 
+      required int32  error_code    = 2;
+    }
+
+    required string tx_id = 1;
+    oneof result {
+      Success validation_success = 2; 
+      Failure validation_failure = 3;
+    }
+  }
+
+  message Validations {
+    repeated Validation validations = 1; 
+  }
+
+  oneof app_response_payload {
+    Validations committed_txs = 5;
+  }
+}

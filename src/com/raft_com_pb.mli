@@ -1,13 +1,19 @@
-(** raft_udp.proto Generated Types and Encoding *)
+(** raft_com.proto Generated Types and Encoding *)
 
 
 (** {2 Types} *)
+
+type tx = {
+  tx_id : string;
+  tx_data : bytes;
+}
 
 type server_ipc_configuration = {
   raft_id : int;
   inet4_address : string;
   raft_port : int;
   client_port : int;
+  app_server_port : int;
 }
 
 type disk_backup_configuration = {
@@ -20,17 +26,24 @@ type configuration = {
   raft_configuration : Raft_pb.configuration;
   servers_ipc_configuration : server_ipc_configuration list;
   disk_backup : disk_backup_configuration;
-  app_server_port : int;
 }
 
 
 (** {2 Default values} *)
+
+val default_tx : 
+  ?tx_id:string ->
+  ?tx_data:bytes ->
+  unit ->
+  tx
+(** [default_tx ()] is the default value for type [tx] *)
 
 val default_server_ipc_configuration : 
   ?raft_id:int ->
   ?inet4_address:string ->
   ?raft_port:int ->
   ?client_port:int ->
+  ?app_server_port:int ->
   unit ->
   server_ipc_configuration
 (** [default_server_ipc_configuration ()] is the default value for type [server_ipc_configuration] *)
@@ -47,13 +60,15 @@ val default_configuration :
   ?raft_configuration:Raft_pb.configuration ->
   ?servers_ipc_configuration:server_ipc_configuration list ->
   ?disk_backup:disk_backup_configuration ->
-  ?app_server_port:int ->
   unit ->
   configuration
 (** [default_configuration ()] is the default value for type [configuration] *)
 
 
 (** {2 Protobuf Decoding} *)
+
+val decode_tx : Pbrt.Decoder.t -> tx
+(** [decode_tx decoder] decodes a [tx] value from [decoder] *)
 
 val decode_server_ipc_configuration : Pbrt.Decoder.t -> server_ipc_configuration
 (** [decode_server_ipc_configuration decoder] decodes a [server_ipc_configuration] value from [decoder] *)
@@ -67,6 +82,9 @@ val decode_configuration : Pbrt.Decoder.t -> configuration
 
 (** {2 Protobuf Toding} *)
 
+val encode_tx : tx -> Pbrt.Encoder.t -> unit
+(** [encode_tx v encoder] encodes [v] with the given [encoder] *)
+
 val encode_server_ipc_configuration : server_ipc_configuration -> Pbrt.Encoder.t -> unit
 (** [encode_server_ipc_configuration v encoder] encodes [v] with the given [encoder] *)
 
@@ -78,6 +96,9 @@ val encode_configuration : configuration -> Pbrt.Encoder.t -> unit
 
 
 (** {2 Formatters} *)
+
+val pp_tx : Format.formatter -> tx -> unit 
+(** [pp_tx v] formats v *)
 
 val pp_server_ipc_configuration : Format.formatter -> server_ipc_configuration -> unit 
 (** [pp_server_ipc_configuration v] formats v *)

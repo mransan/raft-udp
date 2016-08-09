@@ -1,14 +1,14 @@
 open Lwt.Infix 
 open !Lwt_log_core
 
-module UPb = Raft_udp_pb
-module APb = Raft_app_pb
-module Pb_util = Raft_udp_pbutil
-module Conf = Raft_udp_conf
+module Com_pb = Raft_com_pb
+module App_pb = Raft_app_pb
+module Pb_util = Raft_com_pbutil
+module Conf = Raft_com_conf
 
 module U  = Lwt_unix 
 
-module Counter_srv = Raft_app_srv.Make(struct
+module Counter_srv = Raft_app_server.Make(struct
 
   type tx_data = Counter_pb.tx 
 
@@ -65,17 +65,17 @@ let process_demo_app_request logger (validations, notify) state =
     | state -> 
       log_f ~logger ~level:Notice "Added: (%06i, %6i) from tx_id: %s" counter_value process_id tx_id
       >|= (fun () -> 
-        let tx_validation = Raft_app_srv.({
+        let tx_validation = Raft_app_server.({
           tx_id; 
-          result = Raft_app_srv.Ok; 
+          result = Raft_app_server.Validation_result_ok; 
         }) in 
         (tx_validation::tx_validations, state) 
       )
 
     | exception Not_found -> 
-      let tx_validation = Raft_app_srv.({
+      let tx_validation = Raft_app_server.({
         tx_id; 
-        result = Raft_app_srv.Error "Not a valid counter value"; 
+        result = Raft_app_server.Validation_result_error "Not a valid counter value"; 
       }) in 
       Lwt.return (tx_validation::tx_validations, state)
 
@@ -86,25 +86,23 @@ let process_demo_app_request logger (validations, notify) state =
     state
   ) 
 
-let main configuration log () = 
+let main configuration log server_id () = 
   begin 
-    if log 
-    then 
-      let file_name = "app.log" in 
-      let template  = "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" in
-      Lwt_log.file ~mode:`Truncate ~template ~file_name ()
-    else 
-      Lwt.return Lwt_log_core.null
+    let to_file = if log then Some (Printf.sprintf "app%i.log" server_id) else None in 
+    Raft_utl_lwt.make_logger ?to_file ()  
   end
   >>=(fun logger -> 
 
-    let request_stream = Counter_srv.start logger configuration  in 
+    match Counter_srv.start logger configuration server_id with
+    | None -> 
+      Lwt.fail_with "Error starting App server" 
 
-    Lwt_stream.fold_s (fun request state -> 
-      process_demo_app_request logger request state
-    ) request_stream State.empty
+    | Some request_stream -> 
+      Lwt_stream.fold_s (fun request state -> 
+        process_demo_app_request logger request state
+      ) request_stream State.empty
 
-    >|= ignore 
+      >|= ignore 
   )
 
 let () = 
@@ -112,10 +110,13 @@ let () =
 
   let log = ref false in 
   let log_spec = Arg.Set log  in
+
+  let id, id_spec = Raft_com_conf.get_id_cmdline configuration in
   
   Arg.parse [
     ("--log", log_spec, " : enable logging");
+    ("--id", id_spec, " : raft server id");
   ] (fun _ -> ()) "test.ml";
 
   Sys.set_signal Sys.sigpipe Sys.Signal_ignore ; 
-  Lwt_main.run (main configuration !log ())
+  Lwt_main.run (main configuration !log !id ())

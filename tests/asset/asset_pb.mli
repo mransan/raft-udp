@@ -5,37 +5,42 @@
 
 type asset = {
   a_url : string;
-  a_hash : string;
+  a_id : string;
 }
+[@@deriving show]
 
 type issue_asset = {
   ia_asset : asset;
   ia_issuer_addr : string;
   ia_sig : string;
 }
+[@@deriving show]
 
 type transfer = {
   tr_asset_id : string;
   tr_dest_addr : string;
   tr_sig : string;
 }
+[@@deriving show]
 
 type accept_transfer = {
   at_asset_id : string;
   at_sig : string;
 }
+[@@deriving show]
 
 type tx =
   | Issue_asset of issue_asset
   | Transfer of transfer
   | Accept_transfer of accept_transfer
+[@@deriving show]
 
 
 (** {2 Default values} *)
 
 val default_asset : 
   ?a_url:string ->
-  ?a_hash:string ->
+  ?a_id:string ->
   unit ->
   asset
 (** [default_asset ()] is the default value for type [asset] *)

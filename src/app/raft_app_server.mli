@@ -16,10 +16,10 @@ module type App_sig  = sig
 end
 
 type validation_result = 
-  | Ok 
-  | Error of string 
+  | Validation_result_ok 
+  | Validation_result_error of string 
 
-type tx_validation = {
+type tx_validation_result = {
   tx_id : string; 
   result : validation_result; 
 } 
@@ -32,16 +32,23 @@ module Make(App:App_sig) : sig
   } 
   (** transaction type *)
 
-  type validations = tx list * (tx_validation list -> unit) 
+  type validations = tx list * (tx_validation_result list -> unit) 
   (** validation request to be processed by the application. The first value
     * is the list of the transaction to be validated while the second argument
     * is the function callback for the application to notify the result of the 
     * validation. 
     *)
 
-  val start : Lwt_log_core.logger -> Raft_udp_pb.configuration -> validations Lwt_stream.t 
-  (** [start logger configuration] returns the continuous stream of request to be validated
-    * by the specific application. 
+  val start : 
+    Lwt_log_core.logger -> 
+    Raft_com_pb.configuration -> 
+    int -> 
+    validations Lwt_stream.t option 
+  (** [start logger configuration server_id] returns the continuous stream of request to be validated
+    * by the specific application.
+    *
+    * [None] is returned on failure while [Some validation_stream] is returned
+    * on success. 
     *)
 
 end (* Make *) 
