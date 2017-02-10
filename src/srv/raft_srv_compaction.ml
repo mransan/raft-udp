@@ -2,7 +2,6 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module RState = Raft_state 
-module RPb    = Raft_pb
 module RLog = Raft_log
 
 module Pb = Raft_udp_pb
@@ -16,6 +15,15 @@ let compaction_filename ~server_id ~prev_index ~configuration () =
   in
   Filename.concat configuration.Pb.disk_backup.Pb.compaction_directory filename
 
+let srv_log_interval_of_raft_log_interval (i:RLog.log_interval)  = 
+  (* TODO FIXXXXXXXXXXX *)
+  let i:Raft_srv_pb.log_interval = Obj.magic i in 
+  i
+
+let raft_log_interval_of_srv_log_interval (i:Raft_srv_pb.log_interval)  = 
+  (* TODO FIXXXXXXXXXXX *)
+  let i:RLog.log_interval = Obj.magic i in 
+  i
 
 (* 
  * Performs a compaction by storing the [log_interval] on disk
@@ -27,10 +35,11 @@ let compact logger server_id configuration to_be_compacted =
   
   Lwt_list.fold_left_s (fun modified_intervals log_interval -> 
     let encoder = Pbrt.Encoder.create () in 
-    RPb.encode_log_interval log_interval encoder; 
+    Raft_srv_pb.encode_log_interval 
+      (srv_log_interval_of_raft_log_interval log_interval) encoder; 
     let filename = compaction_filename 
       ~server_id
-      ~prev_index:log_interval.RPb.prev_index 
+      ~prev_index:log_interval.RLog.prev_index 
       ~configuration
       ()
     in  
@@ -45,8 +54,8 @@ let compact logger server_id configuration to_be_compacted =
       >>=(fun () -> Lwt_io.close file)
     )
     >|=(fun () -> 
-      {log_interval with 
-       RPb.rev_log_entries = RPb.Compacted {RPb.record_id = filename} }::modified_intervals 
+      RLog.({log_interval with 
+       rev_log_entries = Compacted {record_id = filename} })::modified_intervals 
     )
   ) [] to_be_compacted
 
@@ -67,7 +76,12 @@ let read_from_file ~logger ~server_id ~configuration ~prev_index () =
     )
     >|=(fun () -> 
       let decoder = Pbrt.Decoder.of_bytes bytes in 
-      (RPb.decode_log_interval decoder, filename) 
+      let log_interval = 
+        Raft_srv_pb.decode_log_interval decoder
+        |> raft_log_interval_of_srv_log_interval
+      in 
+
+      (log_interval, filename) 
     )
   )
 
@@ -81,11 +95,11 @@ let expand logger server_id configuration to_be_expanded =
   Lwt_list.fold_left_s (fun modified_intervals log_interval -> 
 
     read_from_file 
-      ~logger ~server_id ~prev_index:log_interval.RPb.prev_index ~configuration ()
+      ~logger ~server_id ~prev_index:log_interval.RLog.prev_index ~configuration ()
     >|=(fun (file_interval, _ ) -> 
-      assert(file_interval.RPb.prev_index = log_interval.RPb.prev_index);
-      assert(file_interval.RPb.prev_term = log_interval.RPb.prev_term);
-      assert(file_interval.RPb.last_index = log_interval.RPb.last_index);
+      assert(file_interval.RLog.prev_index = log_interval.RLog.prev_index);
+      assert(file_interval.RLog.prev_term = log_interval.RLog.prev_term);
+      assert(file_interval.RLog.last_index = log_interval.RLog.last_index);
       file_interval::modified_intervals
     ) 
   ) [] to_be_expanded
@@ -93,8 +107,8 @@ let expand logger server_id configuration to_be_expanded =
 let perform_compaction logger configuration state =
 
   let {
-    RPb.to_be_expanded;
-    RPb.to_be_compacted;
+    RState.to_be_expanded;
+    RState.to_be_compacted;
   } = RState.compaction state in 
 
   let id = state.RState.id in 
@@ -123,12 +137,12 @@ let load_previous_log_intervals logger configuration server_id =
   let rec aux log_intervals prev_index = 
     Lwt.catch (fun () -> 
       read_from_file ~logger ~server_id ~prev_index ~configuration ()
-      >>=(fun (({RPb.last_index; rev_log_entries; _}  as log_interval), filename) ->
+      >>=(fun (({RLog.last_index; rev_log_entries; _}  as log_interval), filename) ->
 
         let log_interval = match rev_log_entries with
-          | RPb.Compacted _ -> log_interval
-          | RPb.Expanded  _ -> {log_interval with 
-            RPb.rev_log_entries = RPb.Compacted {RPb.record_id = filename}
+          | RLog.Compacted _ -> log_interval
+          | RLog.Expanded  _ -> {log_interval with 
+            RLog.rev_log_entries = RLog.Compacted {RLog.record_id = filename}
           } 
         in
 

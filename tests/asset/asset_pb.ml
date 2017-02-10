@@ -111,19 +111,21 @@ let rec default_tx () : tx = Issue_asset (default_issue_asset ())
 
 let rec decode_asset d =
   let v = default_asset_mutable () in
+  let a_hash_is_set = ref false in
+  let a_url_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (1, Pbrt.Bytes) -> (
-      v.a_url <- Pbrt.Decoder.string d;
+      v.a_url <- Pbrt.Decoder.string d; a_url_is_set := true;
       loop ()
     )
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(asset), field(1)", pk))
     )
     | Some (2, Pbrt.Bytes) -> (
-      v.a_hash <- Pbrt.Decoder.string d;
+      v.a_hash <- Pbrt.Decoder.string d; a_hash_is_set := true;
       loop ()
     )
     | Some (2, pk) -> raise (
@@ -132,31 +134,36 @@ let rec decode_asset d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
+  begin if not !a_hash_is_set then raise Protobuf.Decoder.(Failure (Missing_field "a_hash")) end;
+  begin if not !a_url_is_set then raise Protobuf.Decoder.(Failure (Missing_field "a_url")) end;
   let v:asset = Obj.magic v in
   v
 
 let rec decode_issue_asset d =
   let v = default_issue_asset_mutable () in
+  let ia_sig_is_set = ref false in
+  let ia_issuer_addr_is_set = ref false in
+  let ia_asset_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (1, Pbrt.Bytes) -> (
-      v.ia_asset <- decode_asset (Pbrt.Decoder.nested d);
+      v.ia_asset <- decode_asset (Pbrt.Decoder.nested d); ia_asset_is_set := true;
       loop ()
     )
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(issue_asset), field(1)", pk))
     )
     | Some (2, Pbrt.Bytes) -> (
-      v.ia_issuer_addr <- Pbrt.Decoder.string d;
+      v.ia_issuer_addr <- Pbrt.Decoder.string d; ia_issuer_addr_is_set := true;
       loop ()
     )
     | Some (2, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(issue_asset), field(2)", pk))
     )
     | Some (3, Pbrt.Bytes) -> (
-      v.ia_sig <- Pbrt.Decoder.string d;
+      v.ia_sig <- Pbrt.Decoder.string d; ia_sig_is_set := true;
       loop ()
     )
     | Some (3, pk) -> raise (
@@ -165,31 +172,37 @@ let rec decode_issue_asset d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
+  begin if not !ia_sig_is_set then raise Protobuf.Decoder.(Failure (Missing_field "ia_sig")) end;
+  begin if not !ia_issuer_addr_is_set then raise Protobuf.Decoder.(Failure (Missing_field "ia_issuer_addr")) end;
+  begin if not !ia_asset_is_set then raise Protobuf.Decoder.(Failure (Missing_field "ia_asset")) end;
   let v:issue_asset = Obj.magic v in
   v
 
 let rec decode_transfer d =
   let v = default_transfer_mutable () in
+  let tr_sig_is_set = ref false in
+  let tr_dest_addr_is_set = ref false in
+  let tr_asset_id_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (1, Pbrt.Bytes) -> (
-      v.tr_asset_id <- Pbrt.Decoder.string d;
+      v.tr_asset_id <- Pbrt.Decoder.string d; tr_asset_id_is_set := true;
       loop ()
     )
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(transfer), field(1)", pk))
     )
     | Some (2, Pbrt.Bytes) -> (
-      v.tr_dest_addr <- Pbrt.Decoder.string d;
+      v.tr_dest_addr <- Pbrt.Decoder.string d; tr_dest_addr_is_set := true;
       loop ()
     )
     | Some (2, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(transfer), field(2)", pk))
     )
     | Some (3, Pbrt.Bytes) -> (
-      v.tr_sig <- Pbrt.Decoder.string d;
+      v.tr_sig <- Pbrt.Decoder.string d; tr_sig_is_set := true;
       loop ()
     )
     | Some (3, pk) -> raise (
@@ -198,24 +211,29 @@ let rec decode_transfer d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
+  begin if not !tr_sig_is_set then raise Protobuf.Decoder.(Failure (Missing_field "tr_sig")) end;
+  begin if not !tr_dest_addr_is_set then raise Protobuf.Decoder.(Failure (Missing_field "tr_dest_addr")) end;
+  begin if not !tr_asset_id_is_set then raise Protobuf.Decoder.(Failure (Missing_field "tr_asset_id")) end;
   let v:transfer = Obj.magic v in
   v
 
 let rec decode_accept_transfer d =
   let v = default_accept_transfer_mutable () in
+  let at_sig_is_set = ref false in
+  let at_asset_id_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (1, Pbrt.Bytes) -> (
-      v.at_asset_id <- Pbrt.Decoder.string d;
+      v.at_asset_id <- Pbrt.Decoder.string d; at_asset_id_is_set := true;
       loop ()
     )
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(accept_transfer), field(1)", pk))
     )
     | Some (2, Pbrt.Bytes) -> (
-      v.at_sig <- Pbrt.Decoder.string d;
+      v.at_sig <- Pbrt.Decoder.string d; at_sig_is_set := true;
       loop ()
     )
     | Some (2, pk) -> raise (
@@ -224,6 +242,8 @@ let rec decode_accept_transfer d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
+  begin if not !at_sig_is_set then raise Protobuf.Decoder.(Failure (Missing_field "at_sig")) end;
+  begin if not !at_asset_id_is_set then raise Protobuf.Decoder.(Failure (Missing_field "at_asset_id")) end;
   let v:accept_transfer = Obj.magic v in
   v
 

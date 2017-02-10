@@ -6,7 +6,6 @@ module Counter      = Raft_utl_counter
 module UPb          = Raft_udp_pb
 module APb          = Raft_app_pb
 module Server_stats = Raft_srv_serverstats
-module Client_ipc   = Raft_srv_clientipc 
 module Log          = Raft_srv_log 
 module Log_record   = Raft_srv_logrecord
 module Conf         = Raft_udp_conf
@@ -172,7 +171,7 @@ let handle_notifications logger stats connection_state compaction_handle notific
       List.fold_left (fun acc notification ->
 
       match notification with
-      | RPb.Committed_data {RPb.rev_log_entries} -> 
+      | RPb.Committed_data rev_log_entries -> 
         let ids = List.map (fun ({RPb.id; _ }:RPb.log_entry) -> id) rev_log_entries in 
         List.fold_left (fun (connection_state, client_responses) id -> 
           let {pending_requests; _ }   = connection_state in 
@@ -199,7 +198,7 @@ let handle_notifications logger stats connection_state compaction_handle notific
    * permanently on DISK. This way, if a server crashes it can recover. 
    *)
   Lwt_list.iter_s (function
-    | RPb.Committed_data {RPb.rev_log_entries} -> 
+    | RPb.Committed_data rev_log_entries -> 
       Log_record.append_commited_data logger rev_log_entries compaction_handle 
     | _ -> Lwt.return_unit
   ) notifications

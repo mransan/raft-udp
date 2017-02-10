@@ -84,7 +84,7 @@ type app_response =
 
 let rec default_tx 
   ?tx_id:((tx_id:string) = "")
-  ?tx_data:((tx_data:bytes) = Bytes.create 64)
+  ?tx_data:((tx_data:bytes) = Bytes.create 0)
   () : tx  = {
   tx_id;
   tx_data;
@@ -92,7 +92,7 @@ let rec default_tx
 
 and default_tx_mutable () : tx_mutable = {
   tx_id = "";
-  tx_data = Bytes.create 64;
+  tx_data = Bytes.create 0;
 }
 
 let rec default_client_request () : client_request = Add_tx (default_tx ())
@@ -173,19 +173,21 @@ let rec default_app_response () : app_response = Validations (default_app_respon
 
 let rec decode_tx d =
   let v = default_tx_mutable () in
+  let tx_data_is_set = ref false in
+  let tx_id_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (1, Pbrt.Bytes) -> (
-      v.tx_id <- Pbrt.Decoder.string d;
+      v.tx_id <- Pbrt.Decoder.string d; tx_id_is_set := true;
       loop ()
     )
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(tx), field(1)", pk))
     )
     | Some (2, Pbrt.Bytes) -> (
-      v.tx_data <- Pbrt.Decoder.bytes d;
+      v.tx_data <- Pbrt.Decoder.bytes d; tx_data_is_set := true;
       loop ()
     )
     | Some (2, pk) -> raise (
@@ -194,6 +196,8 @@ let rec decode_tx d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
+  begin if not !tx_data_is_set then raise Protobuf.Decoder.(Failure (Missing_field "tx_data")) end;
+  begin if not !tx_id_is_set then raise Protobuf.Decoder.(Failure (Missing_field "tx_id")) end;
   let v:tx = Obj.magic v in
   v
 
@@ -283,19 +287,21 @@ let rec decode_app_request d =
 
 let rec decode_app_response_validation_failure d =
   let v = default_app_response_validation_failure_mutable () in
+  let error_code_is_set = ref false in
+  let error_message_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (1, Pbrt.Bytes) -> (
-      v.error_message <- Pbrt.Decoder.string d;
+      v.error_message <- Pbrt.Decoder.string d; error_message_is_set := true;
       loop ()
     )
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validation_failure), field(1)", pk))
     )
     | Some (2, Pbrt.Varint) -> (
-      v.error_code <- Pbrt.Decoder.int_as_varint d;
+      v.error_code <- Pbrt.Decoder.int_as_varint d; error_code_is_set := true;
       loop ()
     )
     | Some (2, pk) -> raise (
@@ -304,6 +310,8 @@ let rec decode_app_response_validation_failure d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
+  begin if not !error_code_is_set then raise Protobuf.Decoder.(Failure (Missing_field "error_code")) end;
+  begin if not !error_message_is_set then raise Protobuf.Decoder.(Failure (Missing_field "error_message")) end;
   let v:app_response_validation_failure = Obj.magic v in
   v
 
@@ -324,12 +332,13 @@ let rec decode_app_response_validation_result d =
 
 and decode_app_response_validation d =
   let v = default_app_response_validation_mutable () in
+  let tx_id_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (1, Pbrt.Bytes) -> (
-      v.tx_id <- Pbrt.Decoder.string d;
+      v.tx_id <- Pbrt.Decoder.string d; tx_id_is_set := true;
       loop ()
     )
     | Some (1, pk) -> raise (
@@ -353,6 +362,7 @@ and decode_app_response_validation d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
+  begin if not !tx_id_is_set then raise Protobuf.Decoder.(Failure (Missing_field "tx_id")) end;
   let v:app_response_validation = Obj.magic v in
   v
 
@@ -378,12 +388,13 @@ let rec decode_app_response_validations d =
 
 let rec decode_app_response_commit_tx_ack d =
   let v = default_app_response_commit_tx_ack_mutable () in
+  let tx_id_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (2, Pbrt.Bytes) -> (
-      v.tx_id <- Pbrt.Decoder.string d;
+      v.tx_id <- Pbrt.Decoder.string d; tx_id_is_set := true;
       loop ()
     )
     | Some (2, pk) -> raise (
@@ -392,6 +403,7 @@ let rec decode_app_response_commit_tx_ack d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
+  begin if not !tx_id_is_set then raise Protobuf.Decoder.(Failure (Missing_field "tx_id")) end;
   let v:app_response_commit_tx_ack = Obj.magic v in
   v
 

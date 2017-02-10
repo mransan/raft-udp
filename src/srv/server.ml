@@ -40,13 +40,13 @@ module Event = struct
     | Client_request of Client_ipc.client_request list
       (** A Client request was received *)
 
-    | Timeout        of Raft_pb.timeout_event_time_out_type  
+    | Timeout        of Raft_pb.timeout_type
       (** RAFT Protocol timeout happened *)
 
     | Compaction_initiate
       (** Notification that the compaction task should start *)
 
-    | Compaction_update  of RPb.log_interval list 
+    | Compaction_update  of RLog.log_interval list 
       (** Notification that the compaction task is done with the list 
           of modified log intervals. 
         *)
@@ -113,9 +113,9 @@ let get_client_ipc_f logger stats configuration id =
 
 let set_server_role state stats = 
   let role = match state.RState.role with
-    | RPb.Follower _ -> Server_stats.Follower  
-    | RPb.Candidate _ -> Server_stats.Candidate
-    | RPb.Leader _ -> Server_stats.Leader
+    | RState.Follower _ -> Server_stats.Follower  
+    | RState.Candidate _ -> Server_stats.Candidate
+    | RState.Leader _ -> Server_stats.Leader
   in 
   (Server_stats.set_server_role stats role:unit) 
   

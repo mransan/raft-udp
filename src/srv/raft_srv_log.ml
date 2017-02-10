@@ -94,7 +94,7 @@ let print_msg_received logger section msg receiver_id =
 
 let print_follower () follower_state = 
   let {
-    RPb.voted_for;
+    RState.voted_for;
     current_leader;
     election_deadline;} = follower_state in 
 
@@ -122,7 +122,7 @@ let print_leader () leader_state =
     | [] -> ""
     | server_index::tl -> 
       let {
-        RPb.server_id;
+        RState.server_id;
         next_index;
         outstanding_request; _ 
       } = server_index in 
@@ -135,7 +135,7 @@ let print_leader () leader_state =
   in
   Printf.sprintf "\t\t %15s: Leader\n%a"
     "role"
-    aux leader_state.RPb.followers
+    aux leader_state
 
 let print_candidate () candidate_state = 
   let fmt = 
@@ -144,8 +144,8 @@ let print_candidate () candidate_state =
     "\t\t\t %15s: %f\n" 
   in
   let {
-    RPb.vote_count; 
-    RPb.election_deadline;
+    RState.vote_count; 
+    RState.election_deadline;
   } = candidate_state in
   Printf.sprintf fmt 
     "role"
@@ -162,9 +162,9 @@ let print_state logger section state =
   } = state in
 
   let print_role (oc:unit) = function
-    | RPb.Follower x -> print_follower oc x 
-    | RPb.Leader x -> print_leader oc x 
-    | RPb.Candidate x -> print_candidate oc x 
+    | RState.Follower x -> print_follower oc x 
+    | RState.Leader x -> print_leader oc x 
+    | RState.Candidate x -> print_candidate oc x 
   in 
 
   let fmt = 

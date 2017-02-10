@@ -70,7 +70,7 @@ val handle_timeout :
   stats : Raft_srv_serverstats.t ->
   now   : float -> 
   state ->
-  Raft_pb.timeout_event_time_out_type ->
+  Raft_pb.timeout_type ->
   result Lwt.t  
 (** [handle_raft_message ~logger ~stats ~now state msg] handles RAFT protocol 
     timeout event. 

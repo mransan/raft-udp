@@ -4,7 +4,6 @@ open !Lwt_log_core
 module U            = Lwt_unix
 module Conf         = Raft_udp_conf
 module Server_stats = Raft_srv_serverstats
-module UPb          = Raft_udp_pb
 module APb          = Raft_app_pb 
 
 type handle = Lwt_unix.file_descr

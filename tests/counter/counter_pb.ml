@@ -25,19 +25,21 @@ and default_tx_mutable () : tx_mutable = {
 
 let rec decode_tx d =
   let v = default_tx_mutable () in
+  let process_id_is_set = ref false in
+  let counter_value_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (1, Pbrt.Varint) -> (
-      v.counter_value <- Pbrt.Decoder.int_as_varint d;
+      v.counter_value <- Pbrt.Decoder.int_as_varint d; counter_value_is_set := true;
       loop ()
     )
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(tx), field(1)", pk))
     )
     | Some (2, Pbrt.Varint) -> (
-      v.process_id <- Pbrt.Decoder.int_as_varint d;
+      v.process_id <- Pbrt.Decoder.int_as_varint d; process_id_is_set := true;
       loop ()
     )
     | Some (2, pk) -> raise (
@@ -46,6 +48,8 @@ let rec decode_tx d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
+  begin if not !process_id_is_set then raise Protobuf.Decoder.(Failure (Missing_field "process_id")) end;
+  begin if not !counter_value_is_set then raise Protobuf.Decoder.(Failure (Missing_field "counter_value")) end;
   let v:tx = Obj.magic v in
   v
 

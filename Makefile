@@ -28,7 +28,8 @@ test:
 	$(OCB) start_all_clients.native
 
 gen:
-	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_udp.proto
+	@# ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_udp.proto
+	ocaml-protoc -I ../raft.git/src/ -ml_out src/srv src/srv/raft_srv.proto
 	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_app.proto
 	ocaml-protoc -I ../raft.git/src/ -ml_out tests/counter  tests/counter/counter.proto
 	ocaml-protoc -I ../raft.git/src/ -ml_out tests/asset  tests/asset/asset.proto
