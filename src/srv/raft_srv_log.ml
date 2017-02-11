@@ -2,7 +2,7 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module RPb = Raft_pb
-module RState = Raft_state
+module RTypes = Raft_types
 module RLog = Raft_log
 
 
@@ -94,7 +94,7 @@ let print_msg_received logger section msg receiver_id =
 
 let print_follower () follower_state = 
   let {
-    RState.voted_for;
+    RTypes.voted_for;
     current_leader;
     election_deadline;} = follower_state in 
 
@@ -122,7 +122,7 @@ let print_leader () leader_state =
     | [] -> ""
     | server_index::tl -> 
       let {
-        RState.server_id;
+        RTypes.server_id;
         next_index;
         outstanding_request; _ 
       } = server_index in 
@@ -144,8 +144,8 @@ let print_candidate () candidate_state =
     "\t\t\t %15s: %f\n" 
   in
   let {
-    RState.vote_count; 
-    RState.election_deadline;
+    RTypes.vote_count; 
+    RTypes.election_deadline;
   } = candidate_state in
   Printf.sprintf fmt 
     "role"
@@ -154,7 +154,7 @@ let print_candidate () candidate_state =
 
 let print_state logger section state = 
   let {
-    RState.id;
+    RTypes.id;
     current_term;
     log = {RLog.log_size; term_tree ; _  };
     commit_index;
@@ -162,9 +162,9 @@ let print_state logger section state =
   } = state in
 
   let print_role (oc:unit) = function
-    | RState.Follower x -> print_follower oc x 
-    | RState.Leader x -> print_leader oc x 
-    | RState.Candidate x -> print_candidate oc x 
+    | RTypes.Follower x -> print_follower oc x 
+    | RTypes.Leader x -> print_leader oc x 
+    | RTypes.Candidate x -> print_candidate oc x 
   in 
 
   let fmt = 

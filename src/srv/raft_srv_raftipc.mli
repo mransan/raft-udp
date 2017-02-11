@@ -34,7 +34,7 @@ type connection_state
   *)
 
 type state = {
-  raft_state: Raft_state.t; 
+  raft_state: Raft_types.state; 
   connection_state: connection_state; 
   log_record_handle: Raft_srv_logrecord.t
 }
@@ -70,7 +70,7 @@ val handle_timeout :
   stats : Raft_srv_serverstats.t ->
   now   : float -> 
   state ->
-  Raft_pb.timeout_type ->
+  Raft_types.timeout_type ->
   result Lwt.t  
 (** [handle_raft_message ~logger ~stats ~now state msg] handles RAFT protocol 
     timeout event. 

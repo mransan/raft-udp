@@ -5,7 +5,7 @@ module RPb = Raft_pb
 module RHelper = Raft_helper
 module RRole = Raft_role
 module RLog = Raft_log
-module RState = Raft_state
+module RTypes = Raft_types
 
 module UPb = Raft_udp_pb
 module APb = Raft_app_pb
@@ -13,7 +13,6 @@ module Conf = Raft_udp_conf
 module Server_stats = Raft_srv_serverstats
 module Raft_ipc = Raft_srv_raftipc
 module Client_ipc = Raft_srv_clientipc
-module Compaction = Raft_srv_compaction
 module Log_record = Raft_srv_logrecord
 module App_ipc = Raft_srv_appipc
 
@@ -40,16 +39,8 @@ module Event = struct
     | Client_request of Client_ipc.client_request list
       (** A Client request was received *)
 
-    | Timeout        of Raft_pb.timeout_type
+    | Timeout        of Raft_types.timeout_type
       (** RAFT Protocol timeout happened *)
-
-    | Compaction_initiate
-      (** Notification that the compaction task should start *)
-
-    | Compaction_update  of RLog.log_interval list 
-      (** Notification that the compaction task is done with the list 
-          of modified log intervals. 
-        *)
 
     | App_response   of APb.app_response 
       (** A response was received from the App server *)
@@ -58,7 +49,6 @@ module Event = struct
     next_raft_message_t : e Lwt.t;
     next_client_request_t : e Lwt.t;
     next_timeout_t : e Lwt.t;
-    compaction_t : e Lwt.t;
     next_app_reponse_t : e Lwt.t;
   }
 
@@ -67,13 +57,11 @@ module Event = struct
       next_raft_message_t;
       next_client_request_t;
       next_timeout_t;
-      compaction_t;
       next_app_reponse_t;
     } = threads in 
     next_raft_message_t   :: 
     next_client_request_t ::
     next_timeout_t        ::
-    compaction_t          :: 
     next_app_reponse_t    :: []
 
 end 
@@ -112,20 +100,16 @@ let get_client_ipc_f logger stats configuration id =
   (next_client_request, send_client_responses)
 
 let set_server_role state stats = 
-  let role = match state.RState.role with
-    | RState.Follower _ -> Server_stats.Follower  
-    | RState.Candidate _ -> Server_stats.Candidate
-    | RState.Leader _ -> Server_stats.Leader
+  let role = match state.RTypes.role with
+    | RTypes.Follower _ -> Server_stats.Follower  
+    | RTypes.Candidate _ -> Server_stats.Candidate
+    | RTypes.Leader _ -> Server_stats.Leader
   in 
   (Server_stats.set_server_role stats role:unit) 
   
 let next_timeout timeout timeout_type = 
   Lwt_unix.sleep timeout 
   >|= (fun () -> Event.Timeout timeout_type)
-
-let get_next_compaction_f configuration = fun () ->
-  Lwt_unix.sleep configuration.UPb.disk_backup.UPb.compaction_period
-  >|=(fun () -> Event.Compaction_initiate)
 
 let get_app_ipc_f logger stats configuration = 
   let (
@@ -165,8 +149,6 @@ let run_server configuration id logger print_header slow =
     send_client_responses
   ) = get_client_ipc_f logger stats configuration id in 
 
-  let next_compaction = get_next_compaction_f configuration in 
-
   let (
     send_app_requests, 
     next_app_response
@@ -180,7 +162,7 @@ let run_server configuration id logger print_header slow =
 
       let handle_follow_up_action threads  ({Raft_ipc.raft_state;_} as state) = 
         let now = get_now () in
-        let {RPb.timeout; timeout_type } = RHelper.Timeout_event.next raft_state now in
+        let {RTypes.timeout; timeout_type } = RHelper.Timeout_event.next raft_state now in
         Lwt.cancel threads.Event.next_timeout_t;
         let threads = {threads with 
           Event.next_timeout_t = next_timeout timeout timeout_type
@@ -190,7 +172,7 @@ let run_server configuration id logger print_header slow =
       
       let now = get_now () in
       
-      Server_stats.set_log_count stats state.Raft_ipc.raft_state.RState.log.RLog.log_size;
+      Server_stats.set_log_count stats state.Raft_ipc.raft_state.RTypes.log.RLog.log_size;
       set_server_role state.Raft_ipc.raft_state stats;
 
       Lwt_list.fold_left_s (fun (state, threads) event -> 
@@ -238,27 +220,6 @@ let run_server configuration id logger print_header slow =
           )
         )
 
-        | Event.Compaction_initiate -> (
-          let {Raft_ipc.raft_state; _ } = state in 
-          let compaction_t = 
-            Compaction.perform_compaction logger configuration raft_state  
-            >|=(fun compacted_intervals -> 
-              Event.Compaction_update compacted_intervals
-            )
-          in
-          let threads = { threads with Event.compaction_t } in 
-          Lwt.return (state, threads)
-        )
-
-        | Event.Compaction_update compacted_intervals -> (
-          let {Raft_ipc.raft_state; _ } = state in 
-          Compaction.update_state logger compacted_intervals raft_state 
-          >|=(fun raft_state -> 
-            let threads = {threads with Event.compaction_t = next_compaction  ()} in 
-            ({state with Raft_ipc.raft_state}, threads)
-          )
-        ) 
-
         | Event.App_response app_response -> (
           Raft_ipc.handle_app_response ~logger ~stats ~now state app_response
           >|=(fun (state, client_responses, app_requests) ->
@@ -282,31 +243,20 @@ let run_server configuration id logger print_header slow =
     ~id () 
   in
 
-
-  Compaction.load_previous_log_intervals logger configuration id 
-  >|=(fun log_intervals ->
-    let builder1 = RLog.Builder.make_t1 () in 
-    List.fold_left (fun builder1 log_interval -> 
-      RLog.Builder.add_interval builder1 log_interval 
-    ) builder1 log_intervals 
-  ) 
-  >>=(fun builder1 -> 
-    let section = Section.make (Printf.sprintf "%10s" "Recovery") in 
-
-    let builder2 = RLog.Builder.t2_of_t1 builder1 in 
-    log ~logger ~level:Notice ~section "Global cache done..."
-    >>=(fun () ->
-      Log_record.read_log_records configuration id (fun builder2 log_entry ->
-        RLog.Builder.add_log_entry builder2 log_entry
-      ) builder2 
-      >|= RLog.Builder.log_of_t2 
-    )
+  Lwt.return (RLog.Builder.make ()) 
+  >>=(fun builder -> 
+    Log_record.read_log_records configuration id (fun builder2 log_entry ->
+      RLog.Builder.add_log_entry builder2 log_entry
+    ) builder
+    >|= RLog.Builder.to_log 
     >>= (fun log -> 
-      let initial_raft_state = {initial_raft_state with RState.log } in 
-      let commit_index, current_term = RLog.last_log_index_and_term initial_raft_state.RState.log in 
-      let initial_raft_state = {initial_raft_state with RState.commit_index; current_term} in 
+      let initial_raft_state = {initial_raft_state with RTypes.log } in 
+      let commit_index, current_term = RLog.last_log_index_and_term initial_raft_state.RTypes.log in 
+      let initial_raft_state = {initial_raft_state with RTypes.commit_index; current_term} in 
       
-      log_f ~logger ~level:Notice ~section "Log read done, commit index: %i, current term: %i" commit_index current_term
+      log_f ~logger ~level:Notice ~section 
+          "Log read done, commit index: %i, current term: %i" 
+          commit_index current_term
       >|=(fun () -> initial_raft_state)
     )
   )
@@ -315,7 +265,7 @@ let run_server configuration id logger print_header slow =
     >>=(fun handle ->
 
       let {
-        RPb.timeout; 
+        RTypes.timeout; 
         timeout_type
       } = RHelper.Timeout_event.next initial_raft_state (get_now ()) in 
 
@@ -323,7 +273,6 @@ let run_server configuration id logger print_header slow =
         next_client_request_t = next_client_request ();
         next_raft_message_t = next_raft_message  ();
         next_timeout_t = next_timeout timeout timeout_type;
-        compaction_t = next_compaction ();
         next_app_reponse_t  = next_app_response ();
       }) in 
 

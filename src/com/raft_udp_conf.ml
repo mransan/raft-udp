@@ -1,9 +1,9 @@
 
 module Pb  = Raft_udp_pb
-module RPb = Raft_pb 
+module RTypes = Raft_types
 
 let default_configuration () = Pb.({
-  raft_configuration = RPb.({
+  raft_configuration = RTypes.({
     nb_of_server = 3;
     election_timeout = 0.50;
     election_timeout_range = 0.2;

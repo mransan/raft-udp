@@ -16,7 +16,7 @@ type disk_backup_configuration = {
 }
 
 type configuration = {
-  raft_configuration : Raft_pb.configuration;
+  raft_configuration : Raft_types.configuration;
   servers_ipc_configuration : server_ipc_configuration list;
   disk_backup : disk_backup_configuration;
   app_server_port : int;
