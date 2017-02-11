@@ -2,13 +2,13 @@ let arg_of_server task _ =
 
   let arg = [| 
     task;
+    "--log";
   |] in 
   arg
 
 module Conf = Raft_udp_conf
 module Udp  = Raft_udp_pb
    
-
 let () = 
 
   let task = ref "" in 
@@ -21,7 +21,7 @@ let () =
 
   assert(!task <> "");
 
-  let nb_of_children = 10 in 
+  let nb_of_children = 1 in 
 
   for i = 1 to nb_of_children do
     match Unix.fork () with

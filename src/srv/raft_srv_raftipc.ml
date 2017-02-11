@@ -214,12 +214,28 @@ let send_raft_messages ~logger ~stats id connection_state messages  =
   ) messages
   >|= ignore
 
+let process_result logger stats state result =  
+  let {log_record_handle; connection_state; _ } = state in 
+
+  let {
+    Raft_logic.state = raft_state; 
+    messages_to_send = outgoing_messages; 
+    notifications; 
+  }  = result in 
+
+  handle_notifications 
+      logger stats connection_state log_record_handle notifications 
+  >>=(fun (connection_state, client_responses) -> 
+    send_raft_messages 
+        ~logger ~stats (raft_state.RTypes.id) 
+        connection_state outgoing_messages
+    >|= (fun () -> 
+      ({state with raft_state; connection_state}, client_responses, [])
+    ) 
+  )
+
 let handle_raft_message ~logger ~stats ~now state msg = 
-  let { 
-    raft_state; 
-    connection_state; 
-    log_record_handle; 
-  } = state in 
+  let { raft_state; _ } = state in 
 
   log ~logger ~level:Notice ~section "Raft Message Received"
   >>=(fun () -> Log.print_state logger section raft_state)
@@ -228,49 +244,35 @@ let handle_raft_message ~logger ~stats ~now state msg =
     Server_stats.tick_raft_msg_recv stats;
 
     let perf = Server_stats.msg_processing stats in 
-    let ret  = Counter.Perf.f3 perf Raft_logic.handle_message raft_state msg now in
+    let result = 
+      Counter.Perf.f3 perf Raft_logic.handle_message raft_state msg now 
+    in
 
-    let (raft_state, outgoing_messages, notifications) = ret in 
-
-    handle_notifications logger stats connection_state log_record_handle notifications 
-    >>=(fun (connection_state, client_responses) ->
-      send_raft_messages ~logger ~stats (raft_state.RTypes.id) connection_state outgoing_messages
-      >|= (fun () -> 
-        ({state with raft_state; connection_state}, client_responses, [])
-      ) 
-    )
+    process_result logger stats state result  
   )
 
 let handle_timeout ~logger ~stats ~now state timeout_type = 
-  let { raft_state; connection_state; log_record_handle ; } = state in 
+  let { raft_state; _} = state in 
   begin match timeout_type with
-  | RTypes.Heartbeat -> (
-    Server_stats.tick_heartbeat stats;
-    log ~logger ~section ~level:Notice "Heartbeat timeout" 
-    >|= (fun () ->
-      Counter.Perf.f2 (Server_stats.hb_processing stats)
-        Raft_logic.handle_heartbeat_timeout raft_state now
+    | RTypes.Heartbeat -> (
+      Server_stats.tick_heartbeat stats;
+      log ~logger ~section ~level:Notice "Heartbeat timeout" 
+      >|= (fun () ->
+        Counter.Perf.f2 (Server_stats.hb_processing stats)
+          Raft_logic.handle_heartbeat_timeout raft_state now
+      )
     )
-    >|= (fun (raft_state, outgoing_messages) -> (raft_state, outgoing_messages, []))
-  )
 
-  | RTypes.New_leader_election -> (
-    Printf.printf "NEW LEADER ELECTION [%2i] \n%!" raft_state.RTypes.id;
-    log ~logger ~level:Notice ~section "Leader Election timeout"
-    >|= (fun () ->
-      Raft_logic.handle_new_election_timeout raft_state now
-    ))
+    | RTypes.New_leader_election -> (
+      Printf.printf "NEW LEADER ELECTION [%2i] \n%!" raft_state.RTypes.id;
+      log ~logger ~level:Notice ~section "Leader Election timeout"
+      >|= (fun () ->
+        Raft_logic.handle_new_election_timeout raft_state now
+      ))
   end
+  >>=(fun result -> 
 
-  >>=(fun (raft_state, outgoing_messages, notifications) ->
-
-    handle_notifications logger stats connection_state log_record_handle notifications 
-    >>=(fun (connection_state, client_responses) ->
-      send_raft_messages ~logger ~stats (raft_state.RTypes.id) connection_state outgoing_messages
-      >|= (fun () -> 
-        ({state with raft_state; connection_state}, client_responses, [])
-      ) 
-    )
+    process_result logger stats state result  
   ) 
 
 let handle_client_requests ~logger ~stats ~now  state client_requests = 
@@ -375,7 +377,8 @@ let handle_app_response ~logger ~stats ~now state app_response =
           (state, client_responses, [])
         )
 
-      | Raft_logic.Appended (raft_state, outgoing_messages) -> 
+      | Raft_logic.Appended result -> 
+            (* (raft_state, outgoing_messages) -> *) 
         log_f ~logger ~level:Notice ~section "Log Added (log size: %i) (nb logs: %i)" 
           raft_state.RTypes.log.RLog.log_size (List.length datas)  
         >>= (fun () ->
@@ -385,12 +388,11 @@ let handle_app_response ~logger ~stats ~now state app_response =
                 Pending_requests.add pending_requests tx_id r 
           ) pending_requests validated_client_requests in 
 
-          let connection_state = {connection_state with pending_requests; } in  
+          let state = {state with 
+            connection_state = {connection_state with pending_requests; }
+          } in 
 
-          send_raft_messages ~logger ~stats (raft_state.RTypes.id) connection_state outgoing_messages
-          >|= (fun () -> 
-            ({state with raft_state; connection_state}, client_responses, [])
-          ) 
+          process_result logger stats state result  
         )
       end
     )
