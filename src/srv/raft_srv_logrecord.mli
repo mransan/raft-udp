@@ -1,6 +1,6 @@
 (** Log Recording on Disk functionality 
  
-    After a [log_entry] was found to be commited by the RAFT protocol 
+    After a [log_entry] was found to be committed by the RAFT protocol 
     and before the commit response is sent back to the client, the log 
     entry must be saved permanently. 
     
@@ -19,11 +19,11 @@ val make : Lwt_log_core.logger -> Raft_udp_pb.configuration -> int -> t Lwt.t
 (** [make configuration] initialize the disk based log recoding. 
     
     returns a handle that client application should keep track 
-    of in order to subsequently call the [append_commited_data] function
+    of in order to subsequently call the [append_committed_data] function
   *)
 
-val append_commited_data : Lwt_log_core.logger -> Raft_pb.log_entry list -> t -> unit Lwt.t 
-(** [append_commited_data log_entries handle] permanently record the [log_entries]. 
+val append_committed_data : Lwt_log_core.logger -> Raft_pb.log_entry list -> t -> unit Lwt.t 
+(** [append_committed_data log_entries handle] permanently record the [log_entries]. 
   *)
 
 

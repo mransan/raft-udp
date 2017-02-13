@@ -69,7 +69,7 @@ let () =
       then begin 
         Printf.printf "Killing server id: %i, PID: %i\n%!" server_id pid; 
         Unix.kill pid Sys.sigkill;
-        Unix.sleep 1;  
+        Unix.sleep 10;  
         match Unix.fork () with
         | 0   -> Unix.execv "./server.native" (arg_of_server !log server_id)
         | pid ->

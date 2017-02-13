@@ -6,6 +6,7 @@ module RHelper = Raft_helper
 module RRole = Raft_role
 module RLog = Raft_log
 module RTypes = Raft_types
+module RConv = Raft_pb_conv
 
 module UPb = Raft_udp_pb
 module APb = Raft_app_pb
@@ -240,13 +241,13 @@ let run_server configuration id logger print_header slow =
   let initial_raft_state = RRole.Follower.create
     ~configuration:configuration.UPb.raft_configuration 
     ~now:(get_now ()) 
-    ~id () 
+    ~server_id:id () 
   in
 
   Lwt.return (RLog.Builder.make ()) 
   >>=(fun builder -> 
     Log_record.read_log_records configuration id (fun builder2 log_entry ->
-      RLog.Builder.add_log_entry builder2 log_entry
+      RLog.Builder.add_log_entry builder2 (RConv.log_entry_of_pb log_entry)
     ) builder
     >|= RLog.Builder.to_log 
     >>= (fun log -> 

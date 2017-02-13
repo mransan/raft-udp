@@ -20,36 +20,12 @@ end)
 
 module State = struct
 
-  type t = (int * int) list 
-    (* 
-     * In the demo app the state is the list of monotically increasing 
-     * counter value along with the process id of the client which submitted 
-     * the transaction. 
-     * 
-     * For instance : 
-     *  [
-     *    (3, 20003);
-     *    (2, 20001);
-     *    (1, 20002);
-     *    (0, 20003);
-     *  ]
-     *) 
-
-
-  (** [process state counter_value process_id] check that the [counter_value] 
-    * is monotically increasing the [state]. If so the new [state] is returned
-    * else [Not_found] is raised
-    *) 
-  let process t counter_value process_id = 
-    match t with
-    | [] -> (counter_value, process_id) :: [] 
-    | (last_counter_value,  _ )::_ -> 
-      if last_counter_value < counter_value 
-      then (counter_value, process_id) :: t 
-      else raise Not_found
+  type t = (int * int) 
   
-  (** [empty] is the initial empty state *)
-  let empty = []
+  let process _ counter_value process_id = 
+    (counter_value, process_id) 
+  
+  let empty = (-1, -1)
 
 end 
 
@@ -61,24 +37,18 @@ let process_demo_app_request logger (validations, notify) state =
       tx_data = {Counter_pb.counter_value; process_id};
     } = tx in
 
-    match State.process state counter_value process_id with
-    | state -> 
-      log_f ~logger ~level:Notice "Added: (%06i, %6i) from tx_id: %s" counter_value process_id tx_id
-      >|= (fun () -> 
-        let tx_validation = Raft_app_srv.({
-          tx_id; 
-          result = Raft_app_srv.Ok; 
-        }) in 
-        (tx_validation::tx_validations, state) 
-      )
+    let state = State.process state counter_value process_id in
 
-    | exception Not_found -> 
+    log_f ~logger ~level:Notice "Added: (%06i, %6i) from tx_id: %s" 
+          counter_value process_id tx_id
+
+    >|= (fun () -> 
       let tx_validation = Raft_app_srv.({
         tx_id; 
-        result = Raft_app_srv.Error "Not a valid counter value"; 
+        result = Raft_app_srv.Ok; 
       }) in 
-      Lwt.return (tx_validation::tx_validations, state)
-
+      (tx_validation::tx_validations, state) 
+    )
   ) ([], state) validations 
 
   >|=(fun (tx_validations, state) -> 
@@ -91,7 +61,9 @@ let main configuration log () =
     if log 
     then 
       let file_name = "app.log" in 
-      let template  = "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" in
+      let template  = 
+        "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" 
+      in
       Lwt_log.file ~mode:`Truncate ~template ~file_name ()
     else 
       Lwt.return Lwt_log_core.null

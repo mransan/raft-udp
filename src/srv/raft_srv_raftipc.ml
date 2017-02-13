@@ -13,6 +13,7 @@ module Conf         = Raft_udp_conf
 module RTypes = Raft_types
 module RLog   = Raft_log
 module RPb    = Raft_pb 
+module RConv  = Raft_pb_conv
 
 type client_request   = Raft_app_pb.client_request * Raft_srv_clientipc.handle
 type client_response  = Raft_app_pb.client_response * Raft_srv_clientipc.handle 
@@ -74,20 +75,18 @@ module Pending_requests = struct
 
 end (* Pending_requests *)
 
-(*
- * All the outgoing RAFT messages are sent in a dedicated
+(* All the outgoing RAFT messages are sent in a dedicated
  * concurrent thread [state.outgoing_message_processing]. The 
- * RAFT protocol nevers requires the sender of a RAFT message to block and wait for any 
- * responses. (In fact that response might never come).
+ * RAFT protocol nevers requires the sender of a RAFT message to block and 
+ * wait for any responses. (In fact that response might never come).
  *
- * In order to send those message concurrently, an [Lwt_stream] is used to decouple
- * the threads which wants to compute the outgoing messages from the one which 
- * actually sends them.  
+ * In order to send those message concurrently, an [Lwt_stream] is used to 
+ * decouple the threads which wants to compute the outgoing messages from 
+ * the one which actually sends them.  
  * 
  * For the caller of this API sending a response is simply pushing the 
  * response to the stream (immediate). The Lwt scheduler will then 
  * pick it up asynchronously by scheduling [state.outgoing_message_processing]
- *
  *)
   
 type connection_state = {
@@ -160,54 +159,49 @@ type state = {
 
 type result = (state * client_responses * app_requests) 
 
-let handle_notifications logger stats connection_state compaction_handle notifications = 
+let handle_committed_logs logger stats connection_state 
+                          compaction_handle committed_logs = 
 
-  (* 
-   * Go over each notifications and compute the client response by looking
-   * up the map of pending request. 
-   *)
+  let committed_logs = List.map RConv.log_entry_to_pb committed_logs in 
+
   let connection_state, client_responses = 
-    Counter.Perf.f1 (Server_stats.not_processing stats) (fun notifications -> 
-      List.fold_left (fun acc notification ->
+    Counter.Perf.f1 (Server_stats.not_processing stats) (fun () -> 
+      List.fold_left (fun (connection_state, client_responses) log -> 
+        let {RPb.id; _} = log in 
 
-      match notification with
-      | RTypes.Committed_data rev_log_entries -> 
-        let ids = List.map (fun ({RPb.id; _ }:RPb.log_entry) -> id) rev_log_entries in 
-        List.fold_left (fun (connection_state, client_responses) id -> 
-          let {pending_requests; _ }   = connection_state in 
-          let pending_requests, client_request = Pending_requests.get_and_remove pending_requests id in 
-          let connection_state = {connection_state with pending_requests } in 
-          match client_request with
-          | None -> 
-            (connection_state, client_responses) 
-          | Some (_, handle) -> 
-            (connection_state, ((APb.Add_log_success, handle)::client_responses))
-        ) acc ids 
+        let {pending_requests; _ }   = connection_state in 
+        
+        let (
+          pending_requests, 
+          client_request
+        )  = Pending_requests.get_and_remove pending_requests id in 
+        
+        let connection_state = {connection_state with 
+          pending_requests 
+        } in 
 
-      | RTypes.New_leader _
-      | RTypes.No_leader  -> 
-        (* TODO need to go through all the pending requests. 
-         *)
-        acc
-      ) (connection_state, []) notifications  
-    ) notifications 
-  in
+        match client_request with
+        | None -> 
+          (connection_state, client_responses) 
+        | Some (_, handle) -> 
+          (connection_state, ((APb.Add_log_success, handle)::client_responses))
 
-  (* 
-   * The RAFT protocol dictates that all commited log entries must be stored
+      ) (connection_state, []) committed_logs 
+    ) ()
+  in 
+  
+  (* The RAFT protocol dictates that all committed log entries must be stored
    * permanently on DISK. This way, if a server crashes it can recover. 
    *)
-  Lwt_list.iter_s (function
-    | RTypes.Committed_data rev_log_entries -> 
-      Log_record.append_commited_data logger rev_log_entries compaction_handle 
-    | _ -> Lwt.return_unit
-  ) notifications
+  Log_record.append_committed_data logger committed_logs compaction_handle 
   >|=(fun () -> (connection_state, client_responses))
 
 let send_raft_messages ~logger ~stats id connection_state messages  = 
   let {push_outgoing_message; _ } = connection_state in 
 
-  Lwt_list.map_p (fun ((msg, server_id) as msg_to_send) ->
+  Lwt_list.map_p (fun ((msg, server_id) ) ->
+    let msg = RConv.message_to_pb msg in 
+    let msg_to_send  = (msg, server_id) in 
     Server_stats.tick_raft_msg_send stats; 
     Raft_srv_log.print_msg_to_send logger section id msg server_id 
     >|= (fun () -> push_outgoing_message (Some msg_to_send))
@@ -220,14 +214,15 @@ let process_result logger stats state result =
   let {
     Raft_logic.state = raft_state; 
     messages_to_send = outgoing_messages; 
-    notifications; 
+    committed_logs;
+    leader_change = _;  
   }  = result in 
 
-  handle_notifications 
-      logger stats connection_state log_record_handle notifications 
+  handle_committed_logs 
+      logger stats connection_state log_record_handle committed_logs
   >>=(fun (connection_state, client_responses) -> 
     send_raft_messages 
-        ~logger ~stats (raft_state.RTypes.id) 
+        ~logger ~stats (raft_state.RTypes.server_id) 
         connection_state outgoing_messages
     >|= (fun () -> 
       ({state with raft_state; connection_state}, client_responses, [])
@@ -239,10 +234,12 @@ let handle_raft_message ~logger ~stats ~now state msg =
 
   log ~logger ~level:Notice ~section "Raft Message Received"
   >>=(fun () -> Log.print_state logger section raft_state)
-  >>=(fun () -> Log.print_msg_received logger section msg raft_state.RTypes.id)
+  >>=(fun () -> 
+    Log.print_msg_received logger section msg raft_state.RTypes.server_id)
   >>=(fun () ->
     Server_stats.tick_raft_msg_recv stats;
 
+    let msg = RConv.message_of_pb msg in
     let perf = Server_stats.msg_processing stats in 
     let result = 
       Counter.Perf.f3 perf Raft_logic.handle_message raft_state msg now 
@@ -264,7 +261,8 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
     )
 
     | RTypes.New_leader_election -> (
-      Printf.printf "NEW LEADER ELECTION [%2i] \n%!" raft_state.RTypes.id;
+      Printf.printf "NEW LEADER ELECTION [%2i] \n%!" 
+            raft_state.RTypes.server_id;
       log ~logger ~level:Notice ~section "Leader Election timeout"
       >|= (fun () ->
         Raft_logic.handle_new_election_timeout raft_state now

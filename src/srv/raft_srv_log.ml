@@ -122,13 +122,13 @@ let print_leader () leader_state =
     | [] -> ""
     | server_index::tl -> 
       let {
-        RTypes.server_id;
+        RTypes.follower_id;
         next_index;
         outstanding_request; _ 
       } = server_index in 
 
       Printf.sprintf "\t\t\t\t server index: (id: %3i, next: %10i, out req.: %b)\n%a" 
-        server_id
+        follower_id
         next_index
         outstanding_request
         aux tl 
@@ -154,7 +154,7 @@ let print_candidate () candidate_state =
 
 let print_state logger section state = 
   let {
-    RTypes.id;
+    RTypes.server_id;
     current_term;
     log = {RLog.log_size; term_tree ; _  };
     commit_index;
@@ -177,7 +177,7 @@ let print_state logger section state =
     "%a"
   in
   log_f ~logger ~section ~level:Notice fmt 
-    "id" id 
+    "id" server_id
     "current term" current_term
     "commit index" commit_index
     "log size " log_size 

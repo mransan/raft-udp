@@ -2,7 +2,8 @@ let arg_of_server task _ =
 
   let arg = [| 
     task;
-    "--log";
+(*     "--log";
+ *)
   |] in 
   arg
 
@@ -21,7 +22,7 @@ let () =
 
   assert(!task <> "");
 
-  let nb_of_children = 1 in 
+  let nb_of_children = 3 in 
 
   for i = 1 to nb_of_children do
     match Unix.fork () with

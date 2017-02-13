@@ -25,7 +25,7 @@ let rec loop logger client counter_value () =
     | Raft_app_clt.Error msg -> 
       log_f ~logger ~level:Warning "Error, details: %s\n" msg
   )
-  >>= (fun () -> Lwt_unix.sleep 1.) 
+  >>= (fun () -> Lwt_unix.sleep 0.001) 
   >>= loop logger client (counter_value + 1) 
 
 let main log () = 
