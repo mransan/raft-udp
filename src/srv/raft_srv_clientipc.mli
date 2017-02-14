@@ -11,13 +11,13 @@ type handle
   * Internally this is the file descriptor. 
   *)
 
-type client_request = Raft_app_pb.client_request * handle
+type client_request = Raft_com_pb.client_request * handle
 (* type client_request  = Raft_udp_pb.client_request * handle 
  *)
 
 (** Client request type *)
 
-type send_response_f = (Raft_app_pb.client_response * handle) option -> unit 
+type send_response_f = (Raft_com_pb.client_response * handle) option -> unit 
 (** Sender function for the caller to send a response 
  *)
 
@@ -33,7 +33,7 @@ type t = client_request Lwt_stream.t * send_response_f
 
 val make : 
   Lwt_log_core.logger -> 
-  Raft_udp_pb.configuration ->
+  Raft_com_conf.t ->
   Raft_srv_serverstats.t ->
   int -> 
   t

@@ -3,7 +3,7 @@ open !Lwt_log_core
 
 module RPb = Raft_pb
 module RConv = Raft_pb_conv
-module Pb  = Raft_udp_pb
+module Conf = Raft_com_conf
 
 let section = Section.make (Printf.sprintf "%10s" "LogRecord")
 
@@ -34,7 +34,10 @@ end
 
 type t = Lwt_io.output_channel  
 
-let filename {Pb.disk_backup = {Pb.log_record_directory; _}; _ } server_id  = 
+let filename configuration server_id  = 
+  let {
+    Conf.disk_backup = {Conf.log_record_directory; _}; _ 
+  } = configuration in 
   Filename.concat log_record_directory (Printf.sprintf "record_%03i.data" server_id)
 
 let make logger configuration server_id = 

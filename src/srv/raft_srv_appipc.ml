@@ -1,15 +1,15 @@
 open Lwt.Infix 
 open !Lwt_log_core
 
-module UPb = Raft_udp_pb 
-module APb = Raft_app_pb
+module APb = Raft_com_pb
 module Pb_util = Raft_udp_pbutil
 module Server_stats = Raft_srv_serverstats
+module Conf = Raft_com_conf
 module U = Lwt_unix
 
-type send_app_request_f  = Raft_app_pb.app_request option -> unit 
+type send_app_request_f  = Raft_com_pb.app_request option -> unit 
 
-type t = send_app_request_f * Raft_app_pb.app_response Lwt_stream.t 
+type t = send_app_request_f * Raft_com_pb.app_response Lwt_stream.t 
 
 let section = Section.make (Printf.sprintf "%10s" "AppIPC")
 
@@ -50,7 +50,7 @@ module Event = struct
 
 end 
 
-let connect logger {UPb.app_server_port; _} () = 
+let connect logger {Conf.app_server_port; _} () = 
   let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", app_server_port) in 
   let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
 

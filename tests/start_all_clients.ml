@@ -7,8 +7,7 @@ let arg_of_server task _ =
   |] in 
   arg
 
-module Conf = Raft_udp_conf
-module Udp  = Raft_udp_pb
+module Conf = Raft_com_conf
    
 let () = 
 

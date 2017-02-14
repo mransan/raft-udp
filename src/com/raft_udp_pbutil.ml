@@ -1,4 +1,4 @@
-module APb = Raft_app_pb 
+module APb = Raft_com_pb 
 
 let string_of_app_request = function
   | APb.Validate_txs {APb.txs} ->

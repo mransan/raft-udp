@@ -29,10 +29,10 @@ test:
 
 gen:
 	@# ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_udp.proto
-	ocaml-protoc -I ../raft.git/src/ -ml_out src/srv src/srv/raft_srv.proto
-	ocaml-protoc -I ../raft.git/src/ -ml_out src/com src/com/raft_app.proto
-	ocaml-protoc -I ../raft.git/src/ -ml_out tests/counter  tests/counter/counter.proto
-	ocaml-protoc -I ../raft.git/src/ -ml_out tests/asset  tests/asset/asset.proto
+	ocaml-protoc -I ../raft-pb.git/src/ -ml_out src/srv src/srv/raft_srv.proto
+	ocaml-protoc -I ../raft-pb.git/src/ -ml_out src/com src/com/raft_com.proto
+	ocaml-protoc -I ../raft-pb.git/src/ -ml_out tests/counter  tests/counter/counter.proto
+	ocaml-protoc -I ../raft-pb.git/src/ -ml_out tests/asset  tests/asset/asset.proto
 
 lib.native:
 	$(OCB) raft_udp.cmxa

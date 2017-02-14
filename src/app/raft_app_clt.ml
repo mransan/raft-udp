@@ -1,10 +1,9 @@
 open Lwt.Infix
 open !Lwt_log_core 
 
-module Conf = Raft_udp_conf
+module Conf = Raft_com_conf
 module U    = Lwt_unix
-module UPb  = Raft_udp_pb
-module APb  = Raft_app_pb
+module APb  = Raft_com_pb
 
 module type App_sig = sig 
 
@@ -80,7 +79,7 @@ module State = struct
       (* Successful on going connection with the leader *)
 
   type t = {
-    configuration : UPb.configuration; 
+    configuration : Conf.t;
     leader : leader;
   }
 
@@ -107,7 +106,9 @@ module State = struct
     {state with leader}
 
   let next ({configuration; leader} as state) = 
-    let nb_of_servers = List.length (configuration.UPb.servers_ipc_configuration) in 
+    let nb_of_servers = 
+      List.length (configuration.Conf.servers_ipc_configuration) 
+    in 
     let next = match leader with
       | Established (i, _)  -> (i + 1) mod nb_of_servers
       | No                  -> 0
@@ -123,7 +124,7 @@ type pending_request = APb.client_request * send_result Lwt.u
 type t = {
   mutable state : State.t; 
   logger : Lwt_log_core.logger; 
-  configuration : Raft_udp_pb.configuration; 
+  configuration : Conf.t; 
   request_stream : pending_request  Lwt_stream.t;
   request_push : pending_request option -> unit;  
   mutable client_loop : unit Lwt.t;
@@ -319,7 +320,7 @@ module Make(App:App_sig) = struct
   let send {request_push; _} tx = 
     let t, u = Lwt.wait () in
     let bytes = App.encode tx  in
-    let tx = Raft_app_pb.(Add_tx {
+    let tx = Raft_com_pb.(Add_tx {
       tx_id = unique_id (); 
       tx_data = bytes;
     }) in 

@@ -3,23 +3,22 @@ open !Lwt_log_core
 
 module Counter      = Raft_utl_counter
 
-module UPb          = Raft_udp_pb
-module APb          = Raft_app_pb
+module APb          = Raft_com_pb
 module Server_stats = Raft_srv_serverstats
 module Log          = Raft_srv_log 
 module Log_record   = Raft_srv_logrecord
-module Conf         = Raft_udp_conf
+module Conf         = Raft_com_conf
 
 module RTypes = Raft_types
 module RLog   = Raft_log
 module RPb    = Raft_pb 
 module RConv  = Raft_pb_conv
 
-type client_request   = Raft_app_pb.client_request * Raft_srv_clientipc.handle
-type client_response  = Raft_app_pb.client_response * Raft_srv_clientipc.handle 
+type client_request   = Raft_com_pb.client_request * Raft_srv_clientipc.handle
+type client_response  = Raft_com_pb.client_response * Raft_srv_clientipc.handle 
 type client_responses = client_response list 
-type app_requests = Raft_app_pb.app_request list 
-type app_response = Raft_app_pb.app_response 
+type app_requests = Raft_com_pb.app_request list 
+type app_response = Raft_com_pb.app_response 
 
 let section = Section.make (Printf.sprintf "%10s" "RaftIPC")
 
@@ -100,10 +99,10 @@ type connection_state = {
 
 let initialize configuration = 
 
-  let server_addresses = List.map (fun ({UPb.raft_id; _ } as server_config) ->
+  let server_addresses = List.map (fun ({Conf.raft_id; _ } as server_config) ->
     let fd = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM 0 in
     (raft_id, (Conf.sockaddr_of_server_config `Raft server_config, fd))
-  ) configuration.UPb.servers_ipc_configuration in
+  ) configuration.Conf.servers_ipc_configuration in
 
   let (
     outgoing_message_stream, 

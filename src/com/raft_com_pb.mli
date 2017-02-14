@@ -1,4 +1,4 @@
-(** raft_app.proto Generated Types and Encoding *)
+(** raft_com.proto Generated Types and Encoding *)
 
 
 (** {2 Types} *)

@@ -15,7 +15,7 @@ type t
 (** Handle to be maintain by client application. 
   *)
 
-val make : Lwt_log_core.logger -> Raft_udp_pb.configuration -> int -> t Lwt.t 
+val make : Lwt_log_core.logger -> Raft_com_conf.t -> int -> t Lwt.t 
 (** [make configuration] initialize the disk based log recoding. 
     
     returns a handle that client application should keep track 
@@ -32,7 +32,7 @@ val append_committed_data :
 
 
 val read_log_records : 
-  Raft_udp_pb.configuration -> 
+  Raft_com_conf.t -> 
   int -> 
   ('a -> Raft_pb.log_entry -> 'a) -> 
   'a -> 

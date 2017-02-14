@@ -1,4 +1,4 @@
-(** raft_udp.proto Generated Types and Encoding *)
+(** Configuration utilities. *)
 
 (** {2 Types} *)
 
@@ -15,9 +15,26 @@ type disk_backup_configuration = {
   compaction_directory : string;
 }
 
-type configuration = {
+type t = {
   raft_configuration : Raft_types.configuration;
   servers_ipc_configuration : server_ipc_configuration list;
   disk_backup : disk_backup_configuration;
   app_server_port : int;
 }
+
+(** {2 Utilities} *)
+
+val default_configuration : 
+  unit -> 
+  t
+
+val sockaddr_of_server_id : 
+  [< `Client | `Raft ] ->
+  t ->
+  int -> 
+  Unix.sockaddr option
+
+val sockaddr_of_server_config: 
+  [< `Client | `Raft ] ->
+  server_ipc_configuration->
+  Unix.sockaddr

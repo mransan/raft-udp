@@ -8,9 +8,8 @@ module RLog = Raft_log
 module RTypes = Raft_types
 module RConv = Raft_pb_conv
 
-module UPb = Raft_udp_pb
-module APb = Raft_app_pb
-module Conf = Raft_udp_conf
+module APb = Raft_com_pb
+module Conf = Raft_com_conf
 module Server_stats = Raft_srv_serverstats
 module Raft_ipc = Raft_srv_raftipc
 module Client_ipc = Raft_srv_clientipc
@@ -239,7 +238,7 @@ let run_server configuration id logger print_header slow =
   in
 
   let initial_raft_state = RRole.Follower.create
-    ~configuration:configuration.UPb.raft_configuration 
+    ~configuration:configuration.Conf.raft_configuration 
     ~now:(get_now ()) 
     ~server_id:id () 
   in
@@ -306,7 +305,7 @@ let () =
   Printf.printf ">>PID: %i\n%!" (Unix.getpid ());
   Random.self_init ();
   let configuration = Conf.default_configuration () in
-  let nb_of_servers = List.length configuration.UPb.servers_ipc_configuration in 
+  let nb_of_servers = List.length configuration.Conf.servers_ipc_configuration in 
 
   let ids = 
     let rec aux acc = function

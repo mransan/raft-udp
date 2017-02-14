@@ -1,8 +1,27 @@
 
-module Pb  = Raft_udp_pb
 module RTypes = Raft_types
 
-let default_configuration () = Pb.({
+type server_ipc_configuration = {
+  raft_id : int;
+  inet4_address : string;
+  raft_port : int;
+  client_port : int;
+}
+
+type disk_backup_configuration = {
+  compaction_period : float;
+  log_record_directory : string;
+  compaction_directory : string;
+}
+
+type t = {
+  raft_configuration : Raft_types.configuration;
+  servers_ipc_configuration : server_ipc_configuration list;
+  disk_backup : disk_backup_configuration;
+  app_server_port : int;
+}
+
+let default_configuration () = {
   raft_configuration = RTypes.({
     nb_of_server = 3;
     election_timeout = 0.50;
@@ -24,15 +43,18 @@ let default_configuration () = Pb.({
     {raft_id = 8; inet4_address = "127.0.0.1"; raft_port = 34763; client_port = 34863};
     *)
   ];
+
   disk_backup = {
     compaction_period = 1.;
     log_record_directory = "/tmp/";
     compaction_directory = "/tmp/";
   };
-  app_server_port = 40_000;
-})
 
-let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port; _ } =
+  app_server_port = 40_000;
+}
+
+let sockaddr_of_server_config which server_ipc_conf = 
+  let {inet4_address; raft_port; client_port; _ } = server_ipc_conf in 
   let port = match which with
     | `Client  -> client_port 
     | `Raft    -> raft_port
@@ -40,9 +62,9 @@ let sockaddr_of_server_config which {Pb.inet4_address; raft_port; client_port; _
   Unix.ADDR_INET (Unix.inet_addr_of_string inet4_address, port)
 
 let sockaddr_of_server_id which configuration server_id =
-  let is_server {Pb.raft_id; _ } =
+  let is_server {raft_id; _ } =
     raft_id = server_id
   in
-  match List.find is_server configuration.Pb.servers_ipc_configuration with
+  match List.find is_server configuration.servers_ipc_configuration with
   | server_config -> Some (sockaddr_of_server_config which server_config)
   | exception Not_found -> None

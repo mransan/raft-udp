@@ -12,15 +12,15 @@ type event =
 
 type next_raft_message_f = unit -> event Lwt.t  
 
-type client_request   = Raft_app_pb.client_request * Raft_srv_clientipc.handle
+type client_request   = Raft_com_pb.client_request * Raft_srv_clientipc.handle
 
-type client_response  = Raft_app_pb.client_response * Raft_srv_clientipc.handle 
+type client_response  = Raft_com_pb.client_response * Raft_srv_clientipc.handle 
 
 type client_responses = client_response list 
 
-type app_requests = Raft_app_pb.app_request list 
+type app_requests = Raft_com_pb.app_request list 
 
-type app_response = Raft_app_pb.app_response 
+type app_response = Raft_com_pb.app_response 
 
 type connection_state 
 (** Abstract type which internally capture the necessary information to 
@@ -46,14 +46,14 @@ type result = (state * client_responses * app_requests)
 (** {2 Event handling} *)
 
 val get_next_raft_message_f_for_server : 
-  Raft_udp_pb.configuration -> 
+  Raft_com_conf.t -> 
   int ->
   next_raft_message_f 
 (** [get_next_raft_message_f_for_server configuration server_id] returns 
     the function [f] to receive the next raft message for [server_id].
  *)
 
-val initialize : Raft_udp_pb.configuration -> connection_state 
+val initialize : Raft_com_conf.t -> connection_state 
 (** [initialize ()] returns an empty connection state *)
 
 val handle_raft_message :

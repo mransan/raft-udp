@@ -2,9 +2,9 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module U            = Lwt_unix
-module Conf         = Raft_udp_conf
+module Conf         = Raft_com_conf
 module Server_stats = Raft_srv_serverstats
-module APb          = Raft_app_pb 
+module APb          = Raft_com_pb 
 
 type handle = Lwt_unix.file_descr
 

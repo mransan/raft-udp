@@ -1,7 +1,7 @@
 open Lwt.Infix 
 open Lwt_log_core 
 
-module Conf = Raft_udp_conf 
+module Conf = Raft_com_conf 
 
 module Counter_clt = Raft_app_clt.Make(struct
 

@@ -1,9 +1,9 @@
 open Lwt.Infix 
 open !Lwt_log_core
 
-module UPb = Raft_udp_pb
-module APb = Raft_app_pb
+module APb = Raft_com_pb
 module Pb_util = Raft_udp_pbutil
+module Conf = Raft_com_conf
 
 module U  = Lwt_unix 
 
@@ -39,7 +39,7 @@ module  Event = struct
     New_request (app_request, fd) 
 end 
 
-let get_next_connection_f logger {UPb.app_server_port; _} () =
+let get_next_connection_f logger {Conf.app_server_port; _} () =
 
   (* Initial, done once, connection setup
    *) 
