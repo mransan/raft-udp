@@ -22,7 +22,11 @@ val make : Lwt_log_core.logger -> Raft_udp_pb.configuration -> int -> t Lwt.t
     of in order to subsequently call the [append_committed_data] function
   *)
 
-val append_committed_data : Lwt_log_core.logger -> Raft_pb.log_entry list -> t -> unit Lwt.t 
+val append_committed_data : 
+  Lwt_log_core.logger -> 
+  Raft_log.log_entry list -> 
+  t -> 
+  unit Lwt.t 
 (** [append_committed_data log_entries handle] permanently record the [log_entries]. 
   *)
 

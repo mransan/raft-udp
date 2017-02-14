@@ -2,6 +2,7 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module RPb = Raft_pb
+module RConv = Raft_pb_conv
 module Pb  = Raft_udp_pb
 
 let section = Section.make (Printf.sprintf "%10s" "LogRecord")
@@ -48,7 +49,7 @@ let append size_bytes log_entry handle =
 
   let data_bytes = 
     let encoder = Pbrt.Encoder.create () in 
-    RPb.encode_log_entry log_entry encoder; 
+    RPb.encode_log_entry (RConv.log_entry_to_pb log_entry) encoder; 
     Pbrt.Encoder.to_bytes encoder
   in  
 
@@ -64,7 +65,7 @@ let append size_bytes log_entry handle =
 let append_committed_data logger log_entries handle = 
 
   let size_bytes = Bytes.create 4 in 
-  Lwt_list.iter_s (fun ({RPb.index; id; _} as log_entry) -> 
+  Lwt_list.iter_s (fun ({Raft_log.index; id; _} as log_entry) -> 
     append size_bytes log_entry handle
     >>=(fun () -> 
       log_f ~logger ~level:Notice ~section "log_entry appended (index: %10i, id: %s)" 

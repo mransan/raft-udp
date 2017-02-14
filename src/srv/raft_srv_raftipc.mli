@@ -40,6 +40,8 @@ type state = {
 }
 
 type result = (state * client_responses * app_requests) 
+(* TODO check if there is ever a need for more than one app_request 
+ * ie maybe chane to app_request option rather than list *)
 
 (** {2 Event handling} *)
 
