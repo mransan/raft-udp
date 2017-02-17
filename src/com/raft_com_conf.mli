@@ -19,7 +19,7 @@ type t = {
   raft_configuration : Raft_types.configuration;
   servers_ipc_configuration : server_ipc_configuration list;
   disk_backup : disk_backup_configuration;
-  app_server_port : int;
+  app_server_port : int list;
 }
 
 (** {2 Utilities} *)

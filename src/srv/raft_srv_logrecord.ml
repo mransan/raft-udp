@@ -1,139 +1,46 @@
 open Lwt.Infix 
 open !Lwt_log_core
 
-module RPb = Raft_pb
-module RConv = Raft_pb_conv
 module Conf = Raft_com_conf
+
+module Rocks = Raft_rocks
 
 let section = Section.make (Printf.sprintf "%10s" "LogRecord")
 
-module Int32_encoding = struct 
-  
-  let byte pos bytes = 
-    int_of_char (Bytes.get bytes pos)
-  
-  let decode_int pos bytes =
-    let b1 = byte (pos + 0) bytes in
-    let b2 = byte (pos + 1) bytes in
-    let b3 = byte (pos + 2) bytes in
-    let b4 = byte (pos + 3) bytes in
-    Int32.(add (shift_left (of_int b4) 24)
-           (add (shift_left (of_int b3) 16)
-            (add (shift_left (of_int b2) 8)
-             (of_int b1))))
-    |> Int32.to_int 
+type t = Rocks.db 
 
-  let encode_int pos i bytes = 
-    let i = Int32.of_int i in 
-    Bytes.set bytes (pos + 0) (char_of_int Int32.(to_int (logand 0xffl i)));
-    Bytes.set bytes (pos + 1) (char_of_int Int32.(to_int (logand 0xffl (shift_right i 8))));
-    Bytes.set bytes (pos + 2) (char_of_int Int32.(to_int (logand 0xffl (shift_right i 16))));
-    Bytes.set bytes (pos + 3) (char_of_int Int32.(to_int (logand 0xffl (shift_right i 24))))
-
-end 
-
-type t = Lwt_io.output_channel  
-
-let filename configuration server_id  = 
+let dirname configuration server_id  = 
   let {
     Conf.disk_backup = {Conf.log_record_directory; _}; _ 
   } = configuration in 
-  Filename.concat log_record_directory (Printf.sprintf "record_%03i.data" server_id)
+  let dirname = Printf.sprintf "raft_%03i.data" server_id in
+  Filename.concat log_record_directory dirname
 
 let make logger configuration server_id = 
-  let filename = filename configuration  server_id in 
-  Lwt_io.open_file ~flags:[Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND] ~mode:Lwt_io.output filename  
-  >>=(fun file -> 
-    log_f ~logger ~level:Notice ~section "Creating log record file: %s\n" filename
-    >|=(fun () -> file)
-  ) 
+  let dirname = dirname configuration  server_id in 
+  let db = Rocks.init dirname in 
+  log_f ~logger ~level:Notice ~section
+        "Creating log record file: %s\n" dirname
+  >|= (fun () -> db)
 
-let append size_bytes log_entry handle = 
-
-  let data_bytes = 
-    let encoder = Pbrt.Encoder.create () in 
-    RPb.encode_log_entry (RConv.log_entry_to_pb log_entry) encoder; 
-    Pbrt.Encoder.to_bytes encoder
-  in  
-
-  let data_size = Bytes.length data_bytes in 
-
-  Int32_encoding.encode_int 0 data_size size_bytes; 
-
-  Lwt_io.write_from_exactly handle size_bytes 0 4 
-  >>=(fun () -> 
-    Lwt_io.write_from_exactly handle data_bytes 0 data_size 
-  )
-
-let append_committed_data logger log_entries handle = 
-
-  let size_bytes = Bytes.create 4 in 
-  Lwt_list.iter_s (fun ({Raft_log.index; id; _} as log_entry) -> 
-    append size_bytes log_entry handle
-    >>=(fun () -> 
-      log_f ~logger ~level:Notice ~section "log_entry appended (index: %10i, id: %s)" 
-        index id)
+let append_committed_data logger log_entries db = 
+  Lwt_list.iter_s (fun ({Raft_log.index; id; _} as log) -> 
+    Rocks.add_log ~log ~committed:true ~db ();
+    log_f ~logger ~level:Notice ~section 
+          "log_entry appended (index: %10i, id: %s)" 
+          index id
   ) log_entries
-  >>=(fun () -> Lwt_io.flush handle) 
 
-type read_result = 
-  | Ok of RPb.log_entry
-    (** The next log entry could be read *)
-  | Done 
-    (** Reached the end of the file *)
-  | Error of string 
-    (** En error occurred (IO or invalid record on disk for instance) *)
-
-(*
- * Read a single [log_entry] record from the file. 
- *
- * return [None] if no [log_entry] could be read. 
- *
- * Note that we have no way to know before invoking [read]
- * that the file does not contain a valid [log_entry]. We 
- * therefore rely on [read] failing to detect the end of the 
- * file. 
- *)
-let read_log_entry_from_file size_bytes file = 
-  Lwt.catch (fun () -> 
-    Lwt_io.read_into_exactly file size_bytes 0 4 
-    >>=(fun () ->
-      let data_len = Int32_encoding.decode_int 0 size_bytes in 
-      let data = Bytes.create data_len in 
-      Lwt_io.read_into_exactly file data 0 data_len
-      >|=(fun () ->
-        let decoder = Pbrt.Decoder.of_bytes data in 
-        Ok (RPb.decode_log_entry decoder)
-      )
-    ) 
-  ) (* with *) (function
-    | End_of_file -> 
-      Lwt_io.close file >|= (fun () -> Done)  
-
-    | exn -> 
-      Lwt_io.eprintlf "Error reading log records: %s" (Printexc.to_string exn)
-      >>=(fun () -> Lwt_io.close file)
-      >|=(fun () -> Error (Printf.sprintf "Error reading log records, details: %s" (Printexc.to_string exn))) 
-  )
-
-let read_log_records configuration server_id f e0 =
-
-  let filename = filename configuration server_id in 
-  Lwt.catch (fun () ->
-    Lwt_io.open_file ~mode:Lwt_io.input filename
-    >>=(fun file ->
-      let bytes = Bytes.create 4 in 
-      let rec aux acc = 
-        read_log_entry_from_file bytes file 
-        >>=(function
-          | Done    -> Lwt.return acc
-          | Ok x    -> aux (f acc x)
-          | Error s -> Lwt.fail_with s
-        ) 
-      in
-      aux e0 
-    ) 
-  ) (* with *) (function
-    | Unix.Unix_error (Unix.ENOENT, _, _) -> Lwt.return e0
-    | _ -> Lwt.fail_with "Error reading log record file" 
-  )
+let read_log_records db f e0 = 
+  let rec aux count acc = function
+    | Rocks.End -> Lwt.return acc 
+    | Rocks.Value ((log, _, _), k) -> 
+      let acc = f acc log in 
+      if count mod 1_000 = 0
+      then
+        Lwt_unix.yield () 
+        >>=(fun () -> aux (count + 1) acc (k ())) 
+      else 
+        aux (count + 1) acc (k ())
+  in 
+  aux 0 e0 (Rocks.forward_by_index ~db ())

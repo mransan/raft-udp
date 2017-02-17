@@ -7,9 +7,9 @@ module APb  = Raft_com_pb
 
 module type App_sig = sig 
 
-  type tx 
+  type log
 
-  val encode : tx -> bytes 
+  val encode : log -> bytes 
 
 end 
 
@@ -193,14 +193,26 @@ let handle_request ({state; logger; _ }) client_request response_wakener =
             let buffer = Bytes.create 1024 in
             U.read fd buffer 0 1024
             >>= (fun bytes_read ->
-              log_f ~logger ~level:Notice "Response received (size: %i)" bytes_read
+              log_f ~logger ~level:Notice 
+                    "Response received (size: %i)" bytes_read
               >>=(fun () -> 
                 if bytes_read <> 0 && bytes_read <> 1024
                 then
-                  let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 bytes_read) in
-                  Event.lwt_response (APb.decode_client_response decoder) response_wakener ()
+                  let client_response = 
+                    Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 bytes_read) 
+                    |> APb.decode_client_response   
+                  in
+                  let s = 
+                    Format.asprintf "%a" APb.pp_client_response client_response
+                  in  
+                  log_f ~logger ~level:Notice 
+                    "Client response decoded: %s" s
+                  >>= Event.lwt_response client_response response_wakener 
                 else
-                  Event.connection_closed fd () 
+                  log_f ~logger ~level:Error 
+                    "Invalid nb of byte read: %i, closing connection" 
+                    bytes_read
+                  >>= Event.connection_closed fd 
               )
             )
           )
@@ -317,13 +329,13 @@ let unique_id =
 
 module Make(App:App_sig) = struct 
 
-  let send {request_push; _} tx = 
+  let send {request_push; _} log = 
     let t, u = Lwt.wait () in
-    let bytes = App.encode tx  in
-    let tx = Raft_com_pb.(Add_tx {
-      tx_id = unique_id (); 
-      tx_data = bytes;
+    let bytes = App.encode log in
+    let request = Raft_com_pb.(Add_log_entry {
+      id = unique_id (); 
+      data = bytes;
     }) in 
-    request_push (Some (tx, u)); 
+    request_push (Some (request , u)); 
     t
 end

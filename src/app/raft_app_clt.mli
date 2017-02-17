@@ -6,9 +6,9 @@
   *)
 module type App_sig = sig 
 
-  type tx 
+  type log 
 
-  val encode : tx -> bytes 
+  val encode : log -> bytes 
 
 end 
 
@@ -22,6 +22,6 @@ type send_result =
 
 module Make(App:App_sig) : sig 
 
-  val send : t -> App.tx -> send_result Lwt.t 
+  val send : t -> App.log -> send_result Lwt.t 
 
 end

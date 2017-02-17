@@ -1,10 +1,12 @@
-let arg_of_server task _ = 
+let arg_of_server log task _ = 
 
   let arg = [| 
     task;
-(*     "--log";
- *)
+    "--log";
   |] in 
+  if not log 
+  then arg.(1) <- "";
+
   arg
 
 module Conf = Raft_com_conf
@@ -13,7 +15,11 @@ let () =
 
   let task = ref "" in 
 
+  let log = ref false in 
+  let log_spec = Arg.Set log in 
+
   Arg.parse [
+    ("--log", log_spec, " : enable logging");
   ] (function 
     | "counter" -> task := "./counter_clt.native" 
     | _ -> failwith "Invalid app name"
@@ -25,7 +31,7 @@ let () =
 
   for i = 1 to nb_of_children do
     match Unix.fork () with
-    | 0 -> Unix.execv !task (arg_of_server !task i)
+    | 0 -> Unix.execv !task (arg_of_server !log !task i)
     | _ -> ()
   done;
   

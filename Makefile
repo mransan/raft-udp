@@ -20,10 +20,9 @@ endif
 .PHONY: test gen lib.native lib.byte lib.install lib.uninstall clean 
 
 test: 
-	$(OCB) server.native
+	$(OCB) -pkg raft-rocks server.native
 	$(OCB) counter_srv.native
 	$(OCB) counter_clt.native
-	$(OCB) -pkgs cryptokit,base58 asset_test.native
 	$(OCB) start_all_servers.native
 	$(OCB) start_all_clients.native
 

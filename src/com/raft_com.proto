@@ -1,10 +1,12 @@
 option (int32_type) = int_t;
 
+import "raft.proto";
+
 package raft.app;
 
-message Tx {
-  required string tx_id   = 1; 
-  required bytes  tx_data = 2;
+message ClientLogEntry {
+  required string id   = 1; 
+  required bytes  data = 2;
 }
 
 // Client <---> RAFT Server protocol
@@ -13,7 +15,7 @@ message Tx {
 
 message ClientRequest {
   oneof t {
-    Tx add_tx = 1;
+    ClientLogEntry add_log_entry = 1;
   }
 }
 
@@ -38,13 +40,12 @@ message ClientResponse {
 
 message AppRequest {
   
-  message ValidateTxs {
-    repeated Tx txs = 1;
+  message AddLogEntries {
+    repeated raft.LogEntry log_entries = 1;
   }
 
   oneof app_request_payload {
-    ValidateTxs validate_txs = 3; 
-    Tx          commit_tx    = 4; 
+    AddLogEntries add_log_entries = 3; 
   }
 }
 
@@ -58,7 +59,7 @@ message AppResponse {
       required int32  error_code    = 2;
     }
 
-    required string tx_id = 1;
+    required string id = 1;
     oneof result {
       Success validation_success = 2; 
       Failure validation_failure = 3;
@@ -69,12 +70,7 @@ message AppResponse {
     repeated Validation validations = 1; 
   }
 
-  message CommitTxAck {
-    required string  tx_id = 2;
-  }
-
   oneof app_response_payload {
     Validations     validations      = 4;
-    CommitTxAck    commit_tx_ack   = 5;
   }
 }

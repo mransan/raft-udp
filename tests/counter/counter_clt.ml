@@ -5,11 +5,11 @@ module Conf = Raft_com_conf
 
 module Counter_clt = Raft_app_clt.Make(struct
 
-  type tx = Counter_pb.tx 
+  type log = Counter_pb.log 
 
-  let encode tx = 
+  let encode log = 
     let encoder = Pbrt.Encoder.create () in 
-    Counter_pb.encode_tx tx encoder; 
+    Counter_pb.encode_log log encoder; 
     Pbrt.Encoder.to_bytes encoder
 
 end)

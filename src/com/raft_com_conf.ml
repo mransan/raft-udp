@@ -18,7 +18,7 @@ type t = {
   raft_configuration : Raft_types.configuration;
   servers_ipc_configuration : server_ipc_configuration list;
   disk_backup : disk_backup_configuration;
-  app_server_port : int;
+  app_server_port : int list;
 }
 
 let default_configuration () = {
@@ -50,7 +50,7 @@ let default_configuration () = {
     compaction_directory = "/tmp/";
   };
 
-  app_server_port = 40_000;
+  app_server_port = [40_000; 40_001; 40_002];
 }
 
 let sockaddr_of_server_config which server_ipc_conf = 

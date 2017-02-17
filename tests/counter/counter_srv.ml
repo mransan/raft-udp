@@ -9,11 +9,11 @@ module U  = Lwt_unix
 
 module Counter_srv = Raft_app_srv.Make(struct
 
-  type tx_data = Counter_pb.tx 
+  type log_data = Counter_pb.log 
 
   let decode bytes = 
     let decoder = Pbrt.Decoder.of_bytes bytes in 
-    Counter_pb.decode_tx decoder 
+    Counter_pb.decode_log decoder 
 
 end)
 
@@ -29,37 +29,37 @@ module State = struct
 end 
 
 let process_demo_app_request logger (validations, notify) state = 
-  Lwt_list.fold_left_s (fun (tx_validations, state) tx -> 
+  Lwt_list.fold_left_s (fun (log_validations, state) log -> 
 
     let {
-      Counter_srv.tx_id; 
-      tx_data = {Counter_pb.counter_value; process_id};
-    } = tx in
+      Counter_srv.id; 
+      data = {Counter_pb.counter_value; process_id};
+    } = log in
 
     let state = State.process state counter_value process_id in
 
-    log_f ~logger ~level:Notice "Added: (%06i, %6i) from tx_id: %s" 
-          counter_value process_id tx_id
+    log_f ~logger ~level:Notice "Added: (%06i, %6i) from log id: %s" 
+          counter_value process_id id
 
     >|= (fun () -> 
-      let tx_validation = Raft_app_srv.({
-        tx_id; 
+      let log_validation = Raft_app_srv.({
+        id; 
         result = Raft_app_srv.Ok; 
       }) in 
-      (tx_validation::tx_validations, state) 
+      (log_validation::log_validations, state) 
     )
   ) ([], state) validations 
 
-  >|=(fun (tx_validations, state) -> 
-    notify @@ List.rev tx_validations; 
+  >|=(fun (log_validations, state) -> 
+    notify @@ List.rev log_validations; 
     state
   ) 
 
-let main configuration log () = 
+let main configuration server_id log () = 
   begin 
     if log 
     then 
-      let file_name = "app.log" in 
+      let file_name = Printf.sprintf "app%03i.log" server_id in 
       let template  = 
         "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" 
       in
@@ -69,7 +69,7 @@ let main configuration log () =
   end
   >>=(fun logger -> 
 
-    let request_stream = Counter_srv.start logger configuration  in 
+    let request_stream = Counter_srv.start logger configuration server_id in 
 
     Lwt_stream.fold_s (fun request state -> 
       process_demo_app_request logger request state
@@ -83,10 +83,16 @@ let () =
 
   let log = ref false in 
   let log_spec = Arg.Set log  in
+  let server_id = ref (-1) in 
+  let server_id_spec = Arg.Set_int server_id in 
   
   Arg.parse [
     ("--log", log_spec, " : enable logging");
+    ("--id", server_id_spec, " : server id");
   ] (fun _ -> ()) "test.ml";
 
+  assert(!server_id >= 0);
+  assert(!server_id < List.length configuration.Conf.app_server_port);
+
   Sys.set_signal Sys.sigpipe Sys.Signal_ignore ; 
-  Lwt_main.run (main configuration !log ())
+  Lwt_main.run (main configuration !server_id !log ())

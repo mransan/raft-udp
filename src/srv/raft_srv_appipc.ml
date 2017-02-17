@@ -13,6 +13,7 @@ type t = send_app_request_f * Raft_com_pb.app_response Lwt_stream.t
 
 let section = Section.make (Printf.sprintf "%10s" "AppIPC")
 
+type connection = (Lwt_io.input_channel * Lwt_io.output_channel)
  
 module Event = struct 
   
@@ -22,7 +23,7 @@ module Event = struct
     | Failure of string 
       (* Fatal failure happened during IPC *)
 
-    | Connection_established of Lwt_unix.file_descr
+    | Connection_established of connection
       (* The connection is established to the App server *)
 
     | App_request  of APb.app_request 
@@ -36,8 +37,8 @@ module Event = struct
   let app_response app_response () = 
     App_response app_response 
 
-  let connection_established fd () = 
-    Connection_established fd 
+  let connection_established connection () = 
+    Connection_established connection 
 
   let app_request app_request () = 
     App_request app_request 
@@ -50,8 +51,13 @@ module Event = struct
 
 end 
 
-let connect logger {Conf.app_server_port; _} () = 
-  let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", app_server_port) in 
+let connect logger {Conf.app_server_port; _} server_id = 
+  let port = 
+    match List.nth app_server_port server_id with
+    | p -> p 
+    | exception _ -> assert(false)
+  in 
+  let ad = U.ADDR_INET (Unix.inet_addr_of_string "127.0.0.1", port) in 
   let fd = U.socket U.PF_INET U.SOCK_STREAM 0 in 
 
   let rec retry = function
@@ -62,13 +68,18 @@ let connect logger {Conf.app_server_port; _} () =
       Lwt.catch (fun () -> 
         U.connect fd ad 
         >>=(fun () -> 
-          log ~logger ~level:Notice ~section "Connection established with App server"
+          log ~logger ~level:Notice ~section 
+              "Connection established with App server"
         )
-        >|= Event.connection_established fd 
-
+        >|=(fun () -> 
+          let ic = Lwt_io.of_fd ~mode:Lwt_io.input fd in 
+          let oc = Lwt_io.of_fd ~mode:Lwt_io.output fd in 
+          Event.connection_established (ic, oc) ()
+        )
       ) (* with *) (fun exn -> 
-        log_f ~logger ~level:Error ~section "Error connecting to App server, %s" 
-          (Printexc.to_string exn) 
+        log_f ~logger ~level:Error ~section 
+              "Error connecting to App server, %s" 
+              (Printexc.to_string exn) 
         >>=(fun () -> 
           Lwt_unix.sleep 1. 
         ) 
@@ -81,26 +92,27 @@ let next_response =
   let buffer = Bytes.create 1024 in 
     (* TODO make the buffer size configurable *)
 
-  fun logger configuration fd () -> 
-   U.read fd buffer 0 1024
+  fun logger configuration server_id (ic, _) () -> 
+   Lwt_io.read_into ic buffer 0 1024
    >>=(function
      | 0 ->  
-       connect logger configuration () 
-       (* Event.failure_lwt "Connection closed by App server"
-        *)
+       connect logger configuration server_id 
+       (* Event.failure_lwt "Connection closed by App server" *)
 
      | received when received = 1024 -> 
        Event.failure_lwt "Response by App server is too large"
 
      | received -> 
-       log_f ~logger ~level:Notice ~section "Response received from app server (size: %i)" received
+       log_f ~logger ~level:Notice ~section 
+             "Response received from app server (size: %i)" received
        >>=(fun () ->
 
          let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 received) in 
          match APb.decode_app_response decoder with
          | app_response -> (
-           log_f ~logger ~level:Notice ~section "Response decoded with success: %s"
-             (Pb_util.string_of_app_response app_response) 
+           log_f ~logger ~level:Notice ~section 
+                 "Response decoded with success: %s"
+                 (Pb_util.string_of_app_response app_response) 
            >|= Event.app_response app_response 
          )
          | exception exn -> (
@@ -112,24 +124,30 @@ let next_response =
        )
    )
 
-let send_request logger configuration fd app_request = 
+let send_request logger configuration server_id connection app_request = 
+  let (_, oc) = connection in 
   let bytes = 
     let encoder = Pbrt.Encoder.create () in 
     APb.encode_app_request  app_request encoder; 
     Pbrt.Encoder.to_bytes encoder 
   in 
   let bytes_len = Bytes.length bytes in 
-  U.write fd bytes 0 bytes_len
-  >>=(function
-    | 0 -> Event.failure_lwt "Failed to send request to APP server"
-    | n -> 
-      assert(n = bytes_len); 
-      log_f ~logger ~level:Notice ~section "App request successfully sent:\n%s" 
-        (Pb_util.string_of_app_request app_request)
-
-      >>= next_response logger configuration fd
-  )  
-
+  Lwt.catch (fun () -> 
+    Lwt_io.write_from_exactly oc bytes 0 bytes_len
+    >>=(fun () ->
+      log_f ~logger ~level:Notice ~section 
+            "App request successfully sent:\n%s" 
+            (Pb_util.string_of_app_request app_request)
+      >>= next_response logger configuration server_id connection
+    )  
+  ) (* with *) (fun exn -> 
+    let error = 
+      Printf.sprintf "Error sending request to app server: %s" 
+        (Printexc.to_string exn)
+    in 
+    log ~logger ~level:Error ~section error
+    >|= Event.failure error  
+  ) 
 
 let get_next_request_f logger request_stream = 
 
@@ -143,7 +161,7 @@ let get_next_request_f logger request_stream =
         >|= Event.app_request request 
     )
 
-let make logger configuration (_:Server_stats.t)= 
+let make logger configuration server_id (_:Server_stats.t)= 
 
   let (
     request_stream, 
@@ -180,7 +198,7 @@ let make logger configuration (_:Server_stats.t)=
       begin match fd with 
       | None -> assert(false) 
       | Some fd2 -> 
-        send_request logger configuration fd2 request >>= loop fd  
+        send_request logger configuration server_id fd2 request >>= loop fd  
       end 
 
     | Event.App_response response -> 
@@ -188,7 +206,10 @@ let make logger configuration (_:Server_stats.t)=
       next_request () >>= loop fd 
   in
 
-  let t : unit Lwt.t  = connect logger configuration () >>= loop None in 
+  let t : unit Lwt.t  = 
+    connect logger configuration server_id 
+    >>= loop None 
+  in 
   set_response_ref t; 
 
   (push_request_f, response_stream)

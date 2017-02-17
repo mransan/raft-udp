@@ -167,16 +167,22 @@ let handle_committed_logs logger stats
     let _  = stats in 
       (* TODO probably need to collect some stats *)
 
-    let txs = List.map (fun {RLog.id; data; _} ->
-      {APb.tx_id = id; tx_data = data}
-    ) committed_logs in 
-    
-    let app_request = APb.(Validate_txs {txs}) in 
+    let log_entries = List.map RConv.log_entry_to_pb committed_logs in 
 
+    (* TODO : this grouping by 5 is due to a current limitation of the 
+     * App protocol (must fit within 1024 bytes)... this should 
+     * be moved out *)
+
+    let groups = Raft_utl_lib.group_of_n log_entries 5 in 
+
+    let app_requests = List.map (fun log_entries -> 
+      APb.(Add_log_entries {log_entries}) 
+    ) groups in 
+    
     (* The RAFT protocol dictates that all committed log entries must be stored
      * permanently on DISK. This way, if a server crashes it can recover.  *)
     Log_record.append_committed_data logger committed_logs compaction_handle 
-    >|=(fun () -> [app_request])
+    >|=(fun () -> app_requests)
 
 let send_raft_messages ~logger ~stats id connection_state messages  = 
   let {push_outgoing_message; _ } = connection_state in 
@@ -265,11 +271,11 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
     let (pending_requests, datas) = acc in 
     let (client_request_msg, _ (*handle*)) = client_request in 
     match client_request_msg with
-    | APb.Add_tx {APb.tx_id;tx_data}  -> 
+    | APb.Add_log_entry {APb.id;data}  -> 
       let pending_requests = 
-        Pending_requests.add pending_requests tx_id client_request 
+        Pending_requests.add pending_requests id client_request 
       in 
-      (pending_requests, (tx_data, tx_id) :: datas) 
+      (pending_requests, (data, id) :: datas) 
   ) (pending_requests, []) client_requests in
 
   let new_log_response  = 
@@ -309,31 +315,31 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
       
 let process_app_validation logger acc validation =  
 
-  let ( pending_requests, client_responses)  = acc in 
+  let (pending_requests, client_responses)  = acc in 
 
-  let { APb.tx_id; APb.result } = validation in 
+  let {APb.id; APb.result} = validation in 
   
   let (
     pending_requests, 
     client_request
-  ) = Pending_requests.get_and_remove pending_requests tx_id in 
+  ) = Pending_requests.get_and_remove pending_requests id in 
 
   match client_request, result with
   | None, _ -> 
-    (* This is ok that there is no client request associated with a tx_id, 
+    (* This is ok that there is no client request associated with a log id, 
      * this is most likely the case we are in a follower. However in the 
      * leader, this would be an error. (until we support the 
      * proper handling a client disconnection) *)
     log_f ~logger ~level:Info ~section 
-          "Could not find pending request after validation for tx_id: %s" tx_id 
+          "Could not find pending request after validation for id: %s" id 
     >|=(fun () -> (pending_requests, client_responses)) 
 
-  | Some (APb.Add_tx _, handle), APb.Validation_success -> 
+  | Some (APb.Add_log_entry _, handle), APb.Validation_success -> 
     let client_response_msg = APb.Add_log_success in 
     let client_responses = (client_response_msg, handle)::client_responses in
 
     log_f ~logger ~level:Info ~section 
-          "Validation is successful for tx_id: %s" tx_id 
+          "Validation is successful for id: %s" id 
     >|=(fun () -> (pending_requests, client_responses)) 
 
   | Some (_, handle), APb.Validation_failure error -> 
@@ -356,10 +362,6 @@ let handle_app_response ~logger ~stats ~now state app_response =
   let {pending_requests; _} = connection_state in 
 
   match app_response with
-  | APb.Commit_tx_ack _ -> 
-    assert(false)
-      (* Not implemented yet *)
-
   | APb.Validations {APb.validations} -> 
 
     Lwt_list.fold_left_s 

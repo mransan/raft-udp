@@ -111,11 +111,11 @@ let next_timeout timeout timeout_type =
   Lwt_unix.sleep timeout 
   >|= (fun () -> Event.Timeout timeout_type)
 
-let get_app_ipc_f logger stats configuration = 
+let get_app_ipc_f logger stats configuration server_id = 
   let (
     send_app_request, 
     response_stream
-  ) = App_ipc.make logger configuration stats in 
+  ) = App_ipc.make logger configuration server_id stats in 
 
   let next_app_response () = 
     Lwt_stream.get response_stream
@@ -152,7 +152,7 @@ let run_server configuration id logger print_header slow =
   let (
     send_app_requests, 
     next_app_response
-  ) = get_app_ipc_f logger stats configuration in 
+  ) = get_app_ipc_f logger stats configuration id in 
 
   let rec server_loop threads state =
 
@@ -243,45 +243,51 @@ let run_server configuration id logger print_header slow =
     ~server_id:id () 
   in
 
-  Lwt.return (RLog.Builder.make ()) 
-  >>=(fun builder -> 
-    Log_record.read_log_records configuration id (fun builder2 log_entry ->
-      RLog.Builder.add_log_entry builder2 (RConv.log_entry_of_pb log_entry)
+  Log_record.make logger configuration id 
+  >>=(fun log_record_handle -> 
+    let builder =  RLog.Builder.make () in
+    Log_record.read_log_records log_record_handle (fun builder2 log_entry ->
+      RLog.Builder.add_log_entry builder2 log_entry
     ) builder
     >|= RLog.Builder.to_log 
     >>= (fun log -> 
       let initial_raft_state = {initial_raft_state with RTypes.log } in 
-      let commit_index, current_term = RLog.last_log_index_and_term initial_raft_state.RTypes.log in 
-      let initial_raft_state = {initial_raft_state with RTypes.commit_index; current_term} in 
+
+      (* TODO the commit_index should really be computed based on 
+       * the committed attribute of the records *)
+      let commit_index, current_term = 
+        RLog.last_log_index_and_term initial_raft_state.RTypes.log 
+      in 
+
+      let initial_raft_state = {initial_raft_state with 
+        RTypes.commit_index; 
+        current_term
+      } in 
       
       log_f ~logger ~level:Notice ~section 
           "Log read done, commit index: %i, current term: %i" 
           commit_index current_term
-      >|=(fun () -> initial_raft_state)
+      >|=(fun () -> (initial_raft_state, log_record_handle))
     )
   )
-  >>=(fun initial_raft_state ->
-    Log_record.make logger configuration id 
-    >>=(fun handle ->
+  >>=(fun (initial_raft_state, log_record_handle) ->
+    let {
+      RTypes.timeout; 
+      timeout_type
+    } = RHelper.Timeout_event.next initial_raft_state (get_now ()) in 
 
-      let {
-        RTypes.timeout; 
-        timeout_type
-      } = RHelper.Timeout_event.next initial_raft_state (get_now ()) in 
+    let initial_threads = Event.({
+      next_client_request_t = next_client_request ();
+      next_raft_message_t = next_raft_message  ();
+      next_timeout_t = next_timeout timeout timeout_type;
+      next_app_reponse_t  = next_app_response ();
+    }) in 
 
-      let initial_threads = Event.({
-        next_client_request_t = next_client_request ();
-        next_raft_message_t = next_raft_message  ();
-        next_timeout_t = next_timeout timeout timeout_type;
-        next_app_reponse_t  = next_app_response ();
-      }) in 
-
-      server_loop initial_threads Raft_ipc.({
-        raft_state = initial_raft_state; 
-        connection_state = initialize configuration;
-        log_record_handle = handle;
-      })
-    )
+    server_loop initial_threads Raft_ipc.({
+      raft_state = initial_raft_state; 
+      connection_state = initialize configuration;
+      log_record_handle;
+    })
   )
 
 let run configuration id print_header slow log = 
