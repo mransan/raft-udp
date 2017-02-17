@@ -13,7 +13,7 @@ type t = send_app_request_f * Raft_com_pb.app_response Lwt_stream.t
 
 let section = Section.make (Printf.sprintf "%10s" "AppIPC")
 
-type connection = (Lwt_io.input_channel * Lwt_io.output_channel)
+type connection = (Lwt_io.input_channel * Lwt_unix.file_descr)
  
 module Event = struct 
   
@@ -73,8 +73,7 @@ let connect logger {Conf.app_server_port; _} server_id =
         )
         >|=(fun () -> 
           let ic = Lwt_io.of_fd ~mode:Lwt_io.input fd in 
-          let oc = Lwt_io.of_fd ~mode:Lwt_io.output fd in 
-          Event.connection_established (ic, oc) ()
+          Event.connection_established (ic, fd) ()
         )
       ) (* with *) (fun exn -> 
         log_f ~logger ~level:Error ~section 
@@ -125,28 +124,34 @@ let next_response =
    )
 
 let send_request logger configuration server_id connection app_request = 
-  let (_, oc) = connection in 
+  let (_, fd) = connection in 
+
   let bytes = 
     let encoder = Pbrt.Encoder.create () in 
     APb.encode_app_request  app_request encoder; 
     Pbrt.Encoder.to_bytes encoder 
   in 
+
   let bytes_len = Bytes.length bytes in 
-  Lwt.catch (fun () -> 
-    Lwt_io.write_from_exactly oc bytes 0 bytes_len
-    >>=(fun () ->
-      log_f ~logger ~level:Notice ~section 
-            "App request successfully sent:\n%s" 
-            (Pb_util.string_of_app_request app_request)
-      >>= next_response logger configuration server_id connection
+
+  let rec aux pos = 
+    let len = bytes_len - pos in 
+    U.write fd bytes pos len 
+    >>=(function
+      | 0 -> Event.failure_lwt "Failed to send request to APP server"
+      | n when n = len -> 
+        log_f ~logger ~level:Notice ~section 
+              "App request successfully sent:\n%s" 
+              (Pb_util.string_of_app_request app_request)
+        >>= next_response logger configuration server_id connection
+      | n -> aux (pos + n) 
     )  
-  ) (* with *) (fun exn -> 
-    let error = 
-      Printf.sprintf "Error sending request to app server: %s" 
-        (Printexc.to_string exn)
-    in 
-    log ~logger ~level:Error ~section error
-    >|= Event.failure error  
+  in 
+  Lwt.catch (fun () -> aux 0) (fun exn -> 
+    log_f ~logger ~level:Notice ~section 
+          "Error sending app request to app server: %s"
+          (Printexc.to_string exn)
+    >|= Event.failure (Printexc.to_string exn)
   ) 
 
 let get_next_request_f logger request_stream = 
