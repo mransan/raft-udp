@@ -7,7 +7,7 @@ module Conf = Raft_com_conf
 
 module U  = Lwt_unix 
 
-type connection = (Lwt_io.input_channel * Lwt_io.output_channel)  
+type connection = (Lwt_io.input_channel * Lwt_unix.file_descr)  
 
 module  Event = struct 
 
@@ -65,11 +65,10 @@ let get_next_connection_f logger {Conf.app_server_port; _} server_id =
       U.accept fd
       >>=(fun (fd2, ad) ->
         let ic = Lwt_io.of_fd ~mode:Lwt_io.input fd2 in 
-        let oc = Lwt_io.of_fd ~mode:Lwt_io.output fd2 in 
         log_f ~logger ~level:Notice 
               "New connection accepted, details: %s" 
               (Raft_utl_unix.string_of_sockaddr ad)
-        >|= Event.new_connection (ic, oc)
+        >|= Event.new_connection (ic, fd2)
       )
     ) (* with *) (fun exn ->
       let error = 
@@ -126,7 +125,7 @@ let next_request  =
       >>= Event.close_connection connection
     ) 
 
-let send_app_response logger ((_, oc) as connection) app_response = 
+let send_app_response logger ((_, fd) as connection) app_response = 
   (* Encode to bytes *)
   let bytes = 
     let encoder = Pbrt.Encoder.create () in 
@@ -134,21 +133,22 @@ let send_app_response logger ((_, oc) as connection) app_response =
     Pbrt.Encoder.to_bytes encoder 
   in
    
-  let len = Bytes.length bytes in 
+  let bytes_len = Bytes.length bytes in 
 
-  (* Send the bytes *)
-  Lwt.catch (fun () -> 
-    Lwt_io.write_from oc bytes 0 len
+  let rec aux pos = 
+    let len = bytes_len - pos in 
+    U.write fd bytes pos len 
     >>=(function
       | 0 -> Event.close_connection connection () 
-      | n -> 
-        assert(len = n); 
+      | n when n = len -> 
         log_f ~logger ~level:Notice 
               "Response sent (byte length: %i): %s" n 
               (Pb_util.string_of_app_response app_response)
-        >|= Event.response_sent connection 
+        >|= Event.response_sent connection
+      | n -> aux (pos + n) 
     )  
-  ) (* with *) (fun exn -> 
+  in 
+  Lwt.catch (fun () -> aux 0) (fun exn -> 
     log_f ~logger ~level:Error 
       "Failed to send response, details: %s, response: %s" 
       (Printexc.to_string exn) 
