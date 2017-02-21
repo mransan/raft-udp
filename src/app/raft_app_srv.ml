@@ -113,25 +113,18 @@ let send_app_response logger ((_, fd, _) as connection) app_response =
   let bytes = 
     let encoder = Pbrt.Encoder.create () in 
     APb.encode_app_response  app_response encoder; 
-    Raft_utl_connection.add_length_prefix (Pbrt.Encoder.to_bytes encoder) 
+    Pbrt.Encoder.to_bytes encoder
   in
-   
-  let bytes_len = Bytes.length bytes in 
-
-  let rec aux pos = 
-    let len = bytes_len - pos in 
-    U.write fd bytes pos len 
-    >>=(function
-      | 0 -> Event.close_connection connection () 
-      | n when n = len -> 
-        log_f ~logger ~level:Notice 
-              "Response sent (byte length: %i): %s" bytes_len 
-              (Pb_util.string_of_app_response app_response)
-        >|= Event.response_sent connection
-      | n -> aux (pos + n) 
-    )  
-  in 
-  Lwt.catch (fun () -> aux 0) (fun exn -> 
+  
+  Lwt.catch (fun () -> 
+    Raft_utl_connection.write_msg_with_header fd bytes 
+    >>=(fun () -> 
+      log_f ~logger ~level:Notice 
+            "Response sent %s"
+            (Pb_util.string_of_app_response app_response)
+      >|= Event.response_sent connection
+    )
+  ) (* catch *) (fun exn -> 
     log_f ~logger ~level:Error 
       "Failed to send response, details: %s, response: %s" 
       (Printexc.to_string exn) 

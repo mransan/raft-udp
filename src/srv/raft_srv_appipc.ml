@@ -127,25 +127,18 @@ let send_request logger configuration server_id connection app_request =
   let bytes = 
     let encoder = Pbrt.Encoder.create () in 
     APb.encode_app_request  app_request encoder; 
-    Raft_utl_connection.add_length_prefix (Pbrt.Encoder.to_bytes encoder) 
+    Pbrt.Encoder.to_bytes encoder 
   in 
 
-  let bytes_len = Bytes.length bytes in 
-
-  let rec aux pos = 
-    let len = bytes_len - pos in 
-    U.write fd bytes pos len 
-    >>=(function
-      | 0 -> Event.failure_lwt "Failed to send request to APP server"
-      | n when n = len -> 
-        log_f ~logger ~level:Notice ~section 
-              "App request successfully sent:\n%s" 
-              (Pb_util.string_of_app_request app_request)
-        >>= next_response logger configuration server_id connection
-      | n -> aux (pos + n) 
-    )  
-  in 
-  Lwt.catch (fun () -> aux 0) (fun exn -> 
+  Lwt.catch (fun () -> 
+    Raft_utl_connection.write_msg_with_header fd bytes 
+    >>=(fun () -> 
+      log_f ~logger ~level:Notice ~section 
+            "App request successfully sent:\n%s" 
+            (Pb_util.string_of_app_request app_request)
+      >>= next_response logger configuration server_id connection
+    )
+  ) (* catch *) (fun exn -> 
     log_f ~logger ~level:Error ~section 
           "Error sending app request to app server: %s"
           (Printexc.to_string exn)

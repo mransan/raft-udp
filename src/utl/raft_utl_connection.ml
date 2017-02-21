@@ -26,9 +26,20 @@ let read_msg_with_header ic buffer =
     >|= (fun () -> (buffer, len))
   )
 
-  (*
 let write_msg_with_header fd buffer = 
 
   let buffer = add_length_prefix buffer in 
-*)
+  
+  let buffer_len = Bytes.length buffer in 
 
+  let rec aux pos = 
+    let open Lwt.Infix in 
+    let len = buffer_len - pos in 
+    Lwt_unix.write fd buffer pos len 
+    >>=(function
+      | 0 -> Lwt.fail_with "Error: connection closed (read = 0)"
+      | n when n = len -> Lwt.return_unit  
+      | n -> aux (pos + n) 
+    )  
+  in 
+  aux 0 

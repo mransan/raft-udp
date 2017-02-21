@@ -1,9 +1,5 @@
 (** Utility functions for managing TCP connections *)
 
-val add_length_prefix : bytes -> bytes 
-(** [add_length_prefix buffer] returns the same byte array but prefixed with
-    its length encoded in 4 bytes/big endian *)
-
 val read_msg_with_header : Lwt_io.input_channel -> bytes -> (bytes * int) Lwt.t
 (** [read_msg_with_header ic buffer] reads a new message from [ic] where 
     the msg has a length prefix encoded in 4 bytes/big endian. This 
@@ -16,7 +12,8 @@ val read_msg_with_header : Lwt_io.input_channel -> bytes -> (bytes * int) Lwt.t
     The function returns [(buffer, len)], with [len] being the length of the 
     message. One can use [Bytes.sub buffer len] to extract the message. *)
 
+val write_msg_with_header : Lwt_unix.file_descr -> bytes -> unit Lwt.t 
+(** [write_msg_with_header fd msg] writes [msg] to [fd] prefixing 
+    [msg] with its length encoded in 4 bytes/big endian. 
 
-(* 
- * val write_msg_with_header : Lwt_unix.file_descr -> bytes -> unit Lwt.t 
- *)
+    @raises exception if an error occured. *)
