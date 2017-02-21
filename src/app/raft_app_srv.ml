@@ -181,59 +181,52 @@ let server_loop logger configuration server_id handle_app_request () =
   in
   aux [next_connection ()] 
 
-type validation_result = 
-  | Ok 
-  | Error of string 
-
-type log_validation = {
-  id : string; 
-  result : validation_result; 
-} 
-
 module type App_sig  = sig 
 
-  type log_data 
+  type data  
+  val decode : bytes -> data
 
-  val decode : bytes -> log_data 
-
+  type result 
+  val encode : result -> bytes 
 end
 
 module Make(App:App_sig) = struct 
   
   type log = {
     id : string; 
-    data : App.log_data;
+    index : int; 
+    app_data : App.data;
   } 
   
-  type validations = log list * (log_validation list -> unit) 
+  type log_result = {
+    id : string; 
+    index : int; 
+    app_result : App.result option; 
+  } 
+  
+  type add_log_entries = log list * (log_result list -> unit) 
 
-  let decode_log {Raft_pb.id; data; _} = 
-    {id; data = App.decode data}
+  let decode_log {Raft_pb.id; index; data; _} = 
+    {id; index; app_data = App.decode data}
 
   let handle_app_request request_push = function
     | APb.Add_log_entries {APb.log_entries} ->
       let log_entries  = List.map decode_log log_entries in 
-      let validations_t, validations_u = Lwt.wait () in  
-      request_push (Some (log_entries,  (fun r -> Lwt.wakeup validations_u r)));
-      validations_t
-      >|=(fun validations -> 
-        List.map (fun {id; result} ->
-          let result = 
-            match result with
-            | Ok -> 
-              APb.Validation_success
-
-            | Error error_message -> 
-              APb.(Validation_failure {
-                error_message; 
-                error_code  = 1;
-              })  
-          in 
-          {APb.result; id}
-        ) validations 
+      let results_t, results_u = Lwt.wait () in  
+      request_push (Some (log_entries,  (fun r -> Lwt.wakeup results_u r)));
+      results_t
+      >|=(fun results -> 
+        List.map (fun {id; index; app_result} ->
+          let result_data = 
+            match app_result with
+            | None -> None
+            | Some result -> Some (App.encode result) 
+          in
+          {APb.index; id; result_data;}
+        ) results
       )
-      >|=(fun validations -> 
-        APb.(Validations {validations}) 
+      >|=(fun results -> 
+        APb.(Add_log_results {results}) 
       )
 
   let start logger configuration server_id =

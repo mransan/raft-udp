@@ -9,11 +9,17 @@ module U  = Lwt_unix
 
 module Counter_srv = Raft_app_srv.Make(struct
 
-  type log_data = Counter_pb.log 
+  type data = Counter_pb.log 
 
   let decode bytes = 
     let decoder = Pbrt.Decoder.of_bytes bytes in 
     Counter_pb.decode_log decoder 
+
+  type result = unit 
+
+  let encode () : bytes = 
+    failwith "No result should be returned for counter"
+
 
 end)
 
@@ -28,12 +34,13 @@ module State = struct
 
 end 
 
-let process_demo_app_request logger (validations, notify) state = 
-  Lwt_list.fold_left_s (fun (log_validations, state) log -> 
+let process_demo_app_request logger (results, notify) state = 
+  Lwt_list.fold_left_s (fun (log_results, state) log -> 
 
     let {
       Counter_srv.id; 
-      data = {Counter_pb.counter_value; process_id};
+      index; 
+      app_data = {Counter_pb.counter_value; process_id};
     } = log in
 
     let state = State.process state counter_value process_id in
@@ -42,16 +49,17 @@ let process_demo_app_request logger (validations, notify) state =
           counter_value process_id id
 
     >|= (fun () -> 
-      let log_validation = Raft_app_srv.({
+      let log_result = Counter_srv.({
         id; 
-        result = Raft_app_srv.Ok; 
+        index;
+        app_result = None;
       }) in 
-      (log_validation::log_validations, state) 
+      (log_result::log_results, state) 
     )
-  ) ([], state) validations 
+  ) ([], state) results 
 
-  >|=(fun (log_validations, state) -> 
-    notify @@ List.rev log_validations; 
+  >|=(fun (log_results, state) -> 
+    notify @@ List.rev log_results; 
     state
   ) 
 

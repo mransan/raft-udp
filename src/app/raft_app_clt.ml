@@ -6,8 +6,10 @@ module U    = Lwt_unix
 module APb  = Raft_com_pb
 
 module type App_sig = sig 
-  type log
-  val encode : log -> bytes 
+  type data
+  val encode : data -> bytes 
+  type result 
+  val decode : bytes -> result 
 end 
 
 module Ext = struct
@@ -16,7 +18,7 @@ module Ext = struct
     | Some x -> f x 
 end 
 
-type send_result = (unit, string) Result.result
+type result = bytes option
 
 type connection = (Lwt_io.input_channel * Lwt_unix.file_descr * bytes)  
 
@@ -30,9 +32,9 @@ module Event = struct
     | Connection_closed 
       (** The connection with a server closed (brutal) *)
 
-    | Request  of APb.client_request * send_result Lwt.u  
+    | Request  of APb.client_request * result Lwt.u  
     
-    | Response of APb.client_response * send_result Lwt.u  
+    | Response of APb.client_response * result Lwt.u  
 
     | Failure of string  
       (** System failure (unexpected) *)
@@ -116,7 +118,7 @@ module State = struct
 
 end 
 
-type pending_request = APb.client_request * send_result Lwt.u 
+type pending_request = APb.client_request * result Lwt.u 
 
 type t = {
   mutable state : State.t; 
@@ -241,13 +243,9 @@ let handle_request ({state; logger; _ } as t) client_request response_wakener =
 let handle_response (_:t) client_response response_wakener = 
 
   match client_response with
-  | APb.Add_log_success -> 
-    Lwt.wakeup response_wakener (Result.Ok ()); 
+  | APb.Add_log_result {APb.client_log_result_data; _ }  -> 
+    Lwt.wakeup response_wakener client_log_result_data; 
     `Next_request  
-
-  | APb.Add_log_validation_failure -> 
-    Lwt.wakeup response_wakener (Result.Error "validation failure");
-    `Next_request 
 
   | APb.Add_log_not_a_leader {APb.leader_id} -> 
     `Not_a_leader leader_id 
@@ -275,7 +273,8 @@ let rec client_loop ({logger; state; _} as t) e =
 
   | Event.Connection_established fd ->
     t.state <- State.establish state fd;
-    log_f ~logger ~level:Notice "Connection established, %s" (State.string_of_state state) 
+    log_f ~logger ~level:Notice 
+          "Connection established, %s" (State.string_of_state state) 
     >>=(fun () ->
       next_request t () >>= client_loop t 
     ) 
@@ -348,9 +347,15 @@ module Make(App:App_sig) = struct
     let t, u = Lwt.wait () in
     let bytes = App.encode log in
     let request = Raft_com_pb.(Add_log_entry {
-      id = unique_id (); 
-      data = bytes;
+      client_log_id = unique_id (); 
+      client_log_data = bytes;
     }) in 
     request_push (Some (request , u)); 
-    t
+    (
+      t
+      >|=(function 
+        | None -> None
+        | Some bytes -> Some (App.decode bytes) 
+      )
+    )
 end

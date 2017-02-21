@@ -263,11 +263,11 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
     let (pending_requests, datas) = acc in 
     let (client_request_msg, _ (*handle*)) = client_request in 
     match client_request_msg with
-    | APb.Add_log_entry {APb.id;data}  -> 
+    | APb.Add_log_entry {APb.client_log_id; client_log_data}  -> 
       let pending_requests = 
-        Pending_requests.add pending_requests id client_request 
+        Pending_requests.add pending_requests client_log_id client_request 
       in 
-      (pending_requests, (data, id) :: datas) 
+      (pending_requests, (client_log_data, client_log_id) :: datas) 
   ) (pending_requests, []) client_requests in
 
   let new_log_response  = 
@@ -305,46 +305,39 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
     )
   end
       
-let process_app_validation logger acc validation =  
+let process_app_result logger acc result =  
 
   let (pending_requests, client_responses)  = acc in 
 
-  let {APb.id; APb.result} = validation in 
+  let {APb.index = _; id; APb.result_data} = result  in 
   
   let (
     pending_requests, 
     client_request
   ) = Pending_requests.get_and_remove pending_requests id in 
 
-  match client_request, result with
-  | None, _ -> 
+  match client_request with
+  | None -> 
     (* This is ok that there is no client request associated with a log id, 
      * this is most likely the case we are in a follower. However in the 
      * leader, this would be an error. (until we support the 
      * proper handling a client disconnection) *)
-    log_f ~logger ~level:Info ~section 
+    log_f ~logger ~level:Notice ~section 
           "Could not find pending request after validation for id: %s" id 
     >|=(fun () -> (pending_requests, client_responses)) 
 
-  | Some (APb.Add_log_entry _, handle), APb.Validation_success -> 
-    let client_response_msg = APb.Add_log_success in 
+  | Some (APb.Add_log_entry _, handle) ->
+    let client_response_msg = APb.Add_log_result {
+      APb.client_log_id = id; 
+      APb.client_log_result_data = result_data; 
+    } in 
+
     let client_responses = (client_response_msg, handle)::client_responses in
 
-    log_f ~logger ~level:Info ~section 
-          "Validation is successful for id: %s" id 
-    >|=(fun () -> (pending_requests, client_responses)) 
-
-  | Some (_, handle), APb.Validation_failure error -> 
-    let client_response_msg = APb.Add_log_validation_failure in 
-    let client_responses = (client_response_msg, handle) :: client_responses in 
-    
-    let {APb.error_message; error_code} = error in 
     log_f ~logger ~level:Notice ~section 
-          "Validation failure from App, code: %i, msg: %s" 
-          error_code error_message
-    >|=(fun () -> 
-      (pending_requests, client_responses)
-    )
+          "Matching client request found for app response, id: %s"
+          id 
+    >|=(fun () -> (pending_requests, client_responses)) 
 
 let handle_app_response ~logger ~stats ~now state app_response = 
 
@@ -354,12 +347,12 @@ let handle_app_response ~logger ~stats ~now state app_response =
   let {pending_requests; _} = connection_state in 
 
   match app_response with
-  | APb.Validations {APb.validations} -> 
+  | APb.Add_log_results {APb.results} -> 
 
     Lwt_list.fold_left_s 
-        (process_app_validation logger) 
+        (process_app_result logger) 
         (pending_requests, []) 
-        validations
+        results 
     >|=(fun (pending_requests, client_responses) ->
       let state = {state with 
         connection_state = {connection_state with pending_requests; }

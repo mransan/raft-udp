@@ -9,14 +9,13 @@ let string_of_app_request = function
     Printf.sprintf "Add_log_entries [\n%s]" log_entries
 
 let string_of_app_response = function
-  | APb.Validations {APb.validations} ->  
-    let validations = String.concat ",\n" @@ List.map (fun {APb.result;id} -> 
-      let result = match result with
-        | APb.Validation_success  -> 
-          "Success"
-        | APb.Validation_failure {APb.error_message; _} -> 
-          Printf.sprintf "Failure (details: %s)" error_message
+  | APb.Add_log_results {APb.results} ->  
+    let results = String.concat ",\n" @@ List.map (fun result  -> 
+      let {APb.index; id; result_data} = result in 
+      let data_as_string = match result_data with
+          | None -> "no result data returned"
+          | Some b -> Printf.sprintf "data size: %i" (Bytes.length b)
       in 
-      Printf.sprintf "%20s - %s" id result
-    ) validations in 
-    Printf.sprintf "Validations [\n%s]" validations 
+      Printf.sprintf "%15i - %20s - %s" index id data_as_string
+    ) results in 
+    Printf.sprintf "App Results [\n%s]" results

@@ -1,30 +1,39 @@
 [@@@ocaml.warning "-27-30-39"]
 
 type client_log_entry = {
-  id : string;
-  data : bytes;
+  client_log_id : string;
+  client_log_data : bytes;
 }
 
 and client_log_entry_mutable = {
-  mutable id : string;
-  mutable data : bytes;
+  mutable client_log_id : string;
+  mutable client_log_data : bytes;
 }
 
 type client_request =
   | Add_log_entry of client_log_entry
 
-type client_response_add_log_not_aleader = {
+type client_response_result = {
+  client_log_id : string;
+  client_log_result_data : bytes option;
+}
+
+and client_response_result_mutable = {
+  mutable client_log_id : string;
+  mutable client_log_result_data : bytes option;
+}
+
+type client_response_not_aleader = {
   leader_id : int option;
 }
 
-and client_response_add_log_not_aleader_mutable = {
+and client_response_not_aleader_mutable = {
   mutable leader_id : int option;
 }
 
 type client_response =
-  | Add_log_success
-  | Add_log_validation_failure
-  | Add_log_not_a_leader of client_response_add_log_not_aleader
+  | Add_log_result of client_response_result
+  | Add_log_not_a_leader of client_response_not_aleader
 
 type app_request_add_log_entries = {
   log_entries : Raft_pb.log_entry list;
@@ -37,67 +46,68 @@ and app_request_add_log_entries_mutable = {
 type app_request =
   | Add_log_entries of app_request_add_log_entries
 
-type app_response_validation_failure = {
-  error_message : string;
-  error_code : int;
-}
-
-and app_response_validation_failure_mutable = {
-  mutable error_message : string;
-  mutable error_code : int;
-}
-
-type app_response_validation_result =
-  | Validation_success
-  | Validation_failure of app_response_validation_failure
-
-and app_response_validation = {
+type app_response_result = {
+  index : int;
   id : string;
-  result : app_response_validation_result;
+  result_data : bytes option;
 }
 
-and app_response_validation_mutable = {
+and app_response_result_mutable = {
+  mutable index : int;
   mutable id : string;
-  mutable result : app_response_validation_result;
+  mutable result_data : bytes option;
 }
 
-type app_response_validations = {
-  validations : app_response_validation list;
+type app_response_results = {
+  results : app_response_result list;
 }
 
-and app_response_validations_mutable = {
-  mutable validations : app_response_validation list;
+and app_response_results_mutable = {
+  mutable results : app_response_result list;
 }
 
 type app_response =
-  | Validations of app_response_validations
+  | Add_log_results of app_response_results
 
 let rec default_client_log_entry 
-  ?id:((id:string) = "")
-  ?data:((data:bytes) = Bytes.create 0)
+  ?client_log_id:((client_log_id:string) = "")
+  ?client_log_data:((client_log_data:bytes) = Bytes.create 0)
   () : client_log_entry  = {
-  id;
-  data;
+  client_log_id;
+  client_log_data;
 }
 
 and default_client_log_entry_mutable () : client_log_entry_mutable = {
-  id = "";
-  data = Bytes.create 0;
+  client_log_id = "";
+  client_log_data = Bytes.create 0;
 }
 
 let rec default_client_request () : client_request = Add_log_entry (default_client_log_entry ())
 
-let rec default_client_response_add_log_not_aleader 
+let rec default_client_response_result 
+  ?client_log_id:((client_log_id:string) = "")
+  ?client_log_result_data:((client_log_result_data:bytes option) = None)
+  () : client_response_result  = {
+  client_log_id;
+  client_log_result_data;
+}
+
+and default_client_response_result_mutable () : client_response_result_mutable = {
+  client_log_id = "";
+  client_log_result_data = None;
+}
+
+let rec default_client_response_not_aleader 
   ?leader_id:((leader_id:int option) = None)
-  () : client_response_add_log_not_aleader  = {
+  () : client_response_not_aleader  = {
   leader_id;
 }
 
-and default_client_response_add_log_not_aleader_mutable () : client_response_add_log_not_aleader_mutable = {
+and default_client_response_not_aleader_mutable () : client_response_not_aleader_mutable = {
   leader_id = None;
 }
 
-let rec default_client_response (): client_response = Add_log_success
+let rec default_client_response () : client_response = Add_log_result (default_client_response_result ())
 
 let rec default_app_request_add_log_entries 
   ?log_entries:((log_entries:Raft_pb.log_entry list) = [])
@@ -111,63 +121,51 @@ and default_app_request_add_log_entries_mutable () : app_request_add_log_entries
 
 let rec default_app_request () : app_request = Add_log_entries (default_app_request_add_log_entries ())
 
-let rec default_app_response_validation_failure 
-  ?error_message:((error_message:string) = "")
-  ?error_code:((error_code:int) = 0)
-  () : app_response_validation_failure  = {
-  error_message;
-  error_code;
-}
-
-and default_app_response_validation_failure_mutable () : app_response_validation_failure_mutable = {
-  error_message = "";
-  error_code = 0;
-}
-
-let rec default_app_response_validation_result (): app_response_validation_result = Validation_success
-
-and default_app_response_validation 
+let rec default_app_response_result 
+  ?index:((index:int) = 0)
   ?id:((id:string) = "")
-  ?result:((result:app_response_validation_result) = Validation_success)
-  () : app_response_validation  = {
+  ?result_data:((result_data:bytes option) = None)
+  () : app_response_result  = {
+  index;
   id;
-  result;
+  result_data;
 }
 
-and default_app_response_validation_mutable () : app_response_validation_mutable = {
+and default_app_response_result_mutable () : app_response_result_mutable = {
+  index = 0;
   id = "";
-  result = Validation_success;
+  result_data = None;
 }
 
-let rec default_app_response_validations 
-  ?validations:((validations:app_response_validation list) = [])
-  () : app_response_validations  = {
-  validations;
+let rec default_app_response_results 
+  ?results:((results:app_response_result list) = [])
+  () : app_response_results  = {
+  results;
 }
 
-and default_app_response_validations_mutable () : app_response_validations_mutable = {
-  validations = [];
+and default_app_response_results_mutable () : app_response_results_mutable = {
+  results = [];
 }
 
-let rec default_app_response () : app_response = Validations (default_app_response_validations ())
+let rec default_app_response () : app_response = Add_log_results (default_app_response_results ())
 
 let rec decode_client_log_entry d =
   let v = default_client_log_entry_mutable () in
-  let data_is_set = ref false in
-  let id_is_set = ref false in
+  let client_log_data_is_set = ref false in
+  let client_log_id_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
     | Some (1, Pbrt.Bytes) -> (
-      v.id <- Pbrt.Decoder.string d; id_is_set := true;
+      v.client_log_id <- Pbrt.Decoder.string d; client_log_id_is_set := true;
       loop ()
     )
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_log_entry), field(1)", pk))
     )
     | Some (2, Pbrt.Bytes) -> (
-      v.data <- Pbrt.Decoder.bytes d; data_is_set := true;
+      v.client_log_data <- Pbrt.Decoder.bytes d; client_log_data_is_set := true;
       loop ()
     )
     | Some (2, pk) -> raise (
@@ -176,8 +174,8 @@ let rec decode_client_log_entry d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
-  begin if not !data_is_set then raise Protobuf.Decoder.(Failure (Missing_field "data")) end;
-  begin if not !id_is_set then raise Protobuf.Decoder.(Failure (Missing_field "id")) end;
+  begin if not !client_log_data_is_set then raise Protobuf.Decoder.(Failure (Missing_field "client_log_data")) end;
+  begin if not !client_log_id_is_set then raise Protobuf.Decoder.(Failure (Missing_field "client_log_id")) end;
   let v:client_log_entry = Obj.magic v in
   v
 
@@ -195,8 +193,36 @@ let rec decode_client_request d =
   in
   loop ()
 
-let rec decode_client_response_add_log_not_aleader d =
-  let v = default_client_response_add_log_not_aleader_mutable () in
+let rec decode_client_response_result d =
+  let v = default_client_response_result_mutable () in
+  let client_log_id_is_set = ref false in
+  let rec loop () = 
+    match Pbrt.Decoder.key d with
+    | None -> (
+    )
+    | Some (1, Pbrt.Bytes) -> (
+      v.client_log_id <- Pbrt.Decoder.string d; client_log_id_is_set := true;
+      loop ()
+    )
+    | Some (1, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_response_result), field(1)", pk))
+    )
+    | Some (2, Pbrt.Bytes) -> (
+      v.client_log_result_data <- Some (Pbrt.Decoder.bytes d);
+      loop ()
+    )
+    | Some (2, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_response_result), field(2)", pk))
+    )
+    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
+  in
+  loop ();
+  begin if not !client_log_id_is_set then raise Protobuf.Decoder.(Failure (Missing_field "client_log_id")) end;
+  let v:client_response_result = Obj.magic v in
+  v
+
+let rec decode_client_response_not_aleader d =
+  let v = default_client_response_not_aleader_mutable () in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
@@ -206,21 +232,20 @@ let rec decode_client_response_add_log_not_aleader d =
       loop ()
     )
     | Some (1, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_response_add_log_not_aleader), field(1)", pk))
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(client_response_not_aleader), field(1)", pk))
     )
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
-  let v:client_response_add_log_not_aleader = Obj.magic v in
+  let v:client_response_not_aleader = Obj.magic v in
   v
 
 let rec decode_client_response d = 
   let rec loop () = 
     let ret:client_response = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
-      | Some (1, _) -> (Pbrt.Decoder.empty_nested d ; Add_log_success)
-      | Some (2, _) -> (Pbrt.Decoder.empty_nested d ; Add_log_validation_failure)
-      | Some (3, _) -> Add_log_not_a_leader (decode_client_response_add_log_not_aleader (Pbrt.Decoder.nested d))
+      | Some (1, _) -> Add_log_result (decode_client_response_result (Pbrt.Decoder.nested d))
+      | Some (2, _) -> Add_log_not_a_leader (decode_client_response_not_aleader (Pbrt.Decoder.nested d))
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
         loop () 
@@ -264,112 +289,68 @@ let rec decode_app_request d =
   in
   loop ()
 
-let rec decode_app_response_validation_failure d =
-  let v = default_app_response_validation_failure_mutable () in
-  let error_code_is_set = ref false in
-  let error_message_is_set = ref false in
+let rec decode_app_response_result d =
+  let v = default_app_response_result_mutable () in
+  let id_is_set = ref false in
+  let index_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
     )
-    | Some (1, Pbrt.Bytes) -> (
-      v.error_message <- Pbrt.Decoder.string d; error_message_is_set := true;
+    | Some (1, Pbrt.Varint) -> (
+      v.index <- Pbrt.Decoder.int_as_varint d; index_is_set := true;
       loop ()
     )
     | Some (1, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validation_failure), field(1)", pk))
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_result), field(1)", pk))
     )
-    | Some (2, Pbrt.Varint) -> (
-      v.error_code <- Pbrt.Decoder.int_as_varint d; error_code_is_set := true;
-      loop ()
-    )
-    | Some (2, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validation_failure), field(2)", pk))
-    )
-    | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
-  in
-  loop ();
-  begin if not !error_code_is_set then raise Protobuf.Decoder.(Failure (Missing_field "error_code")) end;
-  begin if not !error_message_is_set then raise Protobuf.Decoder.(Failure (Missing_field "error_message")) end;
-  let v:app_response_validation_failure = Obj.magic v in
-  v
-
-let rec decode_app_response_validation_result d = 
-  let rec loop () = 
-    let ret:app_response_validation_result = match Pbrt.Decoder.key d with
-      | None -> failwith "None of the known key is found"
-      | Some (2, _) -> (Pbrt.Decoder.empty_nested d ; Validation_success)
-      | Some (3, _) -> Validation_failure (decode_app_response_validation_failure (Pbrt.Decoder.nested d))
-      | Some (n, payload_kind) -> (
-        Pbrt.Decoder.skip d payload_kind; 
-        loop () 
-      )
-    in
-    ret
-  in
-  loop ()
-
-and decode_app_response_validation d =
-  let v = default_app_response_validation_mutable () in
-  let id_is_set = ref false in
-  let rec loop () = 
-    match Pbrt.Decoder.key d with
-    | None -> (
-    )
-    | Some (1, Pbrt.Bytes) -> (
+    | Some (2, Pbrt.Bytes) -> (
       v.id <- Pbrt.Decoder.string d; id_is_set := true;
       loop ()
     )
-    | Some (1, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validation), field(1)", pk))
-    )
-    | Some (2, Pbrt.Bytes) -> (
-      Pbrt.Decoder.empty_nested d;
-      v.result <- Validation_success;
-      loop ()
-    )
     | Some (2, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validation), field(2)", pk))
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_result), field(2)", pk))
     )
     | Some (3, Pbrt.Bytes) -> (
-      v.result <- Validation_failure (decode_app_response_validation_failure (Pbrt.Decoder.nested d));
+      v.result_data <- Some (Pbrt.Decoder.bytes d);
       loop ()
     )
     | Some (3, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validation), field(3)", pk))
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_result), field(3)", pk))
     )
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
   begin if not !id_is_set then raise Protobuf.Decoder.(Failure (Missing_field "id")) end;
-  let v:app_response_validation = Obj.magic v in
+  begin if not !index_is_set then raise Protobuf.Decoder.(Failure (Missing_field "index")) end;
+  let v:app_response_result = Obj.magic v in
   v
 
-let rec decode_app_response_validations d =
-  let v = default_app_response_validations_mutable () in
+let rec decode_app_response_results d =
+  let v = default_app_response_results_mutable () in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
-      v.validations <- List.rev v.validations;
+      v.results <- List.rev v.results;
     )
     | Some (1, Pbrt.Bytes) -> (
-      v.validations <- (decode_app_response_validation (Pbrt.Decoder.nested d)) :: v.validations;
+      v.results <- (decode_app_response_result (Pbrt.Decoder.nested d)) :: v.results;
       loop ()
     )
     | Some (1, pk) -> raise (
-      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_validations), field(1)", pk))
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_results), field(1)", pk))
     )
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
-  let v:app_response_validations = Obj.magic v in
+  let v:app_response_results = Obj.magic v in
   v
 
 let rec decode_app_response d = 
   let rec loop () = 
     let ret:app_response = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
-      | Some (4, _) -> Validations (decode_app_response_validations (Pbrt.Decoder.nested d))
+      | Some (4, _) -> Add_log_results (decode_app_response_results (Pbrt.Decoder.nested d))
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
         loop () 
@@ -381,9 +362,9 @@ let rec decode_app_response d =
 
 let rec encode_client_log_entry (v:client_log_entry) encoder = 
   Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
-  Pbrt.Encoder.string v.id encoder;
+  Pbrt.Encoder.string v.client_log_id encoder;
   Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
-  Pbrt.Encoder.bytes v.data encoder;
+  Pbrt.Encoder.bytes v.client_log_data encoder;
   ()
 
 let rec encode_client_request (v:client_request) encoder = 
@@ -393,7 +374,20 @@ let rec encode_client_request (v:client_request) encoder =
     Pbrt.Encoder.nested (encode_client_log_entry x) encoder;
   )
 
-let rec encode_client_response_add_log_not_aleader (v:client_response_add_log_not_aleader) encoder = 
+let rec encode_client_response_result (v:client_response_result) encoder = 
+  Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
+  Pbrt.Encoder.string v.client_log_id encoder;
+  (
+    match v.client_log_result_data with 
+    | Some x -> (
+      Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
+      Pbrt.Encoder.bytes x encoder;
+    )
+    | None -> ();
+  );
+  ()
+
+let rec encode_client_response_not_aleader (v:client_response_not_aleader) encoder = 
   (
     match v.leader_id with 
     | Some x -> (
@@ -406,17 +400,13 @@ let rec encode_client_response_add_log_not_aleader (v:client_response_add_log_no
 
 let rec encode_client_response (v:client_response) encoder = 
   match v with
-  | Add_log_success -> (
+  | Add_log_result x -> (
     Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.empty_nested encoder
-  )
-  | Add_log_validation_failure -> (
-    Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.empty_nested encoder
+    Pbrt.Encoder.nested (encode_client_response_result x) encoder;
   )
   | Add_log_not_a_leader x -> (
-    Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.nested (encode_client_response_add_log_not_aleader x) encoder;
+    Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
+    Pbrt.Encoder.nested (encode_client_response_not_aleader x) encoder;
   )
 
 let rec encode_app_request_add_log_entries (v:app_request_add_log_entries) encoder = 
@@ -433,59 +423,40 @@ let rec encode_app_request (v:app_request) encoder =
     Pbrt.Encoder.nested (encode_app_request_add_log_entries x) encoder;
   )
 
-let rec encode_app_response_validation_failure (v:app_response_validation_failure) encoder = 
-  Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
-  Pbrt.Encoder.string v.error_message encoder;
-  Pbrt.Encoder.key (2, Pbrt.Varint) encoder; 
-  Pbrt.Encoder.int_as_varint v.error_code encoder;
-  ()
-
-let rec encode_app_response_validation_result (v:app_response_validation_result) encoder = 
-  match v with
-  | Validation_success -> (
-    Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.empty_nested encoder
-  )
-  | Validation_failure x -> (
-    Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.nested (encode_app_response_validation_failure x) encoder;
-  )
-
-and encode_app_response_validation (v:app_response_validation) encoder = 
-  Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
+let rec encode_app_response_result (v:app_response_result) encoder = 
+  Pbrt.Encoder.key (1, Pbrt.Varint) encoder; 
+  Pbrt.Encoder.int_as_varint v.index encoder;
+  Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
   Pbrt.Encoder.string v.id encoder;
   (
-    match v.result with
-    | Validation_success -> (
-      Pbrt.Encoder.key (2, Pbrt.Bytes) encoder; 
-      Pbrt.Encoder.empty_nested encoder
-    )
-    | Validation_failure x -> (
+    match v.result_data with 
+    | Some x -> (
       Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
-      Pbrt.Encoder.nested (encode_app_response_validation_failure x) encoder;
+      Pbrt.Encoder.bytes x encoder;
     )
+    | None -> ();
   );
   ()
 
-let rec encode_app_response_validations (v:app_response_validations) encoder = 
+let rec encode_app_response_results (v:app_response_results) encoder = 
   List.iter (fun x -> 
     Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.nested (encode_app_response_validation x) encoder;
-  ) v.validations;
+    Pbrt.Encoder.nested (encode_app_response_result x) encoder;
+  ) v.results;
   ()
 
 let rec encode_app_response (v:app_response) encoder = 
   match v with
-  | Validations x -> (
+  | Add_log_results x -> (
     Pbrt.Encoder.key (4, Pbrt.Bytes) encoder; 
-    Pbrt.Encoder.nested (encode_app_response_validations x) encoder;
+    Pbrt.Encoder.nested (encode_app_response_results x) encoder;
   )
 
 let rec pp_client_log_entry fmt (v:client_log_entry) = 
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
-    Pbrt.Pp.pp_record_field "id" Pbrt.Pp.pp_string fmt v.id;
-    Pbrt.Pp.pp_record_field "data" Pbrt.Pp.pp_bytes fmt v.data;
+    Pbrt.Pp.pp_record_field "client_log_id" Pbrt.Pp.pp_string fmt v.client_log_id;
+    Pbrt.Pp.pp_record_field "client_log_data" Pbrt.Pp.pp_bytes fmt v.client_log_data;
     Format.pp_close_box fmt ()
   in
   Pbrt.Pp.pp_brk pp_i fmt ()
@@ -494,7 +465,16 @@ let rec pp_client_request fmt (v:client_request) =
   match v with
   | Add_log_entry x -> Format.fprintf fmt "@[Add_log_entry(%a)@]" pp_client_log_entry x
 
-let rec pp_client_response_add_log_not_aleader fmt (v:client_response_add_log_not_aleader) = 
+let rec pp_client_response_result fmt (v:client_response_result) = 
+  let pp_i fmt () =
+    Format.pp_open_vbox fmt 1;
+    Pbrt.Pp.pp_record_field "client_log_id" Pbrt.Pp.pp_string fmt v.client_log_id;
+    Pbrt.Pp.pp_record_field "client_log_result_data" (Pbrt.Pp.pp_option Pbrt.Pp.pp_bytes) fmt v.client_log_result_data;
+    Format.pp_close_box fmt ()
+  in
+  Pbrt.Pp.pp_brk pp_i fmt ()
+
+let rec pp_client_response_not_aleader fmt (v:client_response_not_aleader) = 
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
     Pbrt.Pp.pp_record_field "leader_id" (Pbrt.Pp.pp_option Pbrt.Pp.pp_int) fmt v.leader_id;
@@ -504,9 +484,8 @@ let rec pp_client_response_add_log_not_aleader fmt (v:client_response_add_log_no
 
 let rec pp_client_response fmt (v:client_response) =
   match v with
-  | Add_log_success  -> Format.fprintf fmt "Add_log_success"
-  | Add_log_validation_failure  -> Format.fprintf fmt "Add_log_validation_failure"
-  | Add_log_not_a_leader x -> Format.fprintf fmt "@[Add_log_not_a_leader(%a)@]" pp_client_response_add_log_not_aleader x
+  | Add_log_result x -> Format.fprintf fmt "@[Add_log_result(%a)@]" pp_client_response_result x
+  | Add_log_not_a_leader x -> Format.fprintf fmt "@[Add_log_not_a_leader(%a)@]" pp_client_response_not_aleader x
 
 let rec pp_app_request_add_log_entries fmt (v:app_request_add_log_entries) = 
   let pp_i fmt () =
@@ -520,37 +499,24 @@ let rec pp_app_request fmt (v:app_request) =
   match v with
   | Add_log_entries x -> Format.fprintf fmt "@[Add_log_entries(%a)@]" pp_app_request_add_log_entries x
 
-let rec pp_app_response_validation_failure fmt (v:app_response_validation_failure) = 
+let rec pp_app_response_result fmt (v:app_response_result) = 
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
-    Pbrt.Pp.pp_record_field "error_message" Pbrt.Pp.pp_string fmt v.error_message;
-    Pbrt.Pp.pp_record_field "error_code" Pbrt.Pp.pp_int fmt v.error_code;
-    Format.pp_close_box fmt ()
-  in
-  Pbrt.Pp.pp_brk pp_i fmt ()
-
-let rec pp_app_response_validation_result fmt (v:app_response_validation_result) =
-  match v with
-  | Validation_success  -> Format.fprintf fmt "Validation_success"
-  | Validation_failure x -> Format.fprintf fmt "@[Validation_failure(%a)@]" pp_app_response_validation_failure x
-
-and pp_app_response_validation fmt (v:app_response_validation) = 
-  let pp_i fmt () =
-    Format.pp_open_vbox fmt 1;
+    Pbrt.Pp.pp_record_field "index" Pbrt.Pp.pp_int fmt v.index;
     Pbrt.Pp.pp_record_field "id" Pbrt.Pp.pp_string fmt v.id;
-    Pbrt.Pp.pp_record_field "result" pp_app_response_validation_result fmt v.result;
+    Pbrt.Pp.pp_record_field "result_data" (Pbrt.Pp.pp_option Pbrt.Pp.pp_bytes) fmt v.result_data;
     Format.pp_close_box fmt ()
   in
   Pbrt.Pp.pp_brk pp_i fmt ()
 
-let rec pp_app_response_validations fmt (v:app_response_validations) = 
+let rec pp_app_response_results fmt (v:app_response_results) = 
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
-    Pbrt.Pp.pp_record_field "validations" (Pbrt.Pp.pp_list pp_app_response_validation) fmt v.validations;
+    Pbrt.Pp.pp_record_field "results" (Pbrt.Pp.pp_list pp_app_response_result) fmt v.results;
     Format.pp_close_box fmt ()
   in
   Pbrt.Pp.pp_brk pp_i fmt ()
 
 let rec pp_app_response fmt (v:app_response) =
   match v with
-  | Validations x -> Format.fprintf fmt "@[Validations(%a)@]" pp_app_response_validations x
+  | Add_log_results x -> Format.fprintf fmt "@[Add_log_results(%a)@]" pp_app_response_results x

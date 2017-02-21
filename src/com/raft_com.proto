@@ -5,8 +5,8 @@ import "raft.proto";
 package raft.app;
 
 message ClientLogEntry {
-  required string id   = 1; 
-  required bytes  data = 2;
+  required string client_log_id   = 1; 
+  required bytes  client_log_data = 2;
 }
 
 // Client <---> RAFT Server protocol
@@ -21,16 +21,18 @@ message ClientRequest {
 
 message ClientResponse {
 
-  message AddLogSuccess {}
-  message AddLogValidationFailure{}
-  message AddLogNotALeader {
+  message Result {
+    required string client_log_id = 1; 
+    optional bytes client_log_result_data = 2;
+  }
+
+  message NotALeader {
     optional int32 leader_id = 1;
   }
 
   oneof t {
-    AddLogSuccess            add_log_success            = 1;
-    AddLogValidationFailure  add_log_validation_failure = 2;
-    AddLogNotALeader         add_log_not_a_leader       = 3;
+    Result add_log_result = 1;
+    NotALeader add_log_not_a_leader = 2;
   }
 }
 
@@ -44,33 +46,24 @@ message AppRequest {
     repeated raft.LogEntry log_entries = 1;
   }
 
-  oneof app_request_payload {
+  oneof t {
     AddLogEntries add_log_entries = 3; 
   }
 }
 
 message AppResponse {
 
-  message Validation {
-
-    message Success { }
-    message Failure {
-      required string error_message = 1; 
-      required int32  error_code    = 2;
-    }
-
-    required string id = 1;
-    oneof result {
-      Success validation_success = 2; 
-      Failure validation_failure = 3;
-    }
+  message Result {
+    required int32 index = 1;
+    required string id = 2; // TODO this should not be needed  
+    optional bytes result_data = 3; 
   }
 
-  message Validations {
-    repeated Validation validations = 1; 
+  message Results {
+    repeated Result results = 1; 
   }
 
   oneof app_response_payload {
-    Validations     validations      = 4;
+    Results add_log_results = 4;
   }
 }
