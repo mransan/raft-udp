@@ -7,7 +7,7 @@ module Conf = Raft_com_conf
 
 module U  = Lwt_unix 
 
-type connection = (Lwt_io.input_channel * Lwt_unix.file_descr)  
+type connection = (Lwt_io.input_channel * Lwt_unix.file_descr * bytes)  
 
 module  Event = struct 
 
@@ -28,7 +28,7 @@ module  Event = struct
     
     | Response_sent of connection 
 
-  let close_connection (ic, _) () = 
+  let close_connection (ic, _, _) () = 
     Lwt_io.close ic 
     >|= (fun () -> Connection_close) 
 
@@ -68,7 +68,7 @@ let get_next_connection_f logger {Conf.app_server_port; _} server_id =
         log_f ~logger ~level:Notice 
               "New connection accepted, details: %s" 
               (Raft_utl_unix.string_of_sockaddr ad)
-        >|= Event.new_connection (ic, fd2)
+        >|= Event.new_connection (ic, fd2, Bytes.create 1024)
       )
     ) (* with *) (fun exn ->
       let error = 
@@ -81,56 +81,39 @@ let decode_request bytes =
   let decoder = Pbrt.Decoder.of_bytes bytes in 
   APb.decode_app_request decoder 
 
-let next_request  =
+let next_request logger ((ic, fd, buffer) as connection) =
+  Lwt.catch (fun () ->
+    Raft_utl_connection.read_msg_with_header ic buffer
+    >>= (fun (buffer, len) -> 
+      log_f ~logger ~level:Notice "Request received, size: %i" len
+      >>=(fun () -> 
+        match decode_request (Bytes.sub buffer 0 len) with
+        | app_request ->
+          log_f ~logger ~level:Notice 
+                "Request decoded: %s" 
+                (Pb_util.string_of_app_request app_request)
+          >|= Event.new_request app_request (ic, fd, buffer)
 
-  let buffer = Bytes.create 1024 in
-    (*  Only needs to create the buffer once
-     *)
-
-  fun logger ((ic, _) as connection) -> 
-    Lwt.catch (fun () ->
-      Lwt_io.read_into ic buffer 0 1024 
-      >>=(function
-        | 0 -> 
-          log ~logger ~level:Warning 
-              "Connection closed by client (read size = 0)" 
-          >>= Event.close_connection connection 
-
-        | 1024 -> 
-          log ~logger ~level:Warning 
-              "Larger than expected request from client... closing connection"
-          >>= Event.close_connection connection 
-          
-        | n -> 
-          log_f ~logger ~level:Notice "Request received, size: %i" n
-          >>=(fun () -> 
-            match decode_request (Bytes.sub buffer 0 n) with
-            | app_request ->
-              log_f ~logger ~level:Notice 
-                    "Request decoded: %s" 
-                    (Pb_util.string_of_app_request app_request)
-              >|= Event.new_request app_request connection
-
-            | exception exn -> 
-              log_f ~logger ~level:Error 
-                    "Failed to decode request, details: %s" 
-                    (Printexc.to_string exn)
-              >>= Event.close_connection connection
-          )
-      ) 
-    ) (* with *) (fun exn -> 
-      log_f ~logger ~level:Error 
-            "Failed to read new request, details: %s" 
-            (Printexc.to_string exn)
-      >>= Event.close_connection connection
+        | exception exn -> 
+          log_f ~logger ~level:Error 
+                "Failed to decode request, details: %s" 
+                (Printexc.to_string exn)
+          >>= Event.close_connection connection
+      )
     ) 
+  ) (* with *) (fun exn -> 
+    log_f ~logger ~level:Error 
+          "Failed to read new request, details: %s" 
+          (Printexc.to_string exn)
+    >>= Event.close_connection connection
+  ) 
 
-let send_app_response logger ((_, fd) as connection) app_response = 
+let send_app_response logger ((_, fd, _) as connection) app_response = 
   (* Encode to bytes *)
   let bytes = 
     let encoder = Pbrt.Encoder.create () in 
     APb.encode_app_response  app_response encoder; 
-    Pbrt.Encoder.to_bytes encoder 
+    Raft_utl_connection.add_length_prefix (Pbrt.Encoder.to_bytes encoder) 
   in
    
   let bytes_len = Bytes.length bytes in 
@@ -142,7 +125,7 @@ let send_app_response logger ((_, fd) as connection) app_response =
       | 0 -> Event.close_connection connection () 
       | n when n = len -> 
         log_f ~logger ~level:Notice 
-              "Response sent (byte length: %i): %s" n 
+              "Response sent (byte length: %i): %s" bytes_len 
               (Pb_util.string_of_app_response app_response)
         >|= Event.response_sent connection
       | n -> aux (pos + n) 
@@ -164,8 +147,7 @@ let server_loop logger configuration server_id handle_app_request () =
 
   let rec aux threads  = 
     assert([] <> threads); 
-      (* There should always be 1 thread to listen to new connection
-       *)
+      (* There should always be 1 thread to listen to new connection *)
 
     Lwt.nchoose_split threads 
     >>=(fun (events, non_terminated_threads)  -> 

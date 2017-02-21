@@ -169,15 +169,7 @@ let handle_committed_logs logger stats
 
     let log_entries = List.map RConv.log_entry_to_pb committed_logs in 
 
-    (* TODO : this grouping by 5 is due to a current limitation of the 
-     * App protocol (must fit within 1024 bytes)... this should 
-     * be moved out *)
-
-    let groups = Raft_utl_lib.group_of_n log_entries 5 in 
-
-    let app_requests = List.map (fun log_entries -> 
-      APb.(Add_log_entries {log_entries}) 
-    ) groups in 
+    let app_requests = [APb.(Add_log_entries {log_entries})] in  
     
     (* The RAFT protocol dictates that all committed log entries must be stored
      * permanently on DISK. This way, if a server crashes it can recover.  *)
