@@ -6,7 +6,9 @@ module Conf         = Raft_com_conf
 module Server_stats = Raft_srv_serverstats
 module APb          = Raft_com_pb 
 
-type handle = Lwt_unix.file_descr
+type connection = (Lwt_io.input_channel * Lwt_unix.file_descr * bytes) 
+
+type handle = connection 
 
 type client_request = APb.client_request * handle
 
@@ -20,7 +22,7 @@ module Event = struct
       (* Critial failure, all the threads handling client IPC will be 
        * terminated. The string indicates the failure context. 
        *)
-    | New_client_connection of Lwt_unix.file_descr  
+    | New_client_connection of connection
       (* In TCP each new client must initiate a dedicated connection, this 
        * event notifies of such new connection (ie file descriptor). 
        *)
@@ -32,7 +34,7 @@ module Event = struct
       (* An error occured while attempting to read from a client connection, 
        * that connection is now closed. 
        *)
-    | Client_connection_write_ok of U.file_descr
+    | Client_connection_write_ok of connection
       (* A response was successfully sent to the given client connection, 
        * more reads can now be made. 
        *)
@@ -48,16 +50,21 @@ module Event = struct
     Lwt.return (Failure context)
   
   let new_client_connection fd () = 
-    New_client_connection fd
+    let connection = (
+      Lwt_io.of_fd ~mode:Lwt_io.input fd, 
+      fd, 
+      Bytes.create 1024
+    ) in 
+    New_client_connection connection
 
-  let client_connection_write_ok fd () = 
-    Client_connection_write_ok fd 
+  let client_connection_write_ok connection () = 
+    Client_connection_write_ok connection
   
-  let client_connection_read_closed fd () =
+  let client_connection_read_closed (_, fd, _)  () =
     U.close fd 
     >|= (fun () -> Client_connection_read_closed)
 
-  let client_connection_write_closed logger fd () =
+  let client_connection_write_closed logger (_, fd, _) () =
     U.close fd
     >>=(fun () ->
       log ~logger ~level:Notice ~section "Client connection closed"
@@ -76,8 +83,9 @@ let get_next_client_connection_f logger configuration server_id =
       Lwt.catch (fun () ->
         U.accept fd
         >>=(fun (fd2, ad) ->
-          log_f ~logger ~level:Notice ~section "New client connection accepted: %s"
-            (Raft_utl_unix.string_of_sockaddr ad)
+          log_f ~logger ~level:Notice ~section 
+                "New client connection accepted: %s"
+                (Raft_utl_unix.string_of_sockaddr ad)
           >|= Event.new_client_connection fd2
         )
       ) (* with *) (fun exn ->
@@ -85,9 +93,9 @@ let get_next_client_connection_f logger configuration server_id =
         (* The accept has failed, this is a critical failure AFAIK
          * so best to return a fatale `Failure.
          *)
-        log_f ~logger ~level:Fatal
-          ~section "Error when accepting new client connection, details: %s"
-          (Printexc.to_string exn)
+        log_f ~logger ~level:Fatal ~section 
+              "Error when accepting new client connection, details: %s"
+              (Printexc.to_string exn)
         >|=(fun () -> Event.Failure "Accept failure")
       )
     in
@@ -100,60 +108,49 @@ let get_next_client_connection_f logger configuration server_id =
       make_acccept_f fd
     with exn -> (fun () ->
 
-      log_f ~logger ~level:Fatal
-        ~section "Error initializing TCP listen connection for client IPC. details: %s"
-        (Printexc.to_string exn)
+      log_f ~logger ~level:Fatal ~section 
+            "Error initializing TCP connection for client IPC. details: %s"
+            (Printexc.to_string exn)
 
       >|= Event.failure "bind/listen failure"
     )
 
+let decode_request bytes = 
+  let decoder = Pbrt.Decoder.of_bytes bytes in 
+  APb.decode_client_request decoder 
 
 let get_next_client_request_f logger = 
-  let buffer = Bytes.create 1024 in
 
-  fun fd  -> 
+  fun connection -> 
     Lwt.catch (fun () ->
-
-    U.read fd buffer 0 1024
-    >>=(fun nb_bytes_received ->
-
-      log_f ~logger ~level:Notice
-        ~section "New Client message received, nb of bytes: %i" nb_bytes_received
-      >|=(fun () -> nb_bytes_received)
-    )
-    >>=(function
-      | 0 ->
-        log ~logger ~level:Warning
-          ~section "Client terminated connection early"
-        >>=(Event.client_connection_read_closed fd)
-
-      | nb_bytes_received when nb_bytes_received = 1024 ->
-
-        log ~logger ~level:Error
-          ~section "Client message is too large... closing connection"
-        >>=(Event.client_connection_read_closed fd)
-
-      | nb_bytes_received -> begin
-        let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 nb_bytes_received) in
-        begin match APb.decode_client_request decoder with
-        | req ->
-          Lwt.return (Event.Client_connection_read_ok (req, fd))
-
-        | exception exn ->
-          log_f ~logger ~level:Error
-            ~section "Error decoding client request, details: %s"
-            (Printexc.to_string exn)
-          >>=(Event.client_connection_read_closed fd)
-        end
-      end
-    )
-    ) (* try *) (fun exn  ->
-
+      let (ic, fd, buffer) = connection in 
+      Raft_utl_connection.read_msg_with_header ic buffer 
+      >>=(fun (buffer', len) -> 
+        log_f ~logger ~level:Notice ~section 
+              "New Client message received, nb of bytes: %i" len 
+        >>=(fun () -> 
+          match decode_request (Bytes.sub buffer' 0 len) with
+          | request_msg -> 
+            let connection = 
+              if buffer == buffer' 
+              then connection       (* no resize happened *) 
+              else (ic, fd, buffer') 
+            in 
+            Lwt.return 
+              (Event.Client_connection_read_ok (request_msg, connection))
+          | exception exn -> 
+            log_f ~logger ~level:Error
+                  ~section "Error decoding client request, details: %s"
+                  (Printexc.to_string exn)
+            >>=(Event.client_connection_read_closed connection)
+        )
+      )
+    ) (* with *) (fun exn ->
       log_f ~logger ~level:Error
         ~section "Error when reading client data from connection, details: %s"
         (Printexc.to_string exn)
       
-      >>=(Event.client_connection_read_closed fd)
+      >>=(Event.client_connection_read_closed connection)
     )
 
 let create_response_stream logger () =
@@ -161,36 +158,29 @@ let create_response_stream logger () =
   let response_stream, response_push = Lwt_stream.create () in  
 
   let response_stream = 
-    Lwt_stream.map_s (fun (response, fd) ->
+    Lwt_stream.map_s (fun (response, ((_, fd, _) as connection)) ->
 
-      let encoder = Pbrt.Encoder.create () in
-      APb.encode_client_response response encoder;
-      let buffer = Pbrt.Encoder.to_bytes encoder in
-      let buffer_len = Bytes.length buffer in
+      let bytes = 
+        let encoder = Pbrt.Encoder.create () in
+        APb.encode_client_response response encoder;
+        Pbrt.Encoder.to_bytes encoder 
+      in
 
       Lwt.catch (fun () ->
-        Lwt_unix.write fd buffer 0 buffer_len
-        >>=(fun nb_byte_written ->
-          if nb_byte_written <> buffer_len
-          then
-            log_f ~logger ~level:Error
-              ~section "Error sending client response, byte written: %i, len: %i"
-              nb_byte_written buffer_len
-            >>= Event.client_connection_write_closed logger fd
-
-          else
-            log ~logger ~level:Notice ~section "Response successfully sent"
-            >|= Event.client_connection_write_ok fd 
+        Raft_utl_connection.write_msg_with_header fd bytes 
+        >>=(fun () ->
+          log ~logger ~level:Notice ~section "Response successfully sent"
+          >|= Event.client_connection_write_ok connection
         )
-
       ) (* with *) (fun exn ->
-        log_f ~logger ~level:Error
-          ~section "Error sending client response, detail: %s"
-          (Printexc.to_string exn)
-        >>= Event.client_connection_write_closed logger fd
+        log_f ~logger ~level:Error ~section 
+              "Error sending client response, detail: %s"
+              (Printexc.to_string exn)
+        >>= Event.client_connection_write_closed logger connection
       )
     ) response_stream
   in 
+
   let next_response = fun () -> 
     Lwt_stream.get response_stream
     >>=(function
@@ -207,7 +197,9 @@ type t = client_request Lwt_stream.t * send_response_f
 
 let make logger configuration stats server_id =
 
-  let next_client_connection = get_next_client_connection_f logger configuration server_id in
+  let next_client_connection = 
+    get_next_client_connection_f logger configuration server_id 
+  in
   
   let next_client_request = get_next_client_request_f logger in  
 
@@ -233,7 +225,8 @@ let make logger configuration stats server_id =
    * this list one of the thread is the accept threads while all the
    * others are Request processing threads.
    *
-   * Responses computed by the clients are received sequentially using an [Lwt_stream.t]. 
+   * Responses computed by the clients are received sequentially using an 
+   * [Lwt_stream.t]. 
    * They are also sent sequentially (which could be improved).
    *)
   let rec loop threads () =
@@ -247,10 +240,10 @@ let make logger configuration stats server_id =
             Printf.eprintf "Client IPC Failure, context: %s\n" context;
             (next_threads, true)
 
-          | Event.New_client_connection fd ->
+          | Event.New_client_connection connection ->
             Server_stats.tick_new_client_connection stats;
 
-            let recv_thread  = next_client_request fd in
+            let recv_thread  = next_client_request connection in
             let next_threads =
               recv_thread::(next_client_connection ())::next_threads
               (* This is where the fundamental logic of handling a TCP
@@ -275,13 +268,13 @@ let make logger configuration stats server_id =
              *)
             (next_threads, is_failure)
 
-          | Event.Client_connection_write_ok fd->
+          | Event.Client_connection_write_ok connection ->
             (*
              * After this server write to the client connection, it's
              * expected that the client will send another message, therefore
              * we can now read from that connection.
              *)
-            let recv_thread = next_client_request fd in
+            let recv_thread = next_client_request connection in
             ((next_response ())::recv_thread::next_threads, is_failure)
 
           | Event.Client_connection_write_closed -> 
@@ -292,11 +285,9 @@ let make logger configuration stats server_id =
 
       if is_failure
       then begin
-        (*
-         * In case of fatal failure we notify the
+        (* In case of fatal failure we notify the
          * client application that no more client request
-         * will be accepted by closing the stream.
-         *)
+         * will be accepted by closing the stream.  *)
         request_push None;
         log ~logger ~level:Error ~section "Closing request stream" 
       end

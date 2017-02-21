@@ -21,8 +21,8 @@ let rec loop logger client counter_value () =
     process_id = Unix.getpid (); 
   }) 
   >>=(function
-    | Raft_app_clt.Ok -> Lwt.return_unit 
-    | Raft_app_clt.Error msg -> 
+    | Result.Ok _ -> Lwt.return_unit 
+    | Result.Error msg -> 
       log_f ~logger ~level:Warning "Error, details: %s\n" msg
   )
   >>= (fun () -> Lwt_unix.sleep 0.001) 

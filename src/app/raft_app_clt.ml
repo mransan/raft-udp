@@ -6,36 +6,29 @@ module U    = Lwt_unix
 module APb  = Raft_com_pb
 
 module type App_sig = sig 
-
   type log
-
   val encode : log -> bytes 
-
 end 
 
 module Ext = struct
-
   let string_of_option f = function
     | None   -> "None"
     | Some x -> f x 
-
 end 
 
-type send_result = 
-  | Ok 
-  | Error of string 
+type send_result = (unit, string) Result.result
+
+type connection = (Lwt_io.input_channel * Lwt_unix.file_descr * bytes)  
 
 module Event = struct 
 
   type e = 
-    | Connection_established of Lwt_unix.file_descr
-      (* Connection established with a server, it does not mean the server
-       * is a leader. 
-       *)
+    | Connection_established of connection 
+      (** Connection established with a server, it does not mean the server
+          is a leader.  *)
 
     | Connection_closed 
-      (* The connection with a server closed (brutal) 
-       *)
+      (** The connection with a server closed (brutal) *)
 
     | Request  of APb.client_request * send_result Lwt.u  
     
@@ -51,14 +44,19 @@ module Event = struct
 
   let failure_lwt context () = Lwt.return (Failure context)
 
-  let connection_closed fd () = 
+  let connection_closed (_, fd, _) () = 
     U.close fd >|= (fun () -> Connection_closed)  
 
   let connection_established fd () = 
-    Connection_established fd
+    let connection = (
+      Lwt_io.of_fd ~mode:Lwt_io.input fd, 
+      fd, 
+      Bytes.create 1024
+    ) in 
+    Connection_established connection
 
-  let lwt_response client_response response_wakener () = 
-    Lwt.return @@ Response (client_response, response_wakener)
+  let response client_response response_wakener () = 
+    Response (client_response, response_wakener)
   
   let client_request client_request response_wakener () = 
     Request (client_request, response_wakener)
@@ -72,10 +70,9 @@ module State = struct
       (* No known leader *)
 
     | Potential   of int 
-      (* One of the server indicated that this server should be a 
-         leader 
-       *)
-    | Established of int * Lwt_unix.file_descr 
+      (* One of the server indicated that this server should be a leader *)
+
+    | Established of int * connection
       (* Successful on going connection with the leader *)
 
   type t = {
@@ -139,7 +136,8 @@ type t = {
 let new_connection {logger; state; _ } to_  = 
   match Conf.sockaddr_of_server_id `Client (state.State.configuration) to_ with
   | None -> 
-    log_f ~logger ~level:Fatal "Error getting address for server_id: %i" to_
+    log_f ~logger ~level:Fatal 
+          "Error getting address for server_id: %i" to_
     >|= Event.failure "Error gettting address"
 
   | Some ad ->
@@ -148,18 +146,25 @@ let new_connection {logger; state; _ } to_  =
       U.sleep 0.25
       >>=(fun () -> U.connect fd ad)
       >>=(fun () -> 
-        log_f ~logger ~level:Notice "Connection established successfully with server_id: %i" to_
+        log_f ~logger ~level:Notice 
+              "Connection established successfully with server_id: %i" to_
        >|= Event.connection_established fd
       ) 
     ) (* with *) (fun exn ->
 
-      log_f ~logger ~level:Warning "Error connecting to server_id: %i, details: %s" 
-        to_ (Printexc.to_string exn)
-      >>= Event.connection_closed fd
+      log_f ~logger ~level:Warning 
+            "Error connecting to server_id: %i, details: %s" 
+            to_ (Printexc.to_string exn)
+      >>= (fun () -> U.close fd >|= (fun () -> Event.Connection_closed))
     )
 
-(* Attempts to send the given [client_request] to the established connection with 
- * the leader. 
+
+let decode_response bytes = 
+  let decoder = Pbrt.Decoder.of_bytes bytes in 
+  APb.decode_client_response decoder
+
+(* Attempts to send the given [client_request] to the established connection 
+ * with the leader. 
  *
  * In case of success [Response] event is returned. 
  * In case of communication failure, [Connection_closed] is returned. 
@@ -169,69 +174,79 @@ let new_connection {logger; state; _ } to_  =
  * The function expects the leader to be established, if not [Failure] event
  * is returned. 
  *)
-let handle_request ({state; logger; _ }) client_request response_wakener = 
+let handle_request ({state; logger; _ } as t) client_request response_wakener = 
   let {State.leader; _ } = state in 
 
   match leader with
   | State.No | State.Potential _ -> 
-     Event.failure_lwt "Internal error, requests can only be sent to established leader" ()
+     Event.failure_lwt ("Internal error, requests can only be " ^
+                        "sent to established leader") ()
 
-  | State.Established (server_id, fd) -> 
-    let encoder = Pbrt.Encoder.create () in
-    APb.encode_client_request client_request encoder;
-    let buffer     = Pbrt.Encoder.to_bytes encoder in
-    let buffer_len = Bytes.length buffer in
+  | State.Established (server_id, connection) -> 
+    
+    let (ic, fd, buffer) = connection in 
+
+    let bytes = 
+      let encoder = Pbrt.Encoder.create () in
+      APb.encode_client_request client_request encoder;
+      Pbrt.Encoder.to_bytes encoder 
+    in
 
     Lwt.catch (fun () ->
-      U.write fd buffer 0 buffer_len
-      >>= (fun nb_byte_written ->
-        if nb_byte_written <>  buffer_len
-        then Event.connection_closed fd () 
-        else
-          log_f ~logger ~level:Notice "Request sent to server id: %i" server_id 
-          >>=(fun () -> 
-            let buffer = Bytes.create 1024 in
-            U.read fd buffer 0 1024
-            >>= (fun bytes_read ->
-              log_f ~logger ~level:Notice 
-                    "Response received (size: %i)" bytes_read
-              >>=(fun () -> 
-                if bytes_read <> 0 && bytes_read <> 1024
-                then
-                  let client_response = 
-                    Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 bytes_read) 
-                    |> APb.decode_client_response   
-                  in
-                  let s = 
-                    Format.asprintf "%a" APb.pp_client_response client_response
-                  in  
-                  log_f ~logger ~level:Notice 
-                    "Client response decoded: %s" s
-                  >>= Event.lwt_response client_response response_wakener 
-                else
-                  log_f ~logger ~level:Error 
-                    "Invalid nb of byte read: %i, closing connection" 
-                    bytes_read
-                  >>= Event.connection_closed fd 
-              )
-            )
-          )
+      Raft_utl_connection.write_msg_with_header fd bytes
+      >>=(fun () -> 
+        log_f ~logger ~level:Notice 
+        "Request sent to server id: %i" server_id 
+      ) 
+      >>=(fun () -> 
+        Raft_utl_connection.read_msg_with_header ic buffer 
+      )
+      >>=(fun (buffer', len) -> 
+        log_f ~logger ~level:Notice 
+              "Response received (size: %i)" len
+        >>=(fun () -> 
+          match decode_response (Bytes.sub buffer' 0 len) with
+          | client_response -> begin  
+            if buffer != buffer' 
+            then begin 
+              (* only need to update the connection if the buffer was 
+               * resized *)
+              let connection = (ic, fd, buffer') in 
+              t.state <- {state with 
+                State.leader = State.Established (server_id, connection); 
+              }; 
+            end; 
+
+            let s = 
+              Format.asprintf "%a" APb.pp_client_response client_response
+            in  
+            log_f ~logger ~level:Notice 
+              "Client response decoded: %s" s
+
+            >|= Event.response client_response response_wakener 
+          end
+          | exception exn ->
+            log_f ~logger ~level:Error 
+              "Error decoding client response, details: %s"
+              (Printexc.to_string exn)
+            >>= Event.connection_closed connection
+        )
       )
     ) (* with *) (fun exn ->
       log_f ~logger ~level:Error "Error in IPC with RAFT server, details: %s" 
         (Printexc.to_string exn) 
-      >>= Event.connection_closed fd
+      >>= Event.connection_closed connection
     )
 
 let handle_response (_:t) client_response response_wakener = 
 
   match client_response with
   | APb.Add_log_success -> 
-    Lwt.wakeup response_wakener Ok; 
+    Lwt.wakeup response_wakener (Result.Ok ()); 
     `Next_request  
 
   | APb.Add_log_validation_failure -> 
-    Lwt.wakeup response_wakener (Error "validation failure");
+    Lwt.wakeup response_wakener (Result.Error "validation failure");
     `Next_request 
 
   | APb.Add_log_not_a_leader {APb.leader_id} -> 

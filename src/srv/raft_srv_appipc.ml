@@ -91,19 +91,25 @@ let decode_response bytes =
   let decoder = Pbrt.Decoder.of_bytes bytes in 
   APb.decode_app_response decoder 
 
-let next_response logger configuration server_id (ic, fd, buffer) () = 
+let next_response logger configuration server_id connection () = 
+  let (ic, fd, buffer) = connection in
   Lwt.catch (fun () ->
     Raft_utl_connection.read_msg_with_header ic buffer 
-    >>=(fun (buffer, len) -> 
+    >>=(fun (buffer', len) -> 
       log_f ~logger ~level:Notice ~section 
             "Response received from app server (size: %i)" len
       >>=(fun () -> 
-        match decode_response (Bytes.sub buffer 0 len) with
+        match decode_response (Bytes.sub buffer' 0 len) with
         | app_response -> (
+          let connection = 
+            if buffer == buffer' 
+            then connection
+            else (ic, fd, buffer') 
+          in 
           log_f ~logger ~level:Notice ~section 
                 "Response decoded with success: %s"
                 (Pb_util.string_of_app_response app_response) 
-          >|= Event.app_response app_response (ic, fd, buffer) 
+          >|= Event.app_response app_response connection
         )
         | exception exn -> (
           log_f ~logger ~level:Error ~section 
