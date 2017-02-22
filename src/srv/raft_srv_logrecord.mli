@@ -19,7 +19,7 @@ val make : Lwt_log_core.logger -> Raft_com_conf.t -> int -> t Lwt.t
     returns a handle that client application should keep track 
     of in order to subsequently call the [append_committed_data] function *)
 
-val append_committed_data : 
+val add_logs : 
   Lwt_log_core.logger -> 
   Raft_log.log_entry list -> 
   t -> 
@@ -27,9 +27,17 @@ val append_committed_data :
 (** [append_committed_data log_entries handle] permanently record 
     the [log_entries].  *)
 
+val set_committed :
+  Lwt_log_core.logger -> 
+  Raft_log.log_entry list ->
+  t ->
+  unit Lwt.t 
+(** [set_committed logger log_entries db] udpates the permanent records of 
+    the logs to be committed. *)
+
 val read_log_records : 
   t -> 
-  ('a -> Raft_log.log_entry -> 'a) -> 
+  ('a -> Raft_log.log_entry -> bool -> 'a) -> 
   'a -> 
   'a Lwt.t
 (** [read_log_records configuration server_id f e0] folds over all the records 

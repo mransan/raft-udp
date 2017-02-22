@@ -132,6 +132,32 @@ let get_app_ipc_f logger stats configuration server_id =
   in 
   (send_app_requests, next_app_response)
 
+let init_data_from_log_records logger configuration id = 
+  Log_record.make logger configuration id 
+  >>=(fun log_record_handle -> 
+    let b =  RLog.Builder.make () in
+    let f acc log_entry is_committed = 
+      let b, commit_index = acc in 
+      let b = RLog.Builder.add_log_entry b log_entry in 
+      let commit_index = 
+        if is_committed (* We assum here that the iteration is ascending *) 
+        then  log_entry.RLog.index
+        else commit_index 
+      in 
+      (b, commit_index)
+    in  
+    Log_record.read_log_records log_record_handle f (b, 0) 
+    >|= (fun (b, commit_index) -> 
+      let log = RLog.Builder.to_log b in 
+      
+      let _, current_term = 
+        RLog.last_log_index_and_term log
+      in 
+
+      (log_record_handle, log, commit_index, current_term)
+    )  
+  ) 
+
 let run_server configuration id logger print_header slow =
 
   let stats = 
@@ -243,32 +269,19 @@ let run_server configuration id logger print_header slow =
     ~server_id:id () 
   in
 
-  Log_record.make logger configuration id 
-  >>=(fun log_record_handle -> 
-    let builder =  RLog.Builder.make () in
-    Log_record.read_log_records log_record_handle (fun builder2 log_entry ->
-      RLog.Builder.add_log_entry builder2 log_entry
-    ) builder
-    >|= RLog.Builder.to_log 
-    >>= (fun log -> 
-      let initial_raft_state = {initial_raft_state with RTypes.log } in 
-
-      (* TODO the commit_index should really be computed based on 
-       * the committed attribute of the records *)
-      let commit_index, current_term = 
-        RLog.last_log_index_and_term initial_raft_state.RTypes.log 
-      in 
-
-      let initial_raft_state = {initial_raft_state with 
-        RTypes.commit_index; 
-        current_term
-      } in 
+  init_data_from_log_records logger configuration id
+  >>= (fun (log_record_handle, log, commit_index, current_term) ->
       
-      log_f ~logger ~level:Notice ~section 
-          "Log read done, commit index: %i, current term: %i" 
-          commit_index current_term
-      >|=(fun () -> (initial_raft_state, log_record_handle))
-    )
+    let initial_raft_state = {initial_raft_state with 
+      RTypes.log; 
+      RTypes.commit_index; 
+      current_term
+    } in 
+    
+    log_f ~logger ~level:Notice ~section 
+        "Log read done, commit index: %i, current term: %i" 
+        commit_index current_term
+    >|=(fun () -> (initial_raft_state, log_record_handle))
   )
   >>=(fun (initial_raft_state, log_record_handle) ->
     let {

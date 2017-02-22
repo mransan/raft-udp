@@ -23,19 +23,27 @@ let make logger configuration server_id =
         "Creating log record file: %s\n" dirname
   >|= (fun () -> db)
 
-let append_committed_data logger log_entries db = 
+let add_logs logger log_entries db = 
   Lwt_list.iter_s (fun ({Raft_log.index; id; _} as log) -> 
-    Rocks.add_log ~log ~committed:true ~db ();
+    Rocks.add_log ~log ~committed:false ~db ();
     log_f ~logger ~level:Notice ~section 
-          "log_entry appended (index: %10i, id: %s)" 
+          "log_entry added (index: %10i, id: %s)" 
+          index id
+  ) log_entries
+
+let set_committed logger log_entries db = 
+  Lwt_list.iter_s (fun {Raft_log.index; id;  _} -> 
+    Rocks.set_committed_by_index ~index ~db ();
+    log_f ~logger ~level:Notice ~section 
+          "log_entry committed (index: %10i, id: %s)" 
           index id
   ) log_entries
 
 let read_log_records db f e0 = 
   let rec aux count acc = function
     | Rocks.End -> Lwt.return acc 
-    | Rocks.Value ((log, _, _), k) -> 
-      let acc = f acc log in 
+    | Rocks.Value ((log, is_commited, _), k) -> 
+      let acc = f acc log is_commited in 
       if count mod 1_000 = 0
       then
         Lwt_unix.yield () 

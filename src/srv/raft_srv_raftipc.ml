@@ -158,8 +158,23 @@ type state = {
 
 type result = (state * client_responses * app_requests) 
 
+let handle_added_logs logger stats 
+                          compaction_handle added_logs = 
+
+  match added_logs with
+  | [] -> Lwt.return_unit
+  | _ ->
+    let _  = stats in 
+      (* TODO probably need to collect some stats *)
+
+    let log_entries = List.map RConv.log_entry_to_pb added_logs in 
+
+    (* The RAFT protocol dictates that all committed log entries must be stored
+     * permanently on DISK. This way, if a server crashes it can recover.  *)
+    Log_record.add_logs logger added_logs compaction_handle 
+
 let handle_committed_logs logger stats 
-                          compaction_handle committed_logs = 
+                          compaction_handle committed_logs () = 
 
   match committed_logs with
   | [] -> Lwt.return []
@@ -171,9 +186,7 @@ let handle_committed_logs logger stats
 
     let app_requests = [APb.(Add_log_entries {log_entries})] in  
     
-    (* The RAFT protocol dictates that all committed log entries must be stored
-     * permanently on DISK. This way, if a server crashes it can recover.  *)
-    Log_record.append_committed_data logger committed_logs compaction_handle 
+    Log_record.set_committed logger committed_logs compaction_handle 
     >|=(fun () -> app_requests)
 
 let send_raft_messages ~logger ~stats id connection_state messages  = 
@@ -196,10 +209,15 @@ let process_result logger stats state result =
     messages_to_send = outgoing_messages; 
     committed_logs;
     leader_change = _;  
+      (* TODO handle leader_change by replying to cleaning up the client
+       * pending requests *)
+    added_logs; 
   }  = result in 
 
-  handle_committed_logs 
-      logger stats log_record_handle committed_logs
+  handle_added_logs
+        logger state log_record_handle added_logs 
+  >>= handle_committed_logs 
+        logger stats log_record_handle committed_logs
   >>=(fun app_requests -> 
     send_raft_messages 
         ~logger ~stats (raft_state.RTypes.server_id) 
