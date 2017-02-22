@@ -156,7 +156,7 @@ let print_state logger section state =
   let {
     RTypes.server_id;
     current_term;
-    log = {RLog.log_size; term_tree ; _  };
+    log = {RLog.log_size; _  };
     commit_index;
     role; _ 
   } = state in
@@ -173,7 +173,6 @@ let print_state logger section state =
     "\t\t%15s : %i \n" ^^ 
     "\t\t%15s : %i \n" ^^ 
     "\t\t%15s : %i \n" ^^ 
-    "\t\t%15s : %a \n" ^^ 
     "%a"
   in
   log_f ~logger ~section ~level:Notice fmt 
@@ -181,5 +180,4 @@ let print_state logger section state =
     "current term" current_term
     "commit index" commit_index
     "log size " log_size 
-    "term tree" (print_of_pp  RLog.pp_term_tree) term_tree
     print_role role 
