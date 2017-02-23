@@ -10,9 +10,7 @@ type server_ipc_configuration = {
 }
 
 type disk_backup_configuration = {
-  compaction_period : float;
   log_record_directory : string;
-  compaction_directory : string;
 }
 
 type t = {

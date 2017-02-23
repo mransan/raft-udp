@@ -5,21 +5,6 @@ module RPb = Raft_pb
 module RTypes = Raft_types
 module RLog = Raft_log
 
-
-let print_of_pp f_pp () v =
-  Format.fprintf Format.str_formatter "@[%a@]" f_pp v;
-  Format.flush_str_formatter ()
-
-(*
-let string_of_log_interval {RPb.prev_index;last_index; rev_log_entries;_} = 
-  let status = match rev_log_entries with
-    | RPb.Compacted _ -> "Compacted"
-    | RPb.Expanded  _ -> "Expanded"
-  in
-  Printf.sprintf
-    "%10s ]%10i;%10i]" status prev_index last_index
-*)
-
 let string_of_message_type = function
   | RPb.Request_vote_request  _   -> "Request Vote Request" 
   | RPb.Request_vote_response _   -> "Request Vote Response"

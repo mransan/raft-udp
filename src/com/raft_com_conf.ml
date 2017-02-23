@@ -9,9 +9,7 @@ type server_ipc_configuration = {
 }
 
 type disk_backup_configuration = {
-  compaction_period : float;
   log_record_directory : string;
-  compaction_directory : string;
 }
 
 type t = {
@@ -45,9 +43,7 @@ let default_configuration () = {
   ];
 
   disk_backup = {
-    compaction_period = 1.;
     log_record_directory = "/tmp/";
-    compaction_directory = "/tmp/";
   };
 
   app_server_port = [40_000; 40_001; 40_002];
