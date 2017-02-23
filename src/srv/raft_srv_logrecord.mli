@@ -8,7 +8,7 @@
     restarts and recover its previous state. 
 
     This module implements a disk based permanent recording of 
-    [log_entry]s.  *)
+    [log_entry]s. *)
 
 type t 
 (** Handle to be maintain by client application.  *)
@@ -32,8 +32,16 @@ val set_committed :
   Raft_log.log_entry list ->
   t ->
   unit Lwt.t 
-(** [set_committed logger log_entries db] udpates the permanent records of 
+(** [set_committed logger log_entries handle] udpates the permanent records of 
     the logs to be committed. *)
+
+val delete_log_record : 
+  Lwt_log_core.logger -> 
+  Raft_log.log_entry -> 
+  t -> 
+  unit Lwt.t
+(** [delete_log_record logger log_entry handle] deletes the given [log_entry]
+    in the permanent storage *)
 
 val read_log_records : 
   t -> 

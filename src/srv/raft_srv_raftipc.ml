@@ -158,17 +158,20 @@ type state = {
 
 type result = (state * client_responses * app_requests) 
 
-let handle_added_logs logger stats 
-                          compaction_handle added_logs = 
+let handle_deleted_logs logger 
+                          compaction_handle deleted_logs () = 
+  match deleted_logs with
+  | [] -> Lwt.return_unit
+  | _ ->
+    Lwt_list.iter_s (fun log_entry -> 
+      Log_record.delete_log_record logger log_entry compaction_handle
+    ) deleted_logs 
 
+let handle_added_logs logger
+                          compaction_handle added_logs () = 
   match added_logs with
   | [] -> Lwt.return_unit
   | _ ->
-    let _  = stats in 
-      (* TODO probably need to collect some stats *)
-
-    let log_entries = List.map RConv.log_entry_to_pb added_logs in 
-
     (* The RAFT protocol dictates that all committed log entries must be stored
      * permanently on DISK. This way, if a server crashes it can recover.  *)
     Log_record.add_logs logger added_logs compaction_handle 
@@ -212,10 +215,13 @@ let process_result logger stats state result =
       (* TODO handle leader_change by replying to cleaning up the client
        * pending requests *)
     added_logs; 
+    deleted_logs; 
   }  = result in 
 
-  handle_added_logs
-        logger state log_record_handle added_logs 
+  handle_deleted_logs
+        logger log_record_handle deleted_logs () 
+  >>= handle_added_logs
+        logger log_record_handle added_logs 
   >>= handle_committed_logs 
         logger stats log_record_handle committed_logs
   >>=(fun app_requests -> 

@@ -52,3 +52,8 @@ let read_log_records db f e0 =
         aux (count + 1) acc (k ())
   in 
   aux 0 e0 (Rocks.forward_by_index ~db ())
+
+let delete_log_record logger  {Raft_log.index; id; _} db = 
+  Rocks.delete_by_index ~index ~db (); 
+  log_f ~logger ~level:Notice ~section 
+        "Log entry deleted, index: %i, id: %s"  index id
