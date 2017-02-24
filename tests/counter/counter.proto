@@ -1,6 +1,12 @@
 option (int32_type) = int_t;
 
-message log {
-  required int32 counter_value = 1;
-  required int32 process_id    = 2;
+message app_data {
+  required int32 increment  = 1;
+  required int32 process_id = 2;
+    // for logging purposes
+}
+
+message app_result {
+  required int32 from  = 1; 
+  optional int32 to = 2; 
 }

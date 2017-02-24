@@ -9,17 +9,18 @@ module U  = Lwt_unix
 
 module Counter_srv = Raft_app_srv.Make(struct
 
-  type data = Counter_pb.log 
+  type data = Counter_pb.app_data
 
   let decode bytes = 
     let decoder = Pbrt.Decoder.of_bytes bytes in 
-    Counter_pb.decode_log decoder 
+    Counter_pb.decode_app_data decoder 
 
-  type result = unit 
+  type result = Counter_pb.app_result
 
-  let encode () : bytes = 
-    failwith "No result should be returned for counter"
-
+  let encode r = 
+    let encoder = Pbrt.Encoder.create () in 
+    Counter_pb.encode_app_result r encoder; 
+    Pbrt.Encoder.to_bytes encoder
 
 end)
 
@@ -27,36 +28,53 @@ module State = struct
 
   type t = (int * int) 
   
-  let process _ counter_value process_id = 
-    (counter_value, process_id) 
-  
+  let process state app_data = 
+    let (counter_value, _) = state in 
+    let {Counter_pb.increment; process_id} = app_data in 
+
+    match increment with 
+    | v when v <= 0 -> 
+      let app_result = Counter_pb.({from = -1; to_ = None; }) in 
+      (state, app_result) 
+
+    | 1 -> 
+      let counter_value = counter_value + 1 in 
+      let app_result = Counter_pb.({from = counter_value + 1; to_ = None}) in 
+      ((counter_value, process_id), app_result) 
+
+    | _ -> 
+      let from = counter_value + 1 in 
+      let counter_value = counter_value + increment in 
+      let app_result = Counter_pb.({
+        from; 
+        to_ = Some counter_value; 
+      }) in 
+      ((counter_value, process_id), app_result) 
+
   let empty = (-1, -1)
 
 end 
 
-let process_demo_app_request logger (results, notify) state = 
-  Lwt_list.fold_left_s (fun (log_results, state) log -> 
+let process_demo_app_request (logs, notify) state = 
+  Lwt_list.fold_left_s (fun (results, state) log -> 
 
-    let {
-      Counter_srv.id; 
-      index; 
-      app_data = {Counter_pb.counter_value; process_id};
-    } = log in
+    let {Counter_srv.id; index; app_data} = log in
 
-    let state = State.process state counter_value process_id in
+    let state, result = State.process state app_data in
 
-    log_f ~logger ~level:Notice "Added: (%06i, %6i) from log id: %s" 
-          counter_value process_id id
+    log_f ~level:Notice "New state: (%06i, %6i) from log id: %s" 
+          (fst state) (snd state) id
 
     >|= (fun () -> 
-      let log_result = Counter_srv.({
+      let result = Counter_srv.({
         id; 
         index;
-        app_result = None;
+        app_result = Some result;
       }) in 
-      (log_result::log_results, state) 
+
+      (result::results, state) 
     )
-  ) ([], state) results 
+  ) ([], state) logs
 
   >|=(fun (log_results, state) -> 
     notify @@ List.rev log_results; 
@@ -64,27 +82,27 @@ let process_demo_app_request logger (results, notify) state =
   ) 
 
 let main configuration server_id log () = 
-  begin 
-    if log 
-    then 
-      let file_name = Printf.sprintf "app%03i.log" server_id in 
-      let template  = 
-        "$(date).$(milliseconds) [$(level)] [$(section)] : $(message)" 
-      in
-      Lwt_log.file ~mode:`Truncate ~template ~file_name ()
-    else 
-      Lwt.return Lwt_log_core.null
-  end
-  >>=(fun logger -> 
-
-    let request_stream = Counter_srv.start logger configuration server_id in 
+  let logger_t = 
+      if log
+      then 
+        let basename = Printf.sprintf "app_server_%08i" server_id in 
+        Raft_utl_logger.start ~basename ~interval:60 () 
+      else begin 
+        Lwt_log_core.default := Lwt_log_core.null; 
+        Lwt.return_unit
+      end 
+  in 
+  let server_t = 
+    let request_stream = Counter_srv.start configuration server_id in 
 
     Lwt_stream.fold_s (fun request state -> 
-      process_demo_app_request logger request state
+      process_demo_app_request request state
     ) request_stream State.empty
 
     >|= ignore 
-  )
+  in 
+
+  Lwt_main.run @@ Lwt.join [logger_t; server_t]
 
 let () = 
   let configuration = Conf.default_configuration () in
@@ -103,4 +121,4 @@ let () =
   assert(!server_id < List.length configuration.Conf.app_server_port);
 
   Sys.set_signal Sys.sigpipe Sys.Signal_ignore ; 
-  Lwt_main.run (main configuration !server_id !log ())
+  main configuration !server_id !log ()

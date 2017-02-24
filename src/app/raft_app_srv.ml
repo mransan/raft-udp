@@ -42,7 +42,7 @@ module  Event = struct
     New_request (app_request, connection) 
 end 
 
-let get_next_connection_f logger {Conf.app_server_port; _} server_id =
+let get_next_connection_f {Conf.app_server_port; _} server_id =
 
   let port = 
     match List.nth app_server_port server_id with
@@ -65,7 +65,7 @@ let get_next_connection_f logger {Conf.app_server_port; _} server_id =
       U.accept fd
       >>=(fun (fd2, ad) ->
         let ic = Lwt_io.of_fd ~mode:Lwt_io.input fd2 in 
-        log_f ~logger ~level:Notice 
+        log_f ~level:Notice 
               "New connection accepted, details: %s" 
               (Raft_utl_unix.string_of_sockaddr ad)
         >|= Event.new_connection (ic, fd2, Bytes.create 1024)
@@ -81,11 +81,11 @@ let decode_request bytes =
   let decoder = Pbrt.Decoder.of_bytes bytes in 
   APb.decode_app_request decoder 
 
-let next_request logger ((ic, fd, buffer) as connection) =
+let next_request ((ic, fd, buffer) as connection) =
   Lwt.catch (fun () ->
     Raft_utl_connection.read_msg_with_header ic buffer
     >>= (fun (buffer', len) -> 
-      log_f ~logger ~level:Notice "Request received, size: %i" len
+      log_f ~level:Notice "Request received, size: %i" len
       >>=(fun () -> 
         match decode_request (Bytes.sub buffer' 0 len) with
         | app_request ->
@@ -94,26 +94,26 @@ let next_request logger ((ic, fd, buffer) as connection) =
             then connection
             else (ic, fd, buffer')
           in 
-          log_f ~logger ~level:Notice 
+          log_f ~level:Notice 
                 "Request decoded: %s" 
                 (Pb_util.string_of_app_request app_request)
           >|= Event.new_request app_request connection
 
         | exception exn -> 
-          log_f ~logger ~level:Error 
+          log_f ~level:Error 
                 "Failed to decode request, details: %s" 
                 (Printexc.to_string exn)
           >>= Event.close_connection connection
       )
     ) 
   ) (* with *) (fun exn -> 
-    log_f ~logger ~level:Error 
+    log_f ~level:Error 
           "Failed to read new request, details: %s" 
           (Printexc.to_string exn)
     >>= Event.close_connection connection
   ) 
 
-let send_app_response logger ((_, fd, _) as connection) app_response = 
+let send_app_response ((_, fd, _) as connection) app_response = 
   (* Encode to bytes *)
   let bytes = 
     let encoder = Pbrt.Encoder.create () in 
@@ -124,23 +124,23 @@ let send_app_response logger ((_, fd, _) as connection) app_response =
   Lwt.catch (fun () -> 
     Raft_utl_connection.write_msg_with_header fd bytes 
     >>=(fun () -> 
-      log_f ~logger ~level:Notice 
+      log_f ~level:Notice 
             "Response sent %s"
             (Pb_util.string_of_app_response app_response)
       >|= Event.response_sent connection
     )
   ) (* catch *) (fun exn -> 
-    log_f ~logger ~level:Error 
+    log_f ~level:Error 
       "Failed to send response, details: %s, response: %s" 
       (Printexc.to_string exn) 
       (Pb_util.string_of_app_response app_response) 
     >>= Event.close_connection connection
   ) 
 
-let server_loop logger configuration server_id handle_app_request () =
+let server_loop configuration server_id handle_app_request () =
 
   let next_connection = 
-    get_next_connection_f logger configuration server_id 
+    get_next_connection_f configuration server_id 
   in 
 
   let rec aux threads  = 
@@ -157,7 +157,7 @@ let server_loop logger configuration server_id handle_app_request () =
         ) 
 
         | Event.New_connection fd -> 
-          (next_connection ())::(next_request logger fd)::non_terminated_threads 
+          (next_connection ())::(next_request fd)::non_terminated_threads 
 
         | Event.New_request (request, fd) -> 
           let t = 
@@ -167,13 +167,13 @@ let server_loop logger configuration server_id handle_app_request () =
           t::non_terminated_threads 
 
         | Event.App_response (response, fd) -> 
-          (send_app_response logger fd response)::non_terminated_threads
+          (send_app_response fd response)::non_terminated_threads
 
         | Event.Connection_close -> 
           non_terminated_threads
         
         | Event.Response_sent fd -> 
-          (next_request logger fd)::non_terminated_threads
+          (next_request fd)::non_terminated_threads
 
       ) non_terminated_threads events
       |> aux 
@@ -229,14 +229,14 @@ module Make(App:App_sig) = struct
         APb.(Add_log_results {results}) 
       )
 
-  let start logger configuration server_id =
+  let start configuration server_id =
      let (
        validations_stream, 
        validations_push, 
        validations_set_ref
      ) = Lwt_stream.create_with_reference () in 
      validations_set_ref @@ 
-      server_loop logger configuration server_id 
+      server_loop configuration server_id 
                   (handle_app_request validations_push) (); 
      validations_stream
 

@@ -307,7 +307,7 @@ let run configuration id print_header slow log =
   let logger_t = 
       if log
       then 
-        let basename = Printf.sprintf "raft_upd_%i" id in 
+        let basename = Printf.sprintf "raft_server_%07i" id in 
         Raft_utl_logger.start ~basename ~interval:60 () 
       else begin 
         Lwt_log_core.default := Lwt_log_core.null; 

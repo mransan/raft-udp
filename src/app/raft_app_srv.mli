@@ -40,9 +40,8 @@ module Make(App:App_sig) : sig
     * validation. *)
 
   val start : 
-    Lwt_log_core.logger -> 
     Raft_com_conf.t -> int -> add_log_entries Lwt_stream.t 
-  (** [start logger configuration] returns the continuous stream of request to 
+  (** [start configuration] returns the continuous stream of request to 
     * be validated by the specific application. *)
 
 end (* Make *) 

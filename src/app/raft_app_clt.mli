@@ -13,7 +13,7 @@ end
 
 type t 
 
-val make : Lwt_log_core.logger -> Raft_com_conf.t -> t Lwt.t 
+val make : Raft_com_conf.t -> t Lwt.t 
 
 module Make(App:App_sig) : sig 
 
