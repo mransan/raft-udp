@@ -46,7 +46,9 @@ let get_next_raft_message_f_for_server configuration server_id =
     fun () ->
       Lwt_unix.recvfrom fd buffer 0 buffer_size []
       >|= (fun (nb_of_bytes_received, _) ->
-        let decoder = Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 nb_of_bytes_received) in
+        let decoder = 
+          Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 nb_of_bytes_received) 
+        in
         Raft_message (RPb.decode_message decoder)
       )
   
@@ -227,7 +229,6 @@ let handle_raft_message ~stats ~now state msg =
   let {raft_state; _ } = state in 
 
   Log.print_msg_received section msg 
-  >>=(fun () -> Log.print_state section raft_state)
   >>=(fun () ->
     Server_stats.tick_raft_msg_recv stats;
 
@@ -238,6 +239,10 @@ let handle_raft_message ~stats ~now state msg =
     in
 
     process_result stats state result  
+  )
+  >>=(fun (({raft_state; _}, _, _) as r) -> 
+    Log.print_state section raft_state
+    >|=(fun () -> r)
   )
 
 let handle_timeout ~stats ~now state timeout_type = 
@@ -260,10 +265,11 @@ let handle_timeout ~stats ~now state timeout_type =
         Raft_logic.handle_new_election_timeout raft_state now
       ))
   end
-  >>=(fun result -> 
-
-    process_result stats state result  
-  ) 
+  >>=(fun result -> process_result stats state result) 
+  >>=(fun (({raft_state; _}, _, _) as r) -> 
+    Log.print_state section raft_state
+    >|=(fun () -> r)
+  )
 
 let handle_client_requests ~stats ~now  state client_requests = 
 
