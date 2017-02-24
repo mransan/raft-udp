@@ -186,14 +186,14 @@ let handle_committed_logs stats log_record_handle committed_logs () =
     Log_record.set_committed committed_logs log_record_handle 
     >|=(fun () -> app_requests)
 
-let send_raft_messages ~stats id connection_state messages  = 
+let send_raft_messages ~stats _ connection_state messages  = 
   let {push_outgoing_message; _ } = connection_state in 
 
   Lwt_list.map_p (fun ((msg, server_id) ) ->
     let msg = RConv.message_to_pb msg in 
     let msg_to_send  = (msg, server_id) in 
     Server_stats.tick_raft_msg_send stats; 
-    Raft_srv_log.print_msg_to_send section id msg server_id 
+    Raft_srv_log.print_msg_to_send section msg server_id 
     >|= (fun () -> push_outgoing_message (Some msg_to_send))
   ) messages
   >|= ignore
@@ -226,10 +226,8 @@ let process_result stats state result =
 let handle_raft_message ~stats ~now state msg = 
   let {raft_state; _ } = state in 
 
-  log ~level:Notice ~section "Raft Message Received"
+  Log.print_msg_received section msg 
   >>=(fun () -> Log.print_state section raft_state)
-  >>=(fun () -> 
-    Log.print_msg_received section msg raft_state.RTypes.server_id)
   >>=(fun () ->
     Server_stats.tick_raft_msg_recv stats;
 

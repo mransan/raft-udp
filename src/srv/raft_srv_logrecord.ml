@@ -49,21 +49,21 @@ let add_logs log_entries db =
     Raft_rocks.add_log ~log ~committed:false ~db ()
   ) in 
 
-  log_f ~level:Notice ~section "log entries added %s" ranges 
+  log_f ~level:Notice ~section "Log entries added %s" ranges 
     
 let set_committed log_entries db = 
   let ranges = iter_log_entries log_entries (fun log ->
     Raft_rocks.set_committed_by_index ~index:log.Raft_log.index ~db ()
   ) in 
 
-  log_f ~level:Notice ~section "log entries committed %s" ranges 
+  log_f ~level:Notice ~section "Log entries committed %s" ranges 
 
 let delete_logs log_entries db = 
   let ranges = iter_log_entries log_entries (fun log ->
     Raft_rocks.delete_by_index ~index:log.Raft_log.index ~db ()
   ) in 
 
-  log_f ~level:Notice ~section "log entries deleted %s" ranges 
+  log_f ~level:Notice ~section "Log entries deleted %s" ranges 
 
 let read_log_records db f e0 = 
   let rec aux count acc = function

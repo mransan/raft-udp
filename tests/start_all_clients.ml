@@ -27,7 +27,7 @@ let () =
 
   assert(!task <> "");
 
-  let nb_of_children = 20 in 
+  let nb_of_children = 40 in 
 
   for i = 1 to nb_of_children do
     match Unix.fork () with

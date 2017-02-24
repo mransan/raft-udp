@@ -13,14 +13,19 @@ let read_msg_with_header ic buffer =
       |> Int32.to_int 
     in 
 
+    let current_len = Bytes.length buffer in 
+
     let buffer = 
-      if len > Bytes.length buffer 
-      then begin 
-        Printf.printf "New buffer created %i -> %i\n%!" 
-            (Bytes.length buffer) len; 
-        Bytes.create len
-      end
-      else buffer
+      if len > current_len 
+      then 
+        let rec aux current_len = 
+          if len > current_len
+          then aux (current_len * 2) 
+          else current_len
+        in 
+        Bytes.create (aux (current_len * 2)) 
+      else 
+        buffer
     in
     Lwt_io.read_into_exactly ic buffer 0 len
     >|= (fun () -> (buffer, len))
