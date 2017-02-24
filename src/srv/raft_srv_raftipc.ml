@@ -161,10 +161,7 @@ type result = (state * client_responses * app_requests)
 let handle_deleted_logs log_record_handle deleted_logs () = 
   match deleted_logs with
   | [] -> Lwt.return_unit
-  | _ ->
-    Lwt_list.iter_s (fun log_entry -> 
-      Log_record.delete_log_record log_entry log_record_handle
-    ) deleted_logs 
+  | _ ->  Log_record.delete_logs deleted_logs log_record_handle
 
 let handle_added_logs log_record_handle added_logs () = 
   match added_logs with
@@ -322,7 +319,7 @@ let handle_client_requests ~stats ~now  state client_requests =
     )
   end
       
-let process_app_result acc result =  
+let process_app_result is_leader acc result =  
 
   let (pending_requests, client_responses)  = acc in 
 
@@ -335,38 +332,36 @@ let process_app_result acc result =
 
   match client_request with
   | None -> 
-    (* This is ok that there is no client request associated with a log id, 
-     * this is most likely the case we are in a follower. However in the 
-     * leader, this would be an error. (until we support the 
-     * proper handling a client disconnection) *)
-    log_f ~level:Notice ~section 
-          "Could not find pending request after validation for id: %s" id 
-    >|=(fun () -> (pending_requests, client_responses)) 
+    if is_leader
+    then 
+      log_f ~level:Error ~section 
+            "Could not find pending request after validation for id: %s" id 
+      >|=(fun () -> (pending_requests, client_responses)) 
+    else 
+      Lwt.return (pending_requests, client_responses) 
 
   | Some (APb.Add_log_entry _, handle) ->
     let client_response_msg = APb.Add_log_result {
       APb.client_log_id = id; 
       APb.client_log_result_data = result_data; 
     } in 
-
     let client_responses = (client_response_msg, handle)::client_responses in
-
-    log_f ~level:Notice ~section 
-          "Matching client request found for app response, id: %s"
-          id 
-    >|=(fun () -> (pending_requests, client_responses)) 
+    Lwt.return (pending_requests, client_responses) 
 
 let handle_app_response ~stats ~now state app_response = 
 
   let _ = stats and _ = now in 
 
-  let {connection_state; _ } = state in 
+  let {connection_state; raft_state; _ } = state in 
   let {pending_requests; _} = connection_state in 
 
   match app_response with
   | APb.Add_log_results {APb.results} -> 
 
-    Lwt_list.fold_left_s process_app_result (pending_requests, []) results 
+    Lwt_list.fold_left_s 
+        (process_app_result (RTypes.is_leader raft_state)) 
+        (pending_requests, []) 
+        results 
     >|=(fun (pending_requests, client_responses) ->
       let state = {state with 
         connection_state = {connection_state with pending_requests; }

@@ -139,9 +139,7 @@ let send_request configuration server_id connection app_request =
   Lwt.catch (fun () -> 
     Raft_utl_connection.write_msg_with_header fd bytes 
     >>=(fun () -> 
-      log_f ~level:Notice ~section 
-            "App request successfully sent:\n%s" 
-            (Pb_util.string_of_app_request app_request)
+      log ~level:Notice ~section "App request successfully sent"
       >>= next_response configuration server_id connection
     )
   ) (* catch *) (fun exn -> 

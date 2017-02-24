@@ -33,8 +33,8 @@ val set_committed :
 (** [set_committed log_entries handle] udpates the permanent records of 
     the logs to be committed. *)
 
-val delete_log_record : 
-  Raft_log.log_entry -> 
+val delete_logs : 
+  Raft_log.log_entry list -> 
   t -> 
   unit Lwt.t
 (** [delete_log_record log_entry handle] deletes the given [log_entry]

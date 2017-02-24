@@ -1,21 +1,40 @@
 module APb = Raft_com_pb 
 
+let string_of_ranges ranges = 
+  String.concat ", " @@ List.rev_map (fun (from, to_) -> 
+    Printf.sprintf "[%i - %i]" from to_
+  ) ranges 
+
+
 let string_of_app_request = function
   | APb.Add_log_entries {APb.log_entries} ->
       
-    let log_entries = String.concat ", \n" @@ List.map (fun log_entry ->
-      Printf.sprintf "%20s" log_entry.Raft_pb.id
-    ) log_entries in 
-    Printf.sprintf "Add_log_entries [\n%s]" log_entries
+    let rec aux from prev ranges = function
+      | [] -> 
+        let ranges = string_of_ranges @@ (from, prev)::ranges in 
+        Printf.sprintf "Add_log_entries [%s]" ranges
+
+      | {Raft_pb.index; _} :: tl -> 
+         if index = prev + 1 
+         then aux from index ranges tl 
+         else aux index index ((from, prev)::ranges) tl 
+    in 
+    match log_entries with
+    | [] -> "Add_log_entries []" 
+    | {Raft_pb.index; _}:: tl -> aux index index [] tl 
 
 let string_of_app_response = function
   | APb.Add_log_results {APb.results} ->  
-    let results = String.concat ",\n" @@ List.map (fun result  -> 
-      let {APb.index; id; result_data} = result in 
-      let data_as_string = match result_data with
-          | None -> "no result data returned"
-          | Some b -> Printf.sprintf "data size: %i" (Bytes.length b)
-      in 
-      Printf.sprintf "%15i - %20s - %s" index id data_as_string
-    ) results in 
-    Printf.sprintf "App Results [\n%s]" results
+
+    let rec aux from prev ranges = function
+      | [] -> 
+        let ranges = string_of_ranges @@ (from, prev)::ranges in 
+        Printf.sprintf "Add_log_results [%s]" ranges
+      | {APb.index; _} :: tl -> 
+         if index = prev + 1 
+         then aux from index ranges tl 
+         else aux index index ((from, prev)::ranges) tl 
+    in 
+    match results with
+    | [] -> "Add_log_results []" 
+    | {APb.index; _}:: tl -> aux index index [] tl 
