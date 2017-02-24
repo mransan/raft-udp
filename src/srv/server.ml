@@ -21,12 +21,10 @@ let section = Section.make (Printf.sprintf "%10s" "server")
 (* -- Server -- *)
   
 let get_now =
-  (* 
-   * For easier logging the time is initialized at the 
-   * beginning of the program.
-   *)
-  let t0 = Unix.gettimeofday () in
-  (fun () -> Unix.gettimeofday () -. t0)
+  (* Mtime guarantees monotomic time which is a requirement from 
+   * the RAFT library *)
+  let t0 = Mtime.counter () in 
+  (fun () -> Mtime.(count t0 |> to_s)) 
 
 module Event = struct 
   type e  = 
