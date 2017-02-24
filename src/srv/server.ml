@@ -62,6 +62,20 @@ module Event = struct
     next_timeout_t        ::
     next_app_reponse_t    :: []
 
+  let next_timeout raft_state = 
+    let now = get_now () in
+
+    let {
+      RTypes.timeout; 
+      timeout_type } = RHelper.Timeout_event.next raft_state now in
+    
+    Lwt_unix.sleep timeout 
+    >|= (fun () -> Timeout timeout_type)
+
+  let reset_next_timeout threads raft_state = 
+    Lwt.cancel threads.next_timeout_t;
+    {threads with next_timeout_t = next_timeout raft_state}
+
 end 
 
 let get_next_raft_message_f configuration id =
@@ -105,10 +119,6 @@ let set_server_role state stats =
   in 
   (Server_stats.set_server_role stats role:unit) 
   
-let next_timeout timeout timeout_type = 
-  Lwt_unix.sleep timeout 
-  >|= (fun () -> Event.Timeout timeout_type)
-
 let get_app_ipc_f stats configuration server_id = 
   let (
     send_app_request, 
@@ -118,8 +128,8 @@ let get_app_ipc_f stats configuration server_id =
   let next_app_response () = 
     Lwt_stream.get response_stream
     >|=(function
-      | None  -> Event.Failure "App IPC"
-      | Some r-> Event.App_response r 
+      | None -> Event.Failure "App IPC"
+      | Some r -> Event.App_response r 
     )
   in
 
@@ -138,7 +148,7 @@ let init_data_from_log_records configuration id =
       let b, commit_index = acc in 
       let b = RLog.Builder.add_log_entry b log_entry in 
       let commit_index = 
-        if is_committed (* We assum here that the iteration is ascending *) 
+        if is_committed (* We assume here that the iteration is ascending *) 
         then  log_entry.RLog.index
         else commit_index 
       in 
@@ -184,19 +194,10 @@ let run_server configuration id print_header slow =
 
     >>=(fun events -> 
 
-      let handle_follow_up_action threads  ({Raft_ipc.raft_state;_} as state) = 
-        let now = get_now () in
-        let {RTypes.timeout; timeout_type } = RHelper.Timeout_event.next raft_state now in
-        Lwt.cancel threads.Event.next_timeout_t;
-        let threads = {threads with 
-          Event.next_timeout_t = next_timeout timeout timeout_type
-        } in 
-        server_loop threads state 
-      in
-      
       let now = get_now () in
       
-      Server_stats.set_log_count stats state.Raft_ipc.raft_state.RTypes.log.RLog.log_size;
+      Server_stats.set_log_count 
+          stats state.Raft_ipc.raft_state.RTypes.log.RLog.log_size;
       set_server_role state.Raft_ipc.raft_state stats;
 
       Lwt_list.fold_left_s (fun (state, threads) event -> 
@@ -257,7 +258,13 @@ let run_server configuration id print_header slow =
         ) 
 
       ) (state, threads) events 
-      >>= (fun (state, threads) -> handle_follow_up_action threads state) 
+      >>= (fun (state, threads) -> 
+        (* reset the next time out event since it either time has 
+         * elapsed and or the previous time out has happened. *)
+        let {Raft_ipc.raft_state; _} = state in 
+        let threads = Event.reset_next_timeout threads raft_state in 
+        server_loop threads state
+      )
     )
   in
 
@@ -279,18 +286,14 @@ let run_server configuration id print_header slow =
     log_f ~level:Notice ~section 
         "Log read done, commit index: %i, current term: %i" 
         commit_index current_term
-    >|=(fun () -> (initial_raft_state, log_record_handle))
+    >|= (fun () -> (initial_raft_state, log_record_handle))
   )
-  >>=(fun (initial_raft_state, log_record_handle) ->
-    let {
-      RTypes.timeout; 
-      timeout_type
-    } = RHelper.Timeout_event.next initial_raft_state (get_now ()) in 
+  >>= (fun (initial_raft_state, log_record_handle) ->
 
     let initial_threads = Event.({
       next_client_request_t = next_client_request ();
       next_raft_message_t = next_raft_message  ();
-      next_timeout_t = next_timeout timeout timeout_type;
+      next_timeout_t = Event.next_timeout initial_raft_state; 
       next_app_reponse_t  = next_app_response ();
     }) in 
 
