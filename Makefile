@@ -8,7 +8,8 @@ OCB_INC  += -I tests/
 OCB_INC  += -I tests/counter
 OCB_INC  += -I tests/asset
 
-OCB_FLAGS = -use-ocamlfind -pkgs result,ocplib-endian,ocaml-protoc,raft,raft-pb,lwt.unix
+OCB_FLAGS = -use-ocamlfind -pkgs result,ocplib-endian,ocaml-protoc
+OCB_FLAGS+= -pkgs ptime.clock.os,raft,raft-pb,lwt.unix
 OCB       = ocamlbuild $(OCB_FLAGS) $(OCB_INC)
 
 ifeq "$(shell ocamlc -config | grep os_type)" "os_type: Win32"

@@ -16,25 +16,25 @@ let dirname configuration server_id  =
   let dirname = Printf.sprintf "raft_%03i.data" server_id in
   Filename.concat log_record_directory dirname
 
-let make logger configuration server_id = 
+let make configuration server_id = 
   let dirname = dirname configuration  server_id in 
   let db = Rocks.init dirname in 
-  log_f ~logger ~level:Notice ~section
+  log_f ~level:Notice ~section
         "Creating log record file: %s\n" dirname
   >|= (fun () -> db)
 
-let add_logs logger log_entries db = 
+let add_logs log_entries db = 
   Lwt_list.iter_s (fun ({Raft_log.index; id; _} as log) -> 
     Rocks.add_log ~log ~committed:false ~db ();
-    log_f ~logger ~level:Notice ~section 
+    log_f ~level:Notice ~section 
           "log_entry added (index: %10i, id: %s)" 
           index id
   ) log_entries
 
-let set_committed logger log_entries db = 
+let set_committed log_entries db = 
   Lwt_list.iter_s (fun {Raft_log.index; id;  _} -> 
     Rocks.set_committed_by_index ~index ~db ();
-    log_f ~logger ~level:Notice ~section 
+    log_f ~level:Notice ~section 
           "log_entry committed (index: %10i, id: %s)" 
           index id
   ) log_entries
@@ -53,7 +53,7 @@ let read_log_records db f e0 =
   in 
   aux 0 e0 (Rocks.forward_by_index ~db ())
 
-let delete_log_record logger  {Raft_log.index; id; _} db = 
+let delete_log_record {Raft_log.index; id; _} db = 
   Rocks.delete_by_index ~index ~db (); 
-  log_f ~logger ~level:Notice ~section 
+  log_f ~level:Notice ~section 
         "Log entry deleted, index: %i, id: %s"  index id

@@ -57,45 +57,41 @@ val initialize : Raft_com_conf.t -> connection_state
 (** [initialize ()] returns an empty connection state *)
 
 val handle_raft_message :
-  logger: Lwt_log_core.logger    ->
   stats : Raft_srv_serverstats.t ->
   now   : float -> 
   state -> 
   Raft_pb.message ->
   result Lwt.t  
-(** [handle_raft_message ~logger ~stats ~now state msg] handles RAFT protocol 
+(** [handle_raft_message ~stats ~now state msg] handles RAFT protocol 
     messages from other servers. 
   *)
 
 val handle_timeout :
-  logger: Lwt_log_core.logger    ->
   stats : Raft_srv_serverstats.t ->
   now   : float -> 
   state ->
   Raft_types.timeout_type ->
   result Lwt.t  
-(** [handle_raft_message ~logger ~stats ~now state msg] handles RAFT protocol 
+(** [handle_raft_message ~stats ~now state msg] handles RAFT protocol 
     timeout event. 
   *)
 
 val handle_client_requests :
-  logger: Lwt_log_core.logger    ->
   stats : Raft_srv_serverstats.t ->
   now   : float -> 
   state ->
   client_request list ->
   result Lwt.t  
-(** [handle_client_request ~logger ~stats ~now state msg] handles RAFT protocol 
+(** [handle_client_request ~stats ~now state msg] handles RAFT protocol 
     client requests. 
   *)
 
 val handle_app_response :
-  logger: Lwt_log_core.logger    ->
   stats : Raft_srv_serverstats.t ->
   now   : float -> 
   state ->
   app_response ->
   result Lwt.t  
-(** [handle_app_response ~logger ~stats ~now state msg] handles the response received
+(** [handle_app_response ~stats ~now state msg] handles the response received
     from the application server. 
   *)

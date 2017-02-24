@@ -158,26 +158,23 @@ type state = {
 
 type result = (state * client_responses * app_requests) 
 
-let handle_deleted_logs logger 
-                          compaction_handle deleted_logs () = 
+let handle_deleted_logs log_record_handle deleted_logs () = 
   match deleted_logs with
   | [] -> Lwt.return_unit
   | _ ->
     Lwt_list.iter_s (fun log_entry -> 
-      Log_record.delete_log_record logger log_entry compaction_handle
+      Log_record.delete_log_record log_entry log_record_handle
     ) deleted_logs 
 
-let handle_added_logs logger
-                          compaction_handle added_logs () = 
+let handle_added_logs log_record_handle added_logs () = 
   match added_logs with
   | [] -> Lwt.return_unit
   | _ ->
     (* The RAFT protocol dictates that all committed log entries must be stored
      * permanently on DISK. This way, if a server crashes it can recover.  *)
-    Log_record.add_logs logger added_logs compaction_handle 
+    Log_record.add_logs added_logs log_record_handle 
 
-let handle_committed_logs logger stats 
-                          compaction_handle committed_logs () = 
+let handle_committed_logs stats log_record_handle committed_logs () = 
 
   match committed_logs with
   | [] -> Lwt.return []
@@ -189,22 +186,22 @@ let handle_committed_logs logger stats
 
     let app_requests = [APb.(Add_log_entries {log_entries})] in  
     
-    Log_record.set_committed logger committed_logs compaction_handle 
+    Log_record.set_committed committed_logs log_record_handle 
     >|=(fun () -> app_requests)
 
-let send_raft_messages ~logger ~stats id connection_state messages  = 
+let send_raft_messages ~stats id connection_state messages  = 
   let {push_outgoing_message; _ } = connection_state in 
 
   Lwt_list.map_p (fun ((msg, server_id) ) ->
     let msg = RConv.message_to_pb msg in 
     let msg_to_send  = (msg, server_id) in 
     Server_stats.tick_raft_msg_send stats; 
-    Raft_srv_log.print_msg_to_send logger section id msg server_id 
+    Raft_srv_log.print_msg_to_send section id msg server_id 
     >|= (fun () -> push_outgoing_message (Some msg_to_send))
   ) messages
   >|= ignore
 
-let process_result logger stats state result =  
+let process_result stats state result =  
   let {log_record_handle; connection_state; _ } = state in 
 
   let {
@@ -218,28 +215,24 @@ let process_result logger stats state result =
     deleted_logs; 
   }  = result in 
 
-  handle_deleted_logs
-        logger log_record_handle deleted_logs () 
-  >>= handle_added_logs
-        logger log_record_handle added_logs 
-  >>= handle_committed_logs 
-        logger stats log_record_handle committed_logs
+  handle_deleted_logs log_record_handle deleted_logs () 
+  >>= handle_added_logs log_record_handle added_logs 
+  >>= handle_committed_logs stats log_record_handle committed_logs
   >>=(fun app_requests -> 
-    send_raft_messages 
-        ~logger ~stats (raft_state.RTypes.server_id) 
+    send_raft_messages  ~stats (raft_state.RTypes.server_id) 
         connection_state outgoing_messages
     >|= (fun () -> 
       ({state with raft_state; connection_state}, [] , app_requests)
     ) 
   )
 
-let handle_raft_message ~logger ~stats ~now state msg = 
+let handle_raft_message ~stats ~now state msg = 
   let {raft_state; _ } = state in 
 
-  log ~logger ~level:Notice ~section "Raft Message Received"
-  >>=(fun () -> Log.print_state logger section raft_state)
+  log ~level:Notice ~section "Raft Message Received"
+  >>=(fun () -> Log.print_state section raft_state)
   >>=(fun () -> 
-    Log.print_msg_received logger section msg raft_state.RTypes.server_id)
+    Log.print_msg_received section msg raft_state.RTypes.server_id)
   >>=(fun () ->
     Server_stats.tick_raft_msg_recv stats;
 
@@ -249,15 +242,15 @@ let handle_raft_message ~logger ~stats ~now state msg =
       Counter.Perf.f3 perf Raft_logic.handle_message raft_state msg now 
     in
 
-    process_result logger stats state result  
+    process_result stats state result  
   )
 
-let handle_timeout ~logger ~stats ~now state timeout_type = 
+let handle_timeout ~stats ~now state timeout_type = 
   let { raft_state; _} = state in 
   begin match timeout_type with
     | RTypes.Heartbeat -> (
       Server_stats.tick_heartbeat stats;
-      log ~logger ~section ~level:Notice "Heartbeat timeout" 
+      log ~section ~level:Notice "Heartbeat timeout" 
       >|= (fun () ->
         Counter.Perf.f2 (Server_stats.hb_processing stats)
           Raft_logic.handle_heartbeat_timeout raft_state now
@@ -267,19 +260,19 @@ let handle_timeout ~logger ~stats ~now state timeout_type =
     | RTypes.New_leader_election -> (
       Printf.printf "NEW LEADER ELECTION [%2i] \n%!" 
             raft_state.RTypes.server_id;
-      log ~logger ~level:Notice ~section "Leader Election timeout"
+      log ~level:Notice ~section "Leader Election timeout"
       >|= (fun () ->
         Raft_logic.handle_new_election_timeout raft_state now
       ))
   end
   >>=(fun result -> 
 
-    process_result logger stats state result  
+    process_result stats state result  
   ) 
 
-let handle_client_requests ~logger ~stats ~now  state client_requests = 
+let handle_client_requests ~stats ~now  state client_requests = 
 
-  let _ = logger and _ = stats and _ = now in 
+  let _ = stats and _ = now in 
   let {connection_state; raft_state; _ } = state in 
   let {pending_requests; _ } = connection_state in 
 
@@ -301,7 +294,7 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
   begin match new_log_response with
   | Raft_logic.Delay
   | Raft_logic.Forward_to_leader _ -> 
-    log ~logger ~level:Notice ~section "New logs rejected since not a leader"
+    log ~level:Notice ~section "New logs rejected since not a leader"
     >|= (fun () ->
 
       let client_responses = List.map (fun (_, handle) -> 
@@ -316,7 +309,7 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
     )
 
   | Raft_logic.Appended result -> 
-    log_f ~logger ~level:Notice ~section 
+    log_f ~level:Notice ~section 
           "Log Added (log size: %i) (nb logs: %i)" 
            raft_state.RTypes.log.RLog.log_size (List.length datas)  
     >>= (fun () ->
@@ -325,11 +318,11 @@ let handle_client_requests ~logger ~stats ~now  state client_requests =
         connection_state = {connection_state with pending_requests; }
       } in 
 
-      process_result logger stats state result  
+      process_result stats state result  
     )
   end
       
-let process_app_result logger acc result =  
+let process_app_result acc result =  
 
   let (pending_requests, client_responses)  = acc in 
 
@@ -346,7 +339,7 @@ let process_app_result logger acc result =
      * this is most likely the case we are in a follower. However in the 
      * leader, this would be an error. (until we support the 
      * proper handling a client disconnection) *)
-    log_f ~logger ~level:Notice ~section 
+    log_f ~level:Notice ~section 
           "Could not find pending request after validation for id: %s" id 
     >|=(fun () -> (pending_requests, client_responses)) 
 
@@ -358,12 +351,12 @@ let process_app_result logger acc result =
 
     let client_responses = (client_response_msg, handle)::client_responses in
 
-    log_f ~logger ~level:Notice ~section 
+    log_f ~level:Notice ~section 
           "Matching client request found for app response, id: %s"
           id 
     >|=(fun () -> (pending_requests, client_responses)) 
 
-let handle_app_response ~logger ~stats ~now state app_response = 
+let handle_app_response ~stats ~now state app_response = 
 
   let _ = stats and _ = now in 
 
@@ -373,10 +366,7 @@ let handle_app_response ~logger ~stats ~now state app_response =
   match app_response with
   | APb.Add_log_results {APb.results} -> 
 
-    Lwt_list.fold_left_s 
-        (process_app_result logger) 
-        (pending_requests, []) 
-        results 
+    Lwt_list.fold_left_s process_app_result (pending_requests, []) results 
     >|=(fun (pending_requests, client_responses) ->
       let state = {state with 
         connection_state = {connection_state with pending_requests; }

@@ -13,14 +13,13 @@
 type t 
 (** Handle to be maintain by client application.  *)
 
-val make : Lwt_log_core.logger -> Raft_com_conf.t -> int -> t Lwt.t 
+val make : Raft_com_conf.t -> int -> t Lwt.t 
 (** [make configuration] initialize the disk based log recoding. 
     
     returns a handle that client application should keep track 
     of in order to subsequently call the [append_committed_data] function *)
 
 val add_logs : 
-  Lwt_log_core.logger -> 
   Raft_log.log_entry list -> 
   t -> 
   unit Lwt.t 
@@ -28,19 +27,17 @@ val add_logs :
     the [log_entries].  *)
 
 val set_committed :
-  Lwt_log_core.logger -> 
   Raft_log.log_entry list ->
   t ->
   unit Lwt.t 
-(** [set_committed logger log_entries handle] udpates the permanent records of 
+(** [set_committed log_entries handle] udpates the permanent records of 
     the logs to be committed. *)
 
 val delete_log_record : 
-  Lwt_log_core.logger -> 
   Raft_log.log_entry -> 
   t -> 
   unit Lwt.t
-(** [delete_log_record logger log_entry handle] deletes the given [log_entry]
+(** [delete_log_record log_entry handle] deletes the given [log_entry]
     in the permanent storage *)
 
 val read_log_records : 

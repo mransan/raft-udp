@@ -51,7 +51,7 @@ module Event = struct
 
 end 
 
-let connect logger {Conf.app_server_port; _} server_id = 
+let connect {Conf.app_server_port; _} server_id = 
   let port = 
     match List.nth app_server_port server_id with
     | p -> p 
@@ -62,13 +62,13 @@ let connect logger {Conf.app_server_port; _} server_id =
 
   let rec retry = function
     | 0 -> 
-      log_f ~logger ~level:Error ~section "Error connecting to App server" 
+      log_f ~level:Error ~section "Error connecting to App server" 
       >|= Event.failure "Error connecting to App server"
     | n -> 
       Lwt.catch (fun () -> 
         U.connect fd ad 
         >>=(fun () -> 
-          log ~logger ~level:Notice ~section 
+          log ~level:Notice ~section 
               "Connection established with App server"
         )
         >|=(fun () -> 
@@ -76,7 +76,7 @@ let connect logger {Conf.app_server_port; _} server_id =
           Event.connection_established (ic, fd, Bytes.create 1024) ()
         )
       ) (* with *) (fun exn -> 
-        log_f ~logger ~level:Error ~section 
+        log_f ~level:Error ~section 
               "Error connecting to App server, %s" 
               (Printexc.to_string exn) 
         >>=(fun () -> 
@@ -91,12 +91,12 @@ let decode_response bytes =
   let decoder = Pbrt.Decoder.of_bytes bytes in 
   APb.decode_app_response decoder 
 
-let next_response logger configuration server_id connection () = 
+let next_response configuration server_id connection () = 
   let (ic, fd, buffer) = connection in
   Lwt.catch (fun () ->
     Raft_utl_connection.read_msg_with_header ic buffer 
     >>=(fun (buffer', len) -> 
-      log_f ~logger ~level:Notice ~section 
+      log_f ~level:Notice ~section 
             "Response received from app server (size: %i)" len
       >>=(fun () -> 
         match decode_response (Bytes.sub buffer' 0 len) with
@@ -106,13 +106,13 @@ let next_response logger configuration server_id connection () =
             then connection
             else (ic, fd, buffer') 
           in 
-          log_f ~logger ~level:Notice ~section 
+          log_f ~level:Notice ~section 
                 "Response decoded with success: %s"
                 (Pb_util.string_of_app_response app_response) 
           >|= Event.app_response app_response connection
         )
         | exception exn -> (
-          log_f ~logger ~level:Error ~section 
+          log_f ~level:Error ~section 
             "Error decoding app response: %s" 
             (Printexc.to_string exn)
 
@@ -121,13 +121,13 @@ let next_response logger configuration server_id connection () =
       )
     ) 
   ) (* with *) (fun exn -> 
-    log_f ~logger ~level:Error ~section  
+    log_f ~level:Error ~section  
           "Failed to read response, details: %s" 
           (Printexc.to_string exn)
-    >>= (fun () -> connect logger configuration server_id) 
+    >>= (fun () -> connect configuration server_id) 
   ) 
 
-let send_request logger configuration server_id connection app_request = 
+let send_request configuration server_id connection app_request = 
   let (_, fd, _) = connection in 
 
   let bytes = 
@@ -139,31 +139,31 @@ let send_request logger configuration server_id connection app_request =
   Lwt.catch (fun () -> 
     Raft_utl_connection.write_msg_with_header fd bytes 
     >>=(fun () -> 
-      log_f ~logger ~level:Notice ~section 
+      log_f ~level:Notice ~section 
             "App request successfully sent:\n%s" 
             (Pb_util.string_of_app_request app_request)
-      >>= next_response logger configuration server_id connection
+      >>= next_response configuration server_id connection
     )
   ) (* catch *) (fun exn -> 
-    log_f ~logger ~level:Error ~section 
+    log_f ~level:Error ~section 
           "Error sending app request to app server: %s"
           (Printexc.to_string exn)
     >|= Event.failure (Printexc.to_string exn)
   ) 
 
-let get_next_request_f logger request_stream = 
+let get_next_request_f request_stream = 
 
   fun connection -> 
     Lwt_stream.get request_stream 
     >>=(function 
       | None -> Event.failure_lwt "Request stream is closed"
       | Some request ->
-        log_f ~logger ~level:Notice ~section "New request from stream: %s"
+        log_f ~level:Notice ~section "New request from stream: %s"
           (Pb_util.string_of_app_request request)
         >|= Event.app_request request connection 
     )
 
-let make logger configuration server_id (_:Server_stats.t)= 
+let make configuration server_id (_:Server_stats.t)= 
 
   let (
     request_stream, 
@@ -176,7 +176,7 @@ let make logger configuration server_id (_:Server_stats.t)=
     set_response_ref
   ) = Lwt_stream.create_with_reference () in 
 
-  let next_request = get_next_request_f logger request_stream in 
+  let next_request = get_next_request_f request_stream in 
 
   (* Main loop which after the connection with the 
    * App server is established keeps on poping the next 
@@ -190,14 +190,14 @@ let make logger configuration server_id (_:Server_stats.t)=
    *)
   let rec loop = function
     | Event.Failure s -> 
-      log_f ~logger ~level:Error ~section "Failure in app IPC: %s" s 
+      log_f ~level:Error ~section "Failure in app IPC: %s" s 
       >|=(fun () -> push_response_f None)
 
     | Event.Connection_established connection ->
       next_request connection >>= loop 
     
     | Event.App_request (request, connection) ->   
-      send_request logger configuration server_id connection request 
+      send_request configuration server_id connection request 
       >>= loop 
 
     | Event.App_response (response, connection) -> 
@@ -206,7 +206,7 @@ let make logger configuration server_id (_:Server_stats.t)=
   in
 
   let t : unit Lwt.t  = 
-    connect logger configuration server_id 
+    connect configuration server_id 
     >>= loop 
   in 
   set_response_ref t; 
