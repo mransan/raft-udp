@@ -166,7 +166,7 @@ let init_data_from_log_records configuration id =
     )  
   ) 
 
-let run_server configuration id print_header slow =
+let run_server configuration id print_header =
 
   let stats = 
     let print_header = if print_header then Some () else None in
@@ -200,32 +200,29 @@ let run_server configuration id print_header slow =
           stats state.Raft_ipc.raft_state.RTypes.log.RLog.log_size;
       set_server_role state.Raft_ipc.raft_state stats;
 
+      let process_raft_ipc_result (state, client_responses, app_requests) = 
+        send_client_responses client_responses;
+        send_app_requests app_requests; 
+        state
+      in 
+
       Lwt_list.fold_left_s (fun (state, threads) event -> 
         match event with
         | Event.Raft_message msg -> (
-          begin 
-            if slow 
-            then Lwt_unix.sleep  0.1
-            else Lwt.return_unit 
-          end
-          >>=(fun () -> 
-            Raft_ipc.handle_raft_message ~stats ~now state msg 
-          )
-          >|=(fun (state, client_responses, app_requests) ->
-            send_client_responses client_responses;
-            send_app_requests app_requests;
-            let threads = {threads with Event.next_raft_message_t = next_raft_message (); } in
+          Raft_ipc.handle_raft_message ~stats ~now state msg
+          >|= process_raft_ipc_result
+          >|= (fun state ->
+            let threads = {
+              threads with Event.next_raft_message_t = next_raft_message (); 
+            } in
             (state, threads)
           )
         )
 
         | Event.Timeout timeout_type -> (
           Raft_ipc.handle_timeout ~stats ~now state timeout_type
-          >|=(fun (state, client_responses, app_requests) ->
-            send_client_responses client_responses;
-            send_app_requests app_requests;
-            (state, threads)
-          )
+          >|= process_raft_ipc_result 
+          >|= (fun state -> (state, threads))
         )
 
         | Event.Failure context -> (
@@ -235,10 +232,9 @@ let run_server configuration id print_header slow =
 
         | Event.Client_request client_requests -> (
           Raft_ipc.handle_client_requests ~stats ~now state client_requests
-          >|=(fun (state, client_responses, app_requests) ->
-            send_client_responses client_responses;
-            send_app_requests app_requests;
-            let threads = { threads with
+          >|= process_raft_ipc_result 
+          >|= (fun state -> 
+            let threads = {threads with
               Event.next_client_request_t = next_client_request  ();
             } in
             (state, threads)
@@ -247,9 +243,8 @@ let run_server configuration id print_header slow =
 
         | Event.App_response app_response -> (
           Raft_ipc.handle_app_response ~stats ~now state app_response
-          >|=(fun (state, client_responses, app_requests) ->
-            send_client_responses client_responses;
-            send_app_requests app_requests;
+          >|= process_raft_ipc_result 
+          >|= (fun state -> 
             let threads = { threads with
               Event.next_app_reponse_t = next_app_response ();
             } in
@@ -304,18 +299,18 @@ let run_server configuration id print_header slow =
     })
   )
 
-let run configuration id print_header slow log = 
+let run configuration id print_header log = 
   let logger_t = 
-      if log
-      then 
-        let basename = Printf.sprintf "raft_server_%07i" id in 
-        Raft_utl_logger.start ~basename ~interval:60 () 
-      else begin 
-        Lwt_log_core.default := Lwt_log_core.null; 
-        Lwt.return_unit
-      end 
+    if log
+    then 
+      let basename = Printf.sprintf "raft_server_%07i" id in 
+      Raft_utl_logger.start ~basename ~interval:60 () 
+    else begin 
+      Lwt_log_core.default := Lwt_log_core.null; 
+      Lwt.return_unit
+    end 
   in 
-  let server_t = run_server configuration id print_header slow in 
+  let server_t = run_server configuration id print_header in 
   Lwt_main.run @@ Lwt.join [logger_t; server_t] 
 
 let () =
@@ -342,17 +337,13 @@ let () =
   let print_header = ref false in 
   let print_header_spec = Arg.Set print_header in
   
-  let slow = ref false in 
-  let slow_spec = Arg.Set slow  in
-  
   let log = ref false in 
   let log_spec = Arg.Set log  in
 
   Arg.parse [
     ("--id", id_spec , " : server raft id");
     ("--print-header", print_header_spec, " : enable header printing");
-    ("--slow", slow_spec, " : make server slow");
     ("--log", log_spec, " : enable logging");
   ] (fun _ -> ()) "test.ml";
 
-  run configuration !id !print_header !slow !log
+  run configuration !id !print_header !log
