@@ -7,7 +7,7 @@ module Conf = Raft_com_conf
 
 module U  = Lwt_unix 
 
-module Counter_srv = Raft_app_srv.Make(struct
+module Srv = Raft_app_srv.Make(struct
 
   type data = Counter_pb.app_data
 
@@ -58,7 +58,7 @@ end
 let process_demo_app_request (logs, notify) state = 
   Lwt_list.fold_left_s (fun (results, state) log -> 
 
-    let {Counter_srv.id; index; app_data} = log in
+    let {Srv.id; index; app_data} = log in
 
     let state, result = State.process state app_data in
 
@@ -66,7 +66,7 @@ let process_demo_app_request (logs, notify) state =
           (fst state) (snd state) id
 
     >|= (fun () -> 
-      let result = Counter_srv.({
+      let result = Srv.({
         id; 
         index;
         app_result = Some result;
@@ -93,7 +93,7 @@ let main configuration server_id log () =
       end 
   in 
   let server_t = 
-    let request_stream = Counter_srv.start configuration server_id in 
+    let request_stream = Srv.start configuration server_id in 
 
     Lwt_stream.fold_s (fun request state -> 
       process_demo_app_request request state

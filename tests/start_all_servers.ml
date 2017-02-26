@@ -29,6 +29,7 @@ let () =
     ("--log", log_spec, " : enable logging");
   ] (function
     | "counter" -> task := "counter_srv.native" 
+    | "hash" -> task := "hash_srv.native" 
     | _ -> failwith "Invalid app name"
   ) "start_all_servers.native [options]";
 

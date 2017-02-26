@@ -3,7 +3,7 @@ open !Lwt_log_core
 
 module Conf = Raft_com_conf 
 
-module Counter_clt = Raft_app_clt.Make(struct
+module Clt = Raft_app_clt.Make(struct
 
   type data = Counter_pb.app_data
 
@@ -21,7 +21,7 @@ module Counter_clt = Raft_app_clt.Make(struct
 end)
 
 let rec loop client () = 
-  Counter_clt.send client Counter_pb.({
+  Clt.send client Counter_pb.({
     increment = 1; 
     process_id = Unix.getpid (); 
   }) 

@@ -6,6 +6,7 @@ OCB_INC  += -I src/utl
 OCB_INC  += -I src/cry
 OCB_INC  += -I tests/
 OCB_INC  += -I tests/counter
+OCB_INC  += -I tests/hash
 OCB_INC  += -I tests/asset
 
 OCB_FLAGS = -use-ocamlfind 
@@ -25,14 +26,15 @@ test:
 	$(OCB) -pkg raft-rocks server.native
 	$(OCB) counter_srv.native
 	$(OCB) counter_clt.native
+	$(OCB) hash_srv.native
+	$(OCB) hash_clt.native
 	$(OCB) start_all_servers.native
 	$(OCB) start_all_clients.native
 
 gen:
-	ocaml-protoc -I ../raft-pb.git/src/ -ml_out src/srv src/srv/raft_srv.proto
 	ocaml-protoc -I ../raft-pb.git/src/ -ml_out src/com src/com/raft_com.proto
 	ocaml-protoc -I ../raft-pb.git/src/ -ml_out tests/counter tests/counter/counter.proto
-	ocaml-protoc -I ../raft-pb.git/src/ -ml_out tests/asset tests/asset/asset.proto
+	ocaml-protoc -I ../raft-pb.git/src/ -ml_out tests/hash tests/hash/hash.proto
 
 lib.native:
 	$(OCB) raft_udp.cmxa

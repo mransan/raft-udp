@@ -65,7 +65,7 @@ let delete_logs log_entries db =
 
   log_f ~level:Notice ~section "Log entries deleted %s" ranges 
 
-let read_log_records max_record  db f e0 = 
+let read_log_records max_record db f e0 = 
   let rec aux count acc = function
     | Rocks.End -> Lwt.return acc 
     | Rocks.Value ((log, is_commited, _), k) -> 

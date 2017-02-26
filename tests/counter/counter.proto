@@ -1,12 +1,12 @@
 option (int32_type) = int_t;
 
-message app_data {
+message AppData {
   required int32 increment  = 1;
   required int32 process_id = 2;
     // for logging purposes
 }
 
-message app_result {
+message AppResult {
   required int32 from  = 1; 
   optional int32 to = 2; 
 }

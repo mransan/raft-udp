@@ -1,0 +1,10 @@
+option (int32_type) = int_t;
+
+message AppData {
+  required string random_data = 1;
+}
+
+message AppResult {
+  required int32 log_index = 1; 
+  required string hash = 2;
+}
