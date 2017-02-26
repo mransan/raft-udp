@@ -41,6 +41,7 @@ val delete_logs :
     in the permanent storage *)
 
 val read_log_records : 
+  int -> (* max log record *)
   t -> 
   ('a -> Raft_log.log_entry -> bool -> 'a) -> 
   'a -> 

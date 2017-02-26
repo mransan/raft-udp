@@ -65,17 +65,20 @@ let delete_logs log_entries db =
 
   log_f ~level:Notice ~section "Log entries deleted %s" ranges 
 
-let read_log_records db f e0 = 
+let read_log_records max_record  db f e0 = 
   let rec aux count acc = function
     | Rocks.End -> Lwt.return acc 
     | Rocks.Value ((log, is_commited, _), k) -> 
       let acc = f acc log is_commited in 
-      if count mod 1_000 = 0
-      then
-        Lwt_unix.yield () 
-        >>=(fun () -> aux (count + 1) acc (k ())) 
+      if count = max_record 
+      then Lwt.return acc
       else 
-        aux (count + 1) acc (k ())
+        if count mod 1_000 = 0
+        then
+          Lwt_unix.yield () 
+          >>=(fun () -> aux (count + 1) acc (k ())) 
+        else 
+          aux (count + 1) acc (k ())
   in 
-  aux 0 e0 (Rocks.forward_by_index ~db ())
+  aux 0 e0 (Rocks.backward_by_index ~db ())
 

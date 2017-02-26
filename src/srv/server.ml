@@ -143,18 +143,22 @@ let get_app_ipc_f stats configuration server_id =
 let init_data_from_log_records configuration id = 
   Log_record.make configuration id 
   >>=(fun log_record_handle -> 
-    let b =  RLog.Builder.make () in
+    let raft_configuration = configuration.Conf.raft_configuration in 
+    let b =  
+      RLog.Builder.make raft_configuration.RTypes.max_log_size 
+    in
     let f acc log_entry is_committed = 
       let b, commit_index = acc in 
       let b = RLog.Builder.add_log_entry b log_entry in 
       let commit_index = 
-        if is_committed (* We assume here that the iteration is ascending *) 
+        if is_committed && log_entry.RLog.index > commit_index
         then  log_entry.RLog.index
         else commit_index 
       in 
       (b, commit_index)
     in  
-    Log_record.read_log_records log_record_handle f (b, 0) 
+    let {RLog.lower_bound; _} = raft_configuration.RTypes.max_log_size in 
+    Log_record.read_log_records lower_bound log_record_handle f (b, 0) 
     >|= (fun (b, commit_index) -> 
       let log = RLog.Builder.to_log b in 
       
@@ -167,7 +171,6 @@ let init_data_from_log_records configuration id =
   ) 
 
 let run_server configuration id print_header =
-
   let stats = 
     let print_header = if print_header then Some () else None in
     Server_stats.make 
