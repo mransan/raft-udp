@@ -166,7 +166,7 @@ let make configuration server_id (_:Server_stats.t)=
   let (
     request_stream, 
     push_request_f
-  ) = Lwt_stream.create() in 
+  ) = Lwt_stream.create () in 
 
   let (
     response_stream, 
