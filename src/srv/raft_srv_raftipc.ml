@@ -87,8 +87,8 @@ end (* Pending_requests *)
  * 
  * For the caller of this API sending a response is simply pushing the 
  * response to the stream (immediate). The Lwt scheduler will then 
- * pick it up asynchronously by scheduling [state.outgoing_message_processing]
- *)
+ * pick it up asynchronously by scheduling 
+ * [state.outgoing_message_processing] *)
   
 type connection_state = {
   pending_requests : Pending_requests.t;
@@ -310,15 +310,14 @@ let handle_client_requests ~stats ~now  state client_requests =
     )
 
   | Raft_logic.Appended result -> 
+    let log_size = RLog.last_log_index raft_state.RTypes.log in
     log_f ~level:Notice ~section 
           "Log Added (log size: %i) (nb logs: %i)" 
-           raft_state.RTypes.log.RLog.log_size (List.length datas)  
+          log_size (List.length datas)  
     >>= (fun () ->
-
       let state = {state with 
         connection_state = {connection_state with pending_requests; }
       } in 
-
       process_result stats state result  
     )
   end

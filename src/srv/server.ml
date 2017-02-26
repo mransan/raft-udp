@@ -200,7 +200,8 @@ let run_server configuration id print_header =
       let now = get_now () in
       
       Server_stats.set_log_count 
-          stats state.Raft_ipc.raft_state.RTypes.log.RLog.log_size;
+          stats 
+          (RLog.last_log_index state.Raft_ipc.raft_state.RTypes.log);
       set_server_role state.Raft_ipc.raft_state stats;
 
       let process_raft_ipc_result (state, client_responses, app_requests) = 

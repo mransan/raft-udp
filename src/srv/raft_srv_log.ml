@@ -87,8 +87,8 @@ let print_state section state =
   let {
     RTypes.server_id;
     current_term;
-    log = {RLog.log_size; _  };
     commit_index;
+    log = raft_log;
     role; _ 
   } = state in
 
@@ -103,6 +103,8 @@ let print_state section state =
     | RTypes.Leader _ -> 'L'
     | RTypes.Candidate _ -> 'C'
   in
+
+  let log_size = Raft_log.last_log_index raft_log in 
 
   let s = 
     Printf.sprintf "%c(%i), term:%i, ci: %i, size: %i (%a)"
