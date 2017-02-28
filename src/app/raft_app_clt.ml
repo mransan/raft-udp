@@ -99,7 +99,8 @@ module State = struct
   let establish ({leader; _ } as state) fd = 
     let leader = match leader with
       | Established _ 
-      | No          -> failwith "Only potential leader can transition to established"
+      | No          -> 
+        failwith "Only potential leader can transition to established"
       | Potential i -> Established (i, fd)
     in 
     {state with leader}
@@ -116,6 +117,12 @@ module State = struct
 
     ({state with leader = Potential next}, next)
 
+  let close_connection {leader; _} = 
+    match leader with
+    | Established (_, (_, fd, _)) -> U.close fd 
+    | _ -> Lwt.return_unit 
+    (* TODO: now that we have an Established connection which is closed
+     * ... is it really `Established`*)
 end 
 
 type pending_request = APb.client_request * result Lwt.u 
@@ -294,6 +301,7 @@ let rec client_loop ({state; _} as t) e =
     | `Not_a_leader leader_id -> 
       log_f ~level:Notice "Not a leader received, leader hint : %s"
         @@ (Ext.string_of_option string_of_int leader_id ) 
+      >>=(fun () -> State.close_connection t.state) 
       >>=(fun () ->
           let state, leader_id = match leader_id with
             | None -> State.next state
