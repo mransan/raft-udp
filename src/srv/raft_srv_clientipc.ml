@@ -74,7 +74,6 @@ module Event = struct
 end 
 
 let get_next_client_connection_f configuration server_id =
-
   match Conf.sockaddr_of_server_id `Client configuration server_id with
   | None    -> Event.failure_lwt "invalid server id"
   | Some ad ->
@@ -93,10 +92,11 @@ let get_next_client_connection_f configuration server_id =
         (* The accept has failed, this is a critical failure AFAIK
          * so best to return a fatale `Failure.
          *)
-        log_f ~level:Fatal ~section 
+        let error_msg = Printf.sprintf 
               "Error when accepting new client connection, details: %s"
-              (Printexc.to_string exn)
-        >|=(fun () -> Event.Failure "Accept failure")
+              (Printexc.to_string exn) in 
+        log ~level:Fatal ~section error_msg  
+        >|=(fun () -> Event.Failure error_msg)
       )
     in
 
@@ -152,7 +152,6 @@ let next_client_request connection =
   )
 
 let create_response_stream () =
-
   let response_stream, response_push = Lwt_stream.create () in  
 
   let response_stream = 
@@ -194,7 +193,6 @@ let create_response_stream () =
 type t = client_request Lwt_stream.t * send_response_f 
 
 let make configuration stats server_id =
-
   let next_client_connection = 
     get_next_client_connection_f configuration server_id 
   in

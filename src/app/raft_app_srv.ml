@@ -7,6 +7,16 @@ module Conf = Raft_com_conf
 
 module U  = Lwt_unix 
 
+type state = int 
+(* last log index processed *)
+
+let initial_state = 0 
+(* we currently assume that the last index processed when the server start 
+ * is 0. Since right now we don't support snapshotting the state of the 
+ * application, everytime the app restart it starts from scratch. However
+ * in the future we would like to save the state and its associated 
+ * log index *)
+
 type connection = (Lwt_io.input_channel * Lwt_unix.file_descr * bytes)  
 
 module  Event = struct 
@@ -21,7 +31,7 @@ module  Event = struct
     | New_request    of APb.app_request * connection
       (** New request successfully received and decoded *)
 
-    | App_response of APb.app_response * connection 
+    | App_response of APb.app_response * connection * state  
 
     | Connection_close 
       (** A connection was closed *)
@@ -143,43 +153,58 @@ let server_loop configuration server_id handle_app_request () =
     get_next_connection_f configuration server_id 
   in 
 
-  let rec aux threads  = 
+  let rec aux (threads, state) = 
     assert([] <> threads); 
       (* There should always be 1 thread to listen to new connection *)
 
     Lwt.nchoose_split threads 
     >>=(fun (events, non_terminated_threads)  -> 
 
-      List.fold_left (fun non_terminated_threads -> function 
+      List.fold_left (fun (non_terminated_threads, state) -> function 
         | Event.Failure error -> (
           Printf.eprintf "App.native: Error, details: %s\n%!" error; 
           exit 1
         ) 
 
-        | Event.New_connection fd -> 
-          (next_connection ())::(next_request fd)::non_terminated_threads 
-
-        | Event.New_request (request, fd) -> 
-          let t = 
-            handle_app_request request 
-            >|=(fun response -> Event.App_response (response, fd))
+        | Event.New_connection connection -> 
+          let non_terminated_threads = 
+            (next_connection ())::
+            (next_request connection)::
+            non_terminated_threads 
           in 
-          t::non_terminated_threads 
+          (non_terminated_threads, state)
 
-        | Event.App_response (response, fd) -> 
-          (send_app_response fd response)::non_terminated_threads
+        | Event.New_request (request, connection) -> 
+          let t = 
+            handle_app_request state request 
+            >|=(fun (response, state) -> 
+              Event.App_response (response, connection, state)
+              (* TODO: just call send_app_response and remove 
+               * Event.App_response *)
+            )
+          in 
+          (t::non_terminated_threads, state) 
+
+        | Event.App_response (response, connection, state) -> 
+          let  non_terminated_threads = 
+            (send_app_response connection response)::non_terminated_threads
+          in 
+          (non_terminated_threads, state)
 
         | Event.Connection_close -> 
-          non_terminated_threads
+          (non_terminated_threads, state)
         
-        | Event.Response_sent fd -> 
-          (next_request fd)::non_terminated_threads
+        | Event.Response_sent connection -> 
+          let non_terminated_threads = 
+            (next_request connection)::non_terminated_threads
+          in
+          (non_terminated_threads, state)
 
-      ) non_terminated_threads events
+      ) (non_terminated_threads, state) events
       |> aux 
     )
   in
-  aux [next_connection ()] 
+  aux ([next_connection ()], initial_state) 
 
 module type App_sig  = sig 
 
@@ -209,36 +234,49 @@ module Make(App:App_sig) = struct
   let decode_log {Raft_pb.id; index; data; _} = 
     {id; index; app_data = App.decode data}
 
-  let handle_app_request request_push = function
+  let handle_app_request request_push = fun state request ->
+    match request with
     | APb.Add_log_entries {APb.log_entries} ->
       let log_entries  = List.map decode_log log_entries in 
       let results_t, results_u = Lwt.wait () in  
       request_push (Some (log_entries,  (fun r -> Lwt.wakeup results_u r)));
       results_t
       >|=(fun results -> 
-        List.map (fun {id; index; app_result} ->
+        let state = 
+          let rec aux = function
+            | [] -> assert(false) 
+            | {index; _} :: [] -> index 
+            | _::tl -> aux tl 
+          in 
+          aux results
+        in 
+        let results = List.map (fun {id; index; app_result} ->
           let result_data = 
             match app_result with
             | None -> None
             | Some result -> Some (App.encode result) 
           in
           {APb.index; id; result_data;}
-        ) results
+        ) results in
+        (APb.(Add_log_results {results; last_log_index = state}), state) 
       )
-      >|=(fun results -> 
-        APb.(Add_log_results {results}) 
+    | APb.Init -> 
+      Lwt.return (
+        APb.(Add_log_results { results = []; last_log_index = state}), 
+        state
       )
 
   let start configuration server_id =
      let (
-       validations_stream, 
-       validations_push, 
-       validations_set_ref
+       requests_stream, 
+       requests_push, 
+       requests_set_ref
      ) = Lwt_stream.create_with_reference () in 
-     validations_set_ref @@ 
-      server_loop configuration server_id 
-                  (handle_app_request validations_push) (); 
-     validations_stream
-
+     let server_t = 
+        let handle_app_request = handle_app_request requests_push in 
+        server_loop configuration server_id handle_app_request (); 
+     in 
+     requests_set_ref server_t;
+     requests_stream
 
 end 

@@ -45,6 +45,7 @@ and app_request_add_log_entries_mutable = {
 
 type app_request =
   | Add_log_entries of app_request_add_log_entries
+  | Init
 
 type app_response_result = {
   index : int;
@@ -60,10 +61,12 @@ and app_response_result_mutable = {
 
 type app_response_results = {
   results : app_response_result list;
+  last_log_index : int;
 }
 
 and app_response_results_mutable = {
   mutable results : app_response_result list;
+  mutable last_log_index : int;
 }
 
 type app_response =
@@ -139,12 +142,15 @@ and default_app_response_result_mutable () : app_response_result_mutable = {
 
 let rec default_app_response_results 
   ?results:((results:app_response_result list) = [])
+  ?last_log_index:((last_log_index:int) = 0)
   () : app_response_results  = {
   results;
+  last_log_index;
 }
 
 and default_app_response_results_mutable () : app_response_results_mutable = {
   results = [];
+  last_log_index = 0;
 }
 
 let rec default_app_response () : app_response = Add_log_results (default_app_response_results ())
@@ -280,6 +286,7 @@ let rec decode_app_request d =
     let ret:app_request = match Pbrt.Decoder.key d with
       | None -> failwith "None of the known key is found"
       | Some (3, _) -> Add_log_entries (decode_app_request_add_log_entries (Pbrt.Decoder.nested d))
+      | Some (4, _) -> (Pbrt.Decoder.empty_nested d ; Init)
       | Some (n, payload_kind) -> (
         Pbrt.Decoder.skip d payload_kind; 
         loop () 
@@ -328,6 +335,7 @@ let rec decode_app_response_result d =
 
 let rec decode_app_response_results d =
   let v = default_app_response_results_mutable () in
+  let last_log_index_is_set = ref false in
   let rec loop () = 
     match Pbrt.Decoder.key d with
     | None -> (
@@ -340,9 +348,17 @@ let rec decode_app_response_results d =
     | Some (1, pk) -> raise (
       Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_results), field(1)", pk))
     )
+    | Some (2, Pbrt.Varint) -> (
+      v.last_log_index <- Pbrt.Decoder.int_as_varint d; last_log_index_is_set := true;
+      loop ()
+    )
+    | Some (2, pk) -> raise (
+      Protobuf.Decoder.Failure (Protobuf.Decoder.Unexpected_payload ("Message(app_response_results), field(2)", pk))
+    )
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind; loop ()
   in
   loop ();
+  begin if not !last_log_index_is_set then raise Protobuf.Decoder.(Failure (Missing_field "last_log_index")) end;
   let v:app_response_results = Obj.magic v in
   v
 
@@ -422,6 +438,10 @@ let rec encode_app_request (v:app_request) encoder =
     Pbrt.Encoder.key (3, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.nested (encode_app_request_add_log_entries x) encoder;
   )
+  | Init -> (
+    Pbrt.Encoder.key (4, Pbrt.Bytes) encoder; 
+    Pbrt.Encoder.empty_nested encoder
+  )
 
 let rec encode_app_response_result (v:app_response_result) encoder = 
   Pbrt.Encoder.key (1, Pbrt.Varint) encoder; 
@@ -443,6 +463,8 @@ let rec encode_app_response_results (v:app_response_results) encoder =
     Pbrt.Encoder.key (1, Pbrt.Bytes) encoder; 
     Pbrt.Encoder.nested (encode_app_response_result x) encoder;
   ) v.results;
+  Pbrt.Encoder.key (2, Pbrt.Varint) encoder; 
+  Pbrt.Encoder.int_as_varint v.last_log_index encoder;
   ()
 
 let rec encode_app_response (v:app_response) encoder = 
@@ -498,6 +520,7 @@ let rec pp_app_request_add_log_entries fmt (v:app_request_add_log_entries) =
 let rec pp_app_request fmt (v:app_request) =
   match v with
   | Add_log_entries x -> Format.fprintf fmt "@[Add_log_entries(%a)@]" pp_app_request_add_log_entries x
+  | Init  -> Format.fprintf fmt "Init"
 
 let rec pp_app_response_result fmt (v:app_response_result) = 
   let pp_i fmt () =
@@ -513,6 +536,7 @@ let rec pp_app_response_results fmt (v:app_response_results) =
   let pp_i fmt () =
     Format.pp_open_vbox fmt 1;
     Pbrt.Pp.pp_record_field "results" (Pbrt.Pp.pp_list pp_app_response_result) fmt v.results;
+    Pbrt.Pp.pp_record_field "last_log_index" Pbrt.Pp.pp_int fmt v.last_log_index;
     Format.pp_close_box fmt ()
   in
   Pbrt.Pp.pp_brk pp_i fmt ()

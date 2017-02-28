@@ -296,9 +296,12 @@ let run_server configuration id print_header =
       next_app_reponse_t  = next_app_response ();
     }) in 
 
+    let connection_state, app_requests = Raft_ipc.initialize configuration in 
+    send_app_requests app_requests;
+
     server_loop initial_threads Raft_ipc.({
       raft_state = initial_raft_state; 
-      connection_state = initialize configuration;
+      connection_state;
       log_record_handle;
     })
   )

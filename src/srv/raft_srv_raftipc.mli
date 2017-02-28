@@ -41,7 +41,9 @@ type state = {
 
 type result = (state * client_responses * app_requests) 
 (* TODO check if there is ever a need for more than one app_request 
- * ie maybe chane to app_request option rather than list *)
+ * ie maybe chane to app_request option rather than list
+ * TODO: check again based on the recent change that we only 
+ * send a single request after we get a response. *)
 
 (** {2 Event handling} *)
 
@@ -53,7 +55,7 @@ val get_next_raft_message_f_for_server :
     the function [f] to receive the next raft message for [server_id].
  *)
 
-val initialize : Raft_com_conf.t -> connection_state 
+val initialize : Raft_com_conf.t -> (connection_state * app_requests) 
 (** [initialize ()] returns an empty connection state *)
 
 val handle_raft_message :

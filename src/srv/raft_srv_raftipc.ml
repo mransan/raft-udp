@@ -97,6 +97,10 @@ type connection_state = {
     (* Threads which sends the outgoing messages *)
   push_outgoing_message : (RPb.message * int) option -> unit;
     (* Function to push an outgoing message in the stream *)
+  last_app_index : int; 
+    (* The last replicated log index on the app server *)
+  app_pending_request : bool; 
+    (* [true] when there is a pending request to the app server *)
 }
 
 let initialize configuration = 
@@ -142,15 +146,20 @@ let initialize configuration =
       sendto 0 buffer_size
     )
     | exception Not_found -> 
-      Lwt.fail_with @@ Printf.sprintf "Address not found for server %i" server_id
+      Printf.sprintf "Address not found for server %i" server_id
+      |> Lwt.fail_with
   ) outgoing_message_stream
   in  
 
-  {
+  let app_requests = [APb.Init] in 
+  let connection_state = {
     pending_requests = Pending_requests.empty; 
     outgoing_message_processing;
     push_outgoing_message;
-  }
+    last_app_index = -1; 
+    app_pending_request = true;
+  } in
+  (connection_state, app_requests)
     
 type state = {
   raft_state: RTypes.state; 
@@ -173,20 +182,33 @@ let handle_added_logs log_record_handle added_logs () =
      * permanently on DISK. This way, if a server crashes it can recover.  *)
     Log_record.add_logs added_logs log_record_handle 
 
-let handle_committed_logs stats log_record_handle committed_logs () = 
+let make_app_request connection_state raft_state = 
+  let {last_app_index; app_pending_request; _} = connection_state in  
+  if app_pending_request
+  then None 
+  else 
+    let log_entries = 
+      let since = last_app_index in 
+      Raft_logic.committed_entries_since ~since raft_state
+    in 
+    match log_entries with
+    | [] -> None 
+    | _ -> 
+      let log_entries = List.map RConv.log_entry_to_pb log_entries in 
+      let request = APb.(Add_log_entries {log_entries}) in
+      let connection_state = {connection_state with
+        app_pending_request = true; 
+      } in 
+      Some (connection_state, request) 
+
+let handle_committed_logs state committed_logs () = 
+  let {connection_state; log_record_handle; raft_state; _} = state in 
 
   match committed_logs with
-  | [] -> Lwt.return []
+  | [] -> Lwt.return None
   | _ ->
-    let _  = stats in 
-      (* TODO probably need to collect some stats *)
-
-    let log_entries = List.map RConv.log_entry_to_pb committed_logs in 
-
-    let app_requests = [APb.(Add_log_entries {log_entries})] in  
-    
     Log_record.set_committed committed_logs log_record_handle 
-    >|=(fun () -> app_requests)
+    >|=(fun () -> make_app_request connection_state raft_state)
 
 let send_raft_messages ~stats _ connection_state messages  = 
   let {push_outgoing_message; _ } = connection_state in 
@@ -216,12 +238,16 @@ let process_result stats state result =
 
   handle_deleted_logs log_record_handle deleted_logs () 
   >>= handle_added_logs log_record_handle added_logs 
-  >>= handle_committed_logs stats log_record_handle committed_logs
-  >>=(fun app_requests -> 
+  >>= handle_committed_logs state committed_logs
+  >>=(fun app_request_res -> 
     send_raft_messages  ~stats (raft_state.RTypes.server_id) 
         connection_state outgoing_messages
+    (* TODO : maybe do that first *)
     >|= (fun () -> 
-      ({state with raft_state; connection_state}, [] , app_requests)
+      match app_request_res with
+      | None -> ({state with raft_state; }, [] , [])
+      | Some (connection_state, app_request) -> 
+        ({state with raft_state; connection_state}, [] , [app_request])
     ) 
   )
 
@@ -359,15 +385,23 @@ let handle_app_response ~stats ~now state app_response =
   let {pending_requests; _} = connection_state in 
 
   match app_response with
-  | APb.Add_log_results {APb.results} -> 
+  | APb.Add_log_results {APb.results; last_log_index} -> 
 
     Lwt_list.fold_left_s 
         (process_app_result (RTypes.is_leader raft_state)) 
         (pending_requests, []) 
         results 
     >|=(fun (pending_requests, client_responses) ->
-      let state = {state with 
-        connection_state = {connection_state with pending_requests; }
+      
+      let connection_state = {connection_state with 
+        pending_requests; 
+        app_pending_request = false; 
+        last_app_index = last_log_index;
       } in 
-      (state, client_responses, []) 
+
+      match make_app_request connection_state raft_state with
+      | None -> 
+        ({state with connection_state}, client_responses, []) 
+      | Some (connection_state, app_request) -> 
+        ({state with connection_state}, client_responses, [app_request]) 
     )

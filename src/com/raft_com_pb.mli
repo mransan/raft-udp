@@ -30,6 +30,7 @@ type app_request_add_log_entries = {
 
 type app_request =
   | Add_log_entries of app_request_add_log_entries
+  | Init
 
 type app_response_result = {
   index : int;
@@ -39,6 +40,7 @@ type app_response_result = {
 
 type app_response_results = {
   results : app_response_result list;
+  last_log_index : int;
 }
 
 type app_response =
@@ -92,6 +94,7 @@ val default_app_response_result :
 
 val default_app_response_results : 
   ?results:app_response_result list ->
+  ?last_log_index:int ->
   unit ->
   app_response_results
 (** [default_app_response_results ()] is the default value for type [app_response_results] *)

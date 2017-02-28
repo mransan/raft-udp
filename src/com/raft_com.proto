@@ -46,8 +46,11 @@ message AppRequest {
     repeated raft.LogEntry log_entries = 1;
   }
 
+  message Init { }
+
   oneof t {
     AddLogEntries add_log_entries = 3; 
+    Init init = 4;
   }
 }
 
@@ -61,6 +64,7 @@ message AppResponse {
 
   message Results {
     repeated Result results = 1; 
+    required int32  last_log_index = 2;
   }
 
   oneof app_response_payload {
