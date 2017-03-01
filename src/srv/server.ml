@@ -161,8 +161,8 @@ let init_data_from_log_records configuration id =
     )  
   ) 
 
-let get_next_raft_message state = 
-  Raft_logic.get_next_raft_message state 
+let get_next_raft_message raft_ipc = 
+  Raft_srv_raftipc.get_next raft_ipc 
   >|= (function
       | Raft_srv_raftipc.Failure        -> Event.Failure "Raft IPC"
       | Raft_srv_raftipc.Raft_message x -> Event.Raft_message x
@@ -187,6 +187,8 @@ let run_server configuration id print_header =
     next_app_response
   ) = get_app_ipc_f stats configuration id in 
 
+  let raft_ipc = Raft_srv_raftipc.make configuration id in 
+  
   let rec server_loop threads state =
 
     Lwt.nchoose (Event.list_of_threads threads) 
@@ -200,9 +202,11 @@ let run_server configuration id print_header =
           (RLog.last_log_index state.Raft_logic.raft_state.RTypes.log);
       set_server_role state.Raft_logic.raft_state stats;
 
-      let process_raft_ipc_result (state, client_responses, app_requests) = 
+      let process_raft_ipc_result (state, raft_messages, 
+                                        client_responses, app_requests) = 
         send_client_responses client_responses;
         send_app_requests app_requests; 
+        Raft_srv_raftipc.send ~stats raft_ipc raft_messages; 
         state
       in 
 
@@ -213,7 +217,7 @@ let run_server configuration id print_header =
           >|= process_raft_ipc_result
           >|= (fun state ->
             let threads = { threads with 
-              Event.next_raft_message_t = get_next_raft_message state; 
+              Event.next_raft_message_t = get_next_raft_message raft_ipc; 
             } in
             (state, threads)
           )
@@ -299,7 +303,7 @@ let run_server configuration id print_header =
     
     let initial_threads = Event.({
       next_client_request_t = next_client_request ();
-      next_raft_message_t = get_next_raft_message state;
+      next_raft_message_t = get_next_raft_message raft_ipc;
       next_timeout_t = Event.next_timeout initial_raft_state; 
       next_app_reponse_t  = next_app_response ();
     }) in 

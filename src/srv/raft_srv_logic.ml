@@ -63,8 +63,6 @@ end (* Pending_requests *)
 type connection_state = {
   pending_requests : Pending_requests.t;
     (* Keeps track of pending request from client *)
-  raft_ipc : Raft_srv_raftipc.t; 
-    (* Communication system for RAFT messages *)
   last_app_index : int; 
     (* The last replicated log index on the app server *)
   app_pending_request : bool; 
@@ -72,11 +70,9 @@ type connection_state = {
 }
 
 let initialize configuration server_id = 
-  let raft_ipc = Raft_srv_raftipc.make configuration server_id in
   let app_requests = [APb.Init] in 
   let connection_state = {
     pending_requests = Pending_requests.empty; 
-    raft_ipc;
     last_app_index = -1; 
     app_pending_request = true;
   } in
@@ -88,11 +84,12 @@ type state = {
   log_record_handle : Log_record.t;
 }
 
-let get_next_raft_message state = 
-  let {connection_state = {raft_ipc; _}; _} = state in 
-  Raft_srv_raftipc.get_next raft_ipc
-
-type result = (state * client_responses * app_requests) 
+type result = (
+  state * 
+  Raft_logic.message_to_send list * 
+  client_responses * 
+  app_requests
+) 
 
 let handle_deleted_logs log_record_handle deleted_logs () = 
   match deleted_logs with
@@ -139,9 +136,8 @@ let handle_committed_logs state committed_logs () =
     Log_record.set_committed committed_logs log_record_handle 
     >|=(fun () -> make_app_request connection_state raft_state)
 
-let process_result stats state result =  
+let process_result _ state result =  
   let {log_record_handle; connection_state; _ } = state in 
-  let {raft_ipc; _} = connection_state in 
 
   let {
     Raft_logic.state = raft_state; 
@@ -158,12 +154,12 @@ let process_result stats state result =
   >>= handle_added_logs log_record_handle added_logs 
   >>= handle_committed_logs state committed_logs
   >|=(fun app_request_res -> 
-    Raft_srv_raftipc.send ~stats raft_ipc outgoing_messages;
     match app_request_res with
     | None -> 
-      ({state with raft_state; }, [] , [])
+      ({state with raft_state; }, outgoing_messages, [] , [])
     | Some (connection_state, app_request) -> 
-      ({state with raft_state; connection_state}, [] , [app_request])
+      ({state with raft_state; connection_state}, 
+       outgoing_messages, [] , [app_request])
   )
 
 let handle_raft_message ~stats ~now state msg = 
@@ -181,7 +177,7 @@ let handle_raft_message ~stats ~now state msg =
 
     process_result stats state result  
   )
-  >>=(fun (({raft_state; _}, _, _) as r) -> 
+  >>=(fun (({raft_state; _}, _, _, _) as r) -> 
     Log.print_state section raft_state
     >|=(fun () -> r)
   )
@@ -207,7 +203,7 @@ let handle_timeout ~stats ~now state timeout_type =
       ))
   end
   >>=(fun result -> process_result stats state result) 
-  >>=(fun (({raft_state; _}, _, _) as r) -> 
+  >>=(fun (({raft_state; _}, _, _, _) as r) -> 
     Log.print_state section raft_state
     >|=(fun () -> r)
   )
@@ -246,7 +242,7 @@ let handle_client_requests ~stats ~now  state client_requests =
         (client_response_msg, handle)
       ) client_requests in
 
-      (state, client_responses, [])
+      (state, [], client_responses, [])
     )
 
   | Raft_logic.Appended result -> 
@@ -313,7 +309,7 @@ let handle_app_response ~stats ~now state app_response =
 
       match make_app_request connection_state raft_state with
       | None -> 
-        ({state with connection_state}, client_responses, []) 
+        ({state with connection_state}, [], client_responses, []) 
       | Some (connection_state, app_request) -> 
-        ({state with connection_state}, client_responses, [app_request]) 
+        ({state with connection_state}, [], client_responses, [app_request]) 
     )
