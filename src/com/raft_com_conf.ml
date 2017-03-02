@@ -44,8 +44,8 @@ let default_configuration env =
       hearbeat_timeout = 0.1;
       max_nb_logs_per_message = 50;
       max_log_size = {
-        Raft_log.upper_bound = 200_000; 
-        Raft_log.lower_bound = 100_000; 
+        Raft_log.upper_bound = 500_000; 
+        Raft_log.lower_bound = 400_000; 
       };
     });
   
