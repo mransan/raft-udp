@@ -2,6 +2,8 @@
 module Conf = Raft_com_conf
 
 let () = 
+  Random.self_init (); 
+
   let id   = ref (-1) in
   let id_spec = Arg.Set_int id in
   
