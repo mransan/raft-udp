@@ -68,9 +68,11 @@ module Event = struct
     let {
       RTypes.timeout; 
       timeout_type } = RHelper.Timeout_event.next raft_state now in
-    
-    Lwt_unix.sleep timeout 
-    >|= (fun () -> Timeout timeout_type)
+    if timeout <= 0.0
+    then Lwt.return (Timeout timeout_type) 
+    else  
+      Lwt_unix.sleep timeout 
+      >|= (fun () -> Timeout timeout_type)
 
   let reset_next_timeout threads raft_state = 
     Lwt.cancel threads.next_timeout_t;

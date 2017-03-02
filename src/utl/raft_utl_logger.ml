@@ -67,7 +67,7 @@ let start ~basename  ~interval () =
     Lwt_log.file ~mode:`Append ~template ~file_name ()
     >>= (fun logger -> 
       Lwt_log_core.default := logger; 
-      delete_old_log_files 3 basename
+      delete_old_log_files 12 basename
       >>=(fun () -> Lwt_unix.sleep (float_of_int interval)) 
       >>= aux 
     )
