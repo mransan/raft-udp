@@ -59,7 +59,7 @@ let () =
   
   (* Launching RAFT server *)
 
-  begin 
+  let launch_raft_server = 
 
     let args = "server.native" :: [] in 
     let args = 
@@ -69,5 +69,22 @@ let () =
     in 
     let args = args @ ("--id")::(string_of_int !id)::[] in
     let args = args @ ("--env")::(Conf.string_of_env !env) :: [] in 
-    Unix.execv "server.native" (Array.of_list args)
-  end
+
+    fun () -> 
+
+      match Unix.fork () with
+      | 0  -> Unix.execv "server.native" (Array.of_list args)
+      | id -> id 
+  in
+
+  let rec loop () =
+    let child_pid = launch_raft_server () in
+    let timeout = Random.int 60 + 10 in 
+    Unix.sleep timeout; 
+    Printf.printf "Killing RAFT Server\n%!";
+    Unix.kill child_pid Sys.sigkill;
+    loop ()
+  in 
+
+  loop ()
+
