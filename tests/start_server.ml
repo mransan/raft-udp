@@ -81,7 +81,7 @@ let () =
 
   let rec loop () =
     let child_pid = launch_raft_server () in
-    let timeout = Random.int 120 + 10 in 
+    let timeout = Random.int 1200 + 10 in 
     Unix.sleep timeout; 
     Printf.printf "Killing RAFT Server\n%!";
     Unix.kill child_pid Sys.sigkill;
