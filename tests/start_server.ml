@@ -83,6 +83,7 @@ let () =
     Unix.sleep timeout; 
     Printf.printf "Killing RAFT Server\n%!";
     Unix.kill child_pid Sys.sigkill;
+    Unix.sleep 2;
     loop ()
   in 
 
