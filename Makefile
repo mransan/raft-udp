@@ -30,6 +30,7 @@ test:
 	$(OCB) hash_clt.native
 	$(OCB) start_all_servers.native
 	$(OCB) start_all_clients.native
+	$(OCB) start_server.native
 
 gen:
 	ocaml-protoc -I ../raft-pb.git/src/ -ml_out src/com src/com/raft_com.proto

@@ -67,6 +67,10 @@ let env_arg =
   ) ) in  
   (env, env_spec) 
 
+let string_of_env = function
+  | `Gcp -> "Gcp"
+  | `Mac -> "Mac"
+
 let sockaddr_of_server_config which server_ipc_conf = 
   let {inet4_address; raft_port; client_port; _ } = server_ipc_conf in 
   let port = match which with

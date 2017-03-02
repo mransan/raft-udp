@@ -28,6 +28,8 @@ val default_configuration :
 
 val env_arg : ([`Gcp | `Mac] ref * Arg.spec)  
 
+val string_of_env : [`Gcp |`Mac] -> string 
+
 val sockaddr_of_server_id : 
   [< `Client | `Raft ] ->
   t ->

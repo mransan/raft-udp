@@ -63,17 +63,36 @@ let main () =
   let server_id = ref (-1) in 
   let server_id_spec = Arg.Set_int server_id in 
   let env, env_spec = Conf.env_arg in 
+  let log = ref false in 
+  let log_spec = Arg.Set log  in
   Arg.parse [
     ("--id", server_id_spec, " : server id");
+    ("--log", log_spec, " : enable logging");
     ("--env", env_spec, " : which env");
-  ] (fun _ -> ()) "test.ml";
+  ] (fun _ -> ()) "hash_srv";
   assert(!server_id <> -1);
 
   let configuration = Conf.default_configuration !env in 
 
-  Lwt_stream.fold_s 
+  let logger_t = 
+    if !log
+    then 
+      let basename = Printf.sprintf "app_server_%08i" !server_id in 
+      Raft_utl_logger.start ~basename ~interval:60 () 
+    else begin 
+      Lwt_log_core.default := Lwt_log_core.null; 
+      Lwt.return_unit
+    end 
+  in 
+
+  let server_t = 
+    Lwt_stream.fold_s 
       process_app_request 
       (Srv.start configuration !server_id) 
       (0, "")
+    >|= (fun _ -> ())
+  in
+
+  Lwt.join [logger_t; server_t]
 
 let () = ignore @@ Lwt_main.run @@ main () 
