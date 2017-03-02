@@ -7,11 +7,9 @@ module APb          = Raft_com_pb
 module Server_stats = Raft_srv_serverstats
 module Log          = Raft_srv_log 
 module Log_record   = Raft_srv_logrecord
-module Conf         = Raft_com_conf
 
 module RTypes = Raft_types
 module RLog   = Raft_log
-module RPb    = Raft_pb 
 module RConv  = Raft_pb_conv
 
 type client_request   = Raft_com_pb.client_request * Raft_srv_clientipc.handle
@@ -69,7 +67,7 @@ type connection_state = {
     (* [true] when there is a pending request to the app server *)
 }
 
-let initialize configuration server_id = 
+let initialize _ _ = 
   let app_requests = [APb.Init] in 
   let connection_state = {
     pending_requests = Pending_requests.empty; 
@@ -137,7 +135,7 @@ let handle_committed_logs state committed_logs () =
     >|=(fun () -> make_app_request connection_state raft_state)
 
 let process_result _ state result =  
-  let {log_record_handle; connection_state; _ } = state in 
+  let {log_record_handle; _ } = state in 
 
   let {
     Raft_logic.state = raft_state; 
@@ -150,15 +148,17 @@ let process_result _ state result =
     deleted_logs; 
   }  = result in 
 
+  let state = {state with raft_state} in 
+
   handle_deleted_logs log_record_handle deleted_logs () 
   >>= handle_added_logs log_record_handle added_logs 
   >>= handle_committed_logs state committed_logs
   >|=(fun app_request_res -> 
     match app_request_res with
     | None -> 
-      ({state with raft_state; }, outgoing_messages, [] , [])
+      (state, outgoing_messages, [] , [])
     | Some (connection_state, app_request) -> 
-      ({state with raft_state; connection_state}, 
+      ({state with connection_state}, 
        outgoing_messages, [] , [app_request])
   )
 
@@ -301,7 +301,7 @@ let handle_app_response ~stats ~now state app_response =
         results 
     >|=(fun (pending_requests, client_responses) ->
       
-      let connection_state = {connection_state with 
+      let connection_state = {
         pending_requests; 
         app_pending_request = false; 
         last_app_index = last_log_index;

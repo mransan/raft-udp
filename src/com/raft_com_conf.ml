@@ -33,17 +33,9 @@ let default_configuration () = {
   });
 
   servers_ipc_configuration = [
-    {raft_id = 0; inet4_address = "127.0.0.1"; raft_port = 34765; client_port = 34865};
-    {raft_id = 1; inet4_address = "127.0.0.1"; raft_port = 34766; client_port = 34866};
-    {raft_id = 2; inet4_address = "127.0.0.1"; raft_port = 34767; client_port = 34867};
-    (*
-    {raft_id = 3; inet4_address = "127.0.0.1"; raft_port = 34768; client_port = 34868};
-    {raft_id = 4; inet4_address = "127.0.0.1"; raft_port = 34769; client_port = 34869};
-    {raft_id = 5; inet4_address = "127.0.0.1"; raft_port = 34760; client_port = 34860};
-    {raft_id = 6; inet4_address = "127.0.0.1"; raft_port = 34761; client_port = 34861};
-    {raft_id = 7; inet4_address = "127.0.0.1"; raft_port = 34762; client_port = 34862};
-    {raft_id = 8; inet4_address = "127.0.0.1"; raft_port = 34763; client_port = 34863};
-    *)
+    {raft_id = 0; inet4_address = "10.142.0.3"; raft_port = 3500; client_port = 3501};
+    {raft_id = 1; inet4_address = "10.142.0.4"; raft_port = 3500; client_port = 3501};
+    {raft_id = 2; inet4_address = "10.142.0.5"; raft_port = 3500; client_port = 3501};
   ];
 
   disk_backup = {
