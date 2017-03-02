@@ -105,8 +105,8 @@ let main configuration server_id log () =
   Lwt_main.run @@ Lwt.join [logger_t; server_t]
 
 let () = 
-  let configuration = Conf.default_configuration () in
 
+  let env, env_spec = Conf.env_arg in 
   let log = ref false in 
   let log_spec = Arg.Set log  in
   let server_id = ref (-1) in 
@@ -114,8 +114,11 @@ let () =
   
   Arg.parse [
     ("--log", log_spec, " : enable logging");
+    ("--env", env_spec, " : which env");
     ("--id", server_id_spec, " : server id");
   ] (fun _ -> ()) "test.ml";
+  
+  let configuration = Conf.default_configuration !env in
 
   assert(!server_id >= 0);
   assert(!server_id < List.length configuration.Conf.app_server_port);

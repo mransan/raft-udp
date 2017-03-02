@@ -326,25 +326,11 @@ let run configuration id print_header log =
   Lwt_main.run @@ Lwt.join [logger_t; server_t] 
 
 let () =
-  Printf.printf ">>PID: %i\n%!" (Unix.getpid ());
   Random.self_init ();
-  let configuration = Conf.default_configuration () in
-  let nb_of_servers = 
-    List.length configuration.Conf.servers_ipc_configuration 
-  in 
-
-  let ids = 
-    let rec aux acc = function
-      | -1 -> acc
-      | n  -> aux ((string_of_int n)::acc) (n - 1)
-    in 
-    aux [] (nb_of_servers - 1)
-  in
+  
 
   let id   = ref (-1) in
-  let id_spec = Arg.Symbol (ids, fun s ->
-    id := int_of_string s
-  ) in
+  let id_spec = Arg.Set_int id in
 
   let print_header = ref false in 
   let print_header_spec = Arg.Set print_header in
@@ -352,10 +338,23 @@ let () =
   let log = ref false in 
   let log_spec = Arg.Set log  in
 
+  let env, env_spec = Conf.env_arg in
+
   Arg.parse [
+    ("--env", env_spec , " : which env");
     ("--id", id_spec , " : server raft id");
     ("--print-header", print_header_spec, " : enable header printing");
     ("--log", log_spec, " : enable logging");
   ] (fun _ -> ()) "test.ml";
+
+  let configuration = Conf.default_configuration !env in
+
+  let nb_of_servers = 
+    List.length configuration.Conf.servers_ipc_configuration 
+  in 
+  if !id < 0 || !id >= nb_of_servers 
+  then begin 
+    Printf.eprintf "Invalid server id: %i\n" !id; 
+  end;
 
   run configuration !id !print_header !log

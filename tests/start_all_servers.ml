@@ -35,7 +35,18 @@ let () =
 
   assert(!task <> "");
 
-  let {Conf.servers_ipc_configuration ;_  } = Conf.default_configuration () in 
+  let {
+    Conf.servers_ipc_configuration; 
+    Conf.disk_backup = {Conf.log_record_directory};
+    _ 
+  } = Conf.default_configuration `Mac in 
+
+  begin 
+    ignore @@ 
+      Sys.command @@ Printf.sprintf "rm -rf %s/*.data" log_record_directory; 
+    ignore @@ 
+      Sys.command @@ "rm -f *.log"
+  end; 
 
   let nb_of_servers = List.length servers_ipc_configuration in 
 

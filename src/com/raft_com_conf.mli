@@ -23,8 +23,10 @@ type t = {
 (** {2 Utilities} *)
 
 val default_configuration : 
-  unit -> 
+  [`Gcp | `Mac] -> 
   t
+
+val env_arg : ([`Gcp | `Mac] ref * Arg.spec)  
 
 val sockaddr_of_server_id : 
   [< `Client | `Raft ] ->

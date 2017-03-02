@@ -1,5 +1,7 @@
 open Lwt.Infix 
 
+module Conf = Raft_com_conf
+
 module Clt = Raft_app_clt.Make(struct
 
   type data = Hash_pb.app_data
@@ -36,7 +38,13 @@ let main () =
   Lwt_log_core.default := Lwt_log_core.null; 
   Random.self_init (); 
 
-  Raft_app_clt.make (Raft_com_conf.default_configuration ())
+  let env, env_spec = Conf.env_arg in 
+
+  Arg.parse [
+    ("--env", env_spec, " : which env"); 
+  ] (fun _ -> ()) "hash_clt";
+
+  Raft_app_clt.make (Raft_com_conf.default_configuration !env)
   >>=(fun client -> loop client ())
 
 let () = ignore @@ Lwt_main.run (main ())

@@ -33,7 +33,7 @@ let rec loop client () =
   )
   >>= loop client 
 
-let main log () = 
+let main log env () = 
   let logger_t = 
       if log
       then 
@@ -46,7 +46,7 @@ let main log () =
   in 
 
   let client_t = 
-    Raft_app_clt.make (Conf.default_configuration ()) 
+    Raft_app_clt.make (Conf.default_configuration env)
     >>= (fun client -> loop client ()) 
   in 
 
@@ -56,9 +56,12 @@ let () =
   let log = ref false in 
   let log_spec = Arg.Set log  in
   
+  let env, env_spec = Conf.env_arg in 
+  
   Arg.parse [
     ("--log", log_spec, " : enable logging");
+    ("--env", env_spec, " : which env");
   ] (fun _ -> ()) "client.ml";
 
   Random.self_init ();
-  main !log ()
+  main !log !env ()

@@ -1,5 +1,7 @@
 open Lwt.Infix
 
+module Conf = Raft_com_conf
+
 module Srv = Raft_app_srv.Make(struct
 
   type data = Hash_pb.app_data 
@@ -60,12 +62,14 @@ let main () =
   (* Server id is required *)
   let server_id = ref (-1) in 
   let server_id_spec = Arg.Set_int server_id in 
+  let env, env_spec = Conf.env_arg in 
   Arg.parse [
     ("--id", server_id_spec, " : server id");
+    ("--env", env_spec, " : which env");
   ] (fun _ -> ()) "test.ml";
   assert(!server_id <> -1);
 
-  let configuration = Raft_com_conf.default_configuration () in 
+  let configuration = Conf.default_configuration !env in 
 
   Lwt_stream.fold_s 
       process_app_request 
