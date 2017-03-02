@@ -78,7 +78,7 @@ let main () =
     if !log
     then 
       let basename = Printf.sprintf "app_server_%08i" !server_id in 
-      Raft_utl_logger.start ~basename ~interval:60 () 
+      Raft_utl_logger.start ~basename ~interval:120 () 
     else begin 
       Lwt_log_core.default := Lwt_log_core.null; 
       Lwt.return_unit

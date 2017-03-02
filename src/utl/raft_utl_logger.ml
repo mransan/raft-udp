@@ -66,8 +66,10 @@ let start ~basename  ~interval () =
     let file_name = Printf.sprintf "%s_%s.log" basename timestamp in
     Lwt_log.file ~mode:`Append ~template ~file_name ()
     >>= (fun logger -> 
+      let prev_logger = !Lwt_log_core.default in 
       Lwt_log_core.default := logger; 
-      delete_old_log_files 12 basename
+      Lwt_log_core.close prev_logger
+      >>=(fun () -> delete_old_log_files 3 basename)
       >>=(fun () -> Lwt_unix.sleep (float_of_int interval)) 
       >>= aux 
     )
