@@ -1,15 +1,17 @@
-let arg_of_server log task _ = 
+module Conf = Raft_com_conf
+
+let arg_of_server log env task _ = 
 
   let arg = [| 
     task;
     "--log";
+    "--env"; 
+    (Conf.string_of_env env);
   |] in 
   if not log 
   then arg.(1) <- "";
-
   arg
 
-module Conf = Raft_com_conf
    
 let () = 
 
@@ -18,7 +20,10 @@ let () =
   let log = ref false in 
   let log_spec = Arg.Set log in 
 
+  let env, env_spec = Conf.env_arg in 
+
   Arg.parse [
+    ("--env", env_spec, " : which env");
     ("--log", log_spec, " : enable logging");
   ] (function 
     | "counter" -> task := "./counter_clt.native" 
@@ -28,11 +33,11 @@ let () =
 
   assert(!task <> "");
 
-  let nb_of_children = 40 in 
+  let nb_of_children = 100 in 
 
   for i = 1 to nb_of_children do
     match Unix.fork () with
-    | 0 -> Unix.execv !task (arg_of_server !log !task i)
+    | 0 -> Unix.execv !task (arg_of_server !log !env !task i)
     | _ -> ()
   done;
   

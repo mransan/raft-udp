@@ -19,9 +19,11 @@ module Clt = Raft_app_clt.Make(struct
 
 end)
 
+let data_size = 16
+
 let random_string () =
-  let b = Bytes.create 16 in 
-  for i = 0 to 15 do
+  let b = Bytes.create data_size in 
+  for i = 0 to (data_size - 1)  do
     Bytes.set b i (char_of_int @@ 97 + Random.int 26)
   done; 
   Bytes.to_string b
