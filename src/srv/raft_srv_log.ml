@@ -2,7 +2,6 @@ open !Lwt_log_core
 
 module RPb = Raft_pb
 module RTypes = Raft_types
-module RLog = Raft_log
 
 let string_of_msg msg = 
   match msg with

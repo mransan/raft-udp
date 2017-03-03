@@ -110,21 +110,28 @@ let handle_added_logs log_record_handle added_logs () =
 let make_app_request connection_state raft_state = 
   let {last_app_index; app_pending_request; _} = connection_state in  
   if app_pending_request
-  then None 
+  then 
+    log ~level:Notice ~section 
+        "No new app request due to existing pending request"
+    >|=(fun () -> None)
   else 
     let log_entries = 
       let since = last_app_index in 
       Raft_logic.committed_entries_since ~since raft_state
     in 
     match log_entries with
-    | [] -> None 
+    | [] -> 
+      log_f ~level:Notice ~section
+          "No new app request to no new committed log since: %i"
+              last_app_index
+      >|=(fun () -> None)
     | _ -> 
       let log_entries = List.map RConv.log_entry_to_pb log_entries in 
       let request = APb.(Add_log_entries {log_entries}) in
       let connection_state = {connection_state with
         app_pending_request = true; 
       } in 
-      Some (connection_state, request) 
+      Lwt.return (Some (connection_state, request)) 
 
 let handle_committed_logs state committed_logs () = 
   let {connection_state; log_record_handle; raft_state; _} = state in 
@@ -132,23 +139,56 @@ let handle_committed_logs state committed_logs () =
   | [] -> Lwt.return None
   | _ ->
     Log_record.set_committed committed_logs log_record_handle 
-    >|=(fun () -> make_app_request connection_state raft_state)
+    >>=(fun () -> make_app_request connection_state raft_state) 
+
+(* This function compute the `not a leader` client response for 
+ * all the pending requests. It returns the new empty pending
+ * requests *)
+let handle_leader_change pending_request leader_change = 
+
+  let client_responses = 
+    StringMap.bindings pending_request 
+    |> List.map (fun (_, (_, handle)) -> 
+      let leader_id = match leader_change with
+        | RTypes.New_leader i -> Some i 
+        | RTypes.No_leader -> None
+      in
+      let client_response_msg = APb.(Add_log_not_a_leader {leader_id}) in 
+      (client_response_msg, handle) 
+    )
+  in 
+  (Pending_requests.empty, client_responses)
 
 let process_result _ state result =  
-  let {log_record_handle; _ } = state in 
+  let {log_record_handle; connection_state; _ } = state in 
 
   let {
     Raft_logic.state = raft_state; 
     messages_to_send = outgoing_messages; 
     committed_logs;
-    leader_change = _;  
+    leader_change;  
       (* TODO handle leader_change by replying to cleaning up the client
        * pending requests *)
     added_logs; 
     deleted_logs; 
   }  = result in 
 
-  let state = {state with raft_state} in 
+  
+  let state, client_responses = 
+    match leader_change with
+    | None -> 
+      ({state with raft_state}, []) 
+
+    | Some leader_change -> 
+      let {pending_requests; _} = connection_state in 
+      let pending_requests, client_responses = 
+        handle_leader_change pending_requests leader_change 
+      in 
+      let connection_state = {connection_state with
+        pending_requests; 
+      } in 
+      ({state with raft_state; connection_state}, client_responses)
+  in  
 
   handle_deleted_logs log_record_handle deleted_logs () 
   >>= handle_added_logs log_record_handle added_logs 
@@ -156,10 +196,10 @@ let process_result _ state result =
   >|=(fun app_request_res -> 
     match app_request_res with
     | None -> 
-      (state, outgoing_messages, [] , [])
+      (state, outgoing_messages, client_responses, [])
     | Some (connection_state, app_request) -> 
       ({state with connection_state}, 
-       outgoing_messages, [] , [app_request])
+       outgoing_messages, client_responses, [app_request])
   )
 
 let handle_raft_message ~stats ~now state msg = 
@@ -299,7 +339,7 @@ let handle_app_response ~stats ~now state app_response =
         (process_app_result (RTypes.is_leader raft_state)) 
         (pending_requests, []) 
         results 
-    >|=(fun (pending_requests, client_responses) ->
+    >>=(fun (pending_requests, client_responses) ->
       
       let connection_state = {
         pending_requests; 
@@ -307,9 +347,11 @@ let handle_app_response ~stats ~now state app_response =
         last_app_index = last_log_index;
       } in 
 
-      match make_app_request connection_state raft_state with
-      | None -> 
-        ({state with connection_state}, [], client_responses, []) 
-      | Some (connection_state, app_request) -> 
-        ({state with connection_state}, [], client_responses, [app_request]) 
+      make_app_request connection_state raft_state
+      >|=(function 
+        | None -> 
+          ({state with connection_state}, [], client_responses, []) 
+        | Some (connection_state, app_request) -> 
+          ({state with connection_state}, [], client_responses, [app_request]) 
+      )
     )
