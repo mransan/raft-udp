@@ -15,6 +15,7 @@ module Raft_logic = Raft_srv_logic
 module Client_ipc = Raft_srv_clientipc
 module Log_record = Raft_srv_logrecord
 module App_ipc = Raft_srv_appipc
+module Rate_limiter = Raft_utl_ratelimiter
 
 let section = Section.make (Printf.sprintf "%10s" "server")
 
@@ -86,14 +87,14 @@ let get_client_ipc_f stats configuration id =
     send_client_response 
   ) = Client_ipc.make configuration stats id in 
 
-  let next_client_request () = 
-    Lwt_stream.get req_stream 
-     >|= (function 
-       | None -> Event.Failure "Client IPC" 
-       | Some hd -> 
-         let tl = Lwt_stream.get_available req_stream in 
-         Event.Client_request (hd::tl)
-     )
+  let next_client_request = 
+    let f = Rate_limiter.wrap 2500 req_stream in
+    fun () -> 
+      f () 
+      >|=(function
+        | [] -> Event.Failure "Client IPC"
+        | l  -> Event.Client_request l 
+      )  
   in 
 
   let send_client_responses = fun client_responses -> 
