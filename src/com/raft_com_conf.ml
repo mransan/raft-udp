@@ -39,10 +39,10 @@ let default_configuration env =
   {
     raft_configuration = RTypes.({
       nb_of_server = 3;
-      election_timeout = 0.50;
+      election_timeout = 0.70;
       election_timeout_range = 0.2;
       hearbeat_timeout = 0.1;
-      max_nb_logs_per_message = 50;
+      max_nb_logs_per_message = Raft_log.Bytes (50000, 8);
       max_log_size = {
         Raft_log.upper_bound = 500_000; 
         Raft_log.lower_bound = 400_000; 

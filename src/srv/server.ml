@@ -88,7 +88,7 @@ let get_client_ipc_f stats configuration id =
   ) = Client_ipc.make configuration stats id in 
 
   let next_client_request = 
-    let f = Rate_limiter.wrap 2500 req_stream in
+    let f = Rate_limiter.wrap 3000 req_stream in
     fun () -> 
       f () 
       >|=(function
