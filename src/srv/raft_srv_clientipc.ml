@@ -3,7 +3,7 @@ open !Lwt_log_core
 
 module U            = Lwt_unix
 module Conf         = Raft_com_conf
-module Server_stats = Raft_srv_serverstats
+module Server_stats = Raft_srv_stats
 module APb          = Raft_com_pb 
 
 type connection = (Lwt_io.input_channel * Lwt_unix.file_descr * bytes) 
@@ -190,7 +190,7 @@ let create_response_stream () =
   in
   (next_response, response_push)
 
-type t = ((unit -> client_request list Lwt.t) * (client_response list -> unit))
+type t = (unit -> client_request list Lwt.t) * (client_response option-> unit)
 
 let make configuration stats server_id =
   let next_client_connection = 
@@ -205,14 +205,8 @@ let make configuration stats server_id =
 
   let (
     next_response, 
-    response_push
+    response_push_f
   ) = create_response_stream () in 
-
-  let send client_responses = 
-    List.iter (fun client_response -> 
-      response_push (Some client_response) 
-    ) client_responses 
-  in
 
   let {Conf.client_rate_limit; _} = configuration in 
 
@@ -308,7 +302,12 @@ let make configuration stats server_id =
     (* We must attach the loop threads to the stream so that the 
      * Jgarbage collector does not reclaim the thread.  *)
 
-  ((get_next, send) : t)
+  ((get_next, response_push_f) : t)
 
-let get_next (get_next, _) = get_next () 
-let send (_, send) client_responses = send client_responses 
+let get_next (get_next, _) = 
+  get_next () 
+
+let send (_, response_push_f) client_responses = 
+  List.iter (fun client_response -> 
+    response_push_f (Some client_response) 
+  ) client_responses 

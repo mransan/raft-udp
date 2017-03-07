@@ -4,7 +4,7 @@ open !Lwt_log_core
 module Counter = Raft_utl_counter
 
 module APb = Raft_com_pb
-module Server_stats = Raft_srv_serverstats
+module Server_stats = Raft_srv_stats
 module Debug = Raft_srv_debug
 module Log_record = Raft_srv_logrecord
 

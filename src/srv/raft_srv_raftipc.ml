@@ -5,7 +5,7 @@ module RPb = Raft_pb
 module Conf = Raft_com_conf
 module RConv = Raft_pb_conv 
 
-module Server_stats = Raft_srv_serverstats
+module Server_stats = Raft_srv_stats
 
 let section = Section.make (Printf.sprintf "%10s" "RaftIPC")
 
@@ -22,6 +22,7 @@ type t = {
     (* Function to push an outgoing message in the stream *)
   next_raft_message : next_raft_message_f;
     (* Functio to get the next RAFT message *)
+  stats : Raft_srv_stats.t;
 }
 
 let get_next_raft_message_f_for_server configuration server_id =
@@ -35,7 +36,7 @@ let get_next_raft_message_f_for_server configuration server_id =
     let fd = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM 0 in
     Lwt_unix.bind fd ad;
 
-    let buffer_size = (1024 * 1024)  in
+    let buffer_size = 65536 in
     let buffer = Bytes.create buffer_size in
     (* TODO: we should have a header for this communication *)
 
@@ -50,7 +51,7 @@ let get_next_raft_message_f_for_server configuration server_id =
         | exception _ -> Failure 
       )
 
-let make configuration server_id = 
+let make configuration stats server_id = 
   let server_addresses = List.map (fun ({Conf.raft_id; _ } as server_config) ->
     let fd = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM 0 in
     (raft_id, (Conf.sockaddr_of_server_config `Raft server_config, fd))
@@ -101,10 +102,11 @@ let make configuration server_id =
     outgoing_message_processing; 
     push_outgoing_message;
     next_raft_message; 
+    stats;
   }
 
-let send ~stats t messages  = 
-  let {push_outgoing_message; _ } = t in 
+let send t messages  = 
+  let {push_outgoing_message; stats; _ } = t in 
   List.iter (fun ((msg, server_id) ) ->
     let msg = RConv.message_to_pb msg in 
     let msg_to_send  = (msg, server_id) in 

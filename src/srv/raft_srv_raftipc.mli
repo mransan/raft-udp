@@ -1,4 +1,4 @@
-(** IPC for the RAFT protocol *)
+(** IPC for the RAFT Server <-> RAFT Server protocol *)
 
 (** The IPC is based on UDP and using Raft_pb protobuf types *)
 
@@ -9,14 +9,13 @@ type t
 
 (** {2 Creators} *)
 
-val make : Raft_com_conf.t -> int -> t 
+val make : Raft_com_conf.t -> Raft_srv_stats.t -> int -> t 
 (** [make configuration server_id] creates a new instance of the 
     communication system *)
 
 (** {2 Communication API} *)
 
 val send : 
-  stats:Raft_srv_serverstats.t -> 
   t -> 
   (Raft_types.message * int) list -> 
   unit 

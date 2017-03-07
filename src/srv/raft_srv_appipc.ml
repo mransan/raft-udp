@@ -3,22 +3,22 @@ open !Lwt_log_core
 
 module APb = Raft_com_pb
 module Pb_util = Raft_udp_pbutil
-module Server_stats = Raft_srv_serverstats
+module Server_stats = Raft_srv_stats
 module Conf = Raft_com_conf
 module U = Lwt_unix
 
-type send_app_request_f  = Raft_com_pb.app_request option -> unit 
-
-type t = send_app_request_f * Raft_com_pb.app_response Lwt_stream.t 
-
 let section = Section.make (Printf.sprintf "%10s" "AppIPC")
+
+type app_request = Raft_com_pb.app_request 
+
+type app_response = Raft_com_pb.app_response
+
+type t = (app_response Lwt_stream.t) * (app_request option -> unit)
 
 type connection = (Lwt_io.input_channel * Lwt_unix.file_descr * bytes)
  
 module Event = struct 
   
-  (* Type *)
-
   type e = 
     | Failure of string 
       (* Fatal failure happened during IPC *)
@@ -161,7 +161,7 @@ let get_next_request_f request_stream =
         >|= Event.app_request request connection 
     )
 
-let make configuration server_id (_:Server_stats.t)= 
+let make configuration (_:Server_stats.t) server_id = 
 
   let (
     request_stream, 
@@ -209,4 +209,12 @@ let make configuration server_id (_:Server_stats.t)=
   in 
   set_response_ref t; 
 
-  (push_request_f, response_stream)
+  (response_stream, push_request_f) 
+
+let get_next (response_stream, _) = 
+  Lwt_stream.get response_stream
+
+let send (_, push_request_f) app_requests = 
+  List.iter (fun app_request -> 
+    push_request_f (Some app_request)
+  ) app_requests

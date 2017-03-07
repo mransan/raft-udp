@@ -2,18 +2,28 @@
  
 (** The IPC is based on TCP and using Raft_com_pb protobuf types.*)
 
-type send_app_request_f  = Raft_com_pb.app_request option -> unit 
-(** Function to send a request to the APP server. The corresponding response 
-    will be returned in the response stream.  *)
 
-type t = send_app_request_f * Raft_com_pb.app_response Lwt_stream.t 
-(** Type for all the App server communication (ie send request/receive 
-    response *) 
+type app_request = Raft_com_pb.app_request 
+(** App request *)
+
+type app_response = Raft_com_pb.app_response
+(** App response *)
+
+type t 
+(** IPC type *) 
 
 val make : 
   Raft_com_conf.t -> 
+  Raft_srv_stats.t -> 
   int -> 
-  Raft_srv_serverstats.t -> 
   t 
-(** [make configuration stats] initialize and return the IPC with the 
-    APP server. *) 
+(** [make configuration stats server_id] initialize the IPC state with 
+    the App server. *) 
+
+val get_next : t -> app_response option Lwt.t 
+(** [get_next app_ipc] returns promise to the next response from the 
+    App server. *)
+
+val send : t -> app_request list -> unit   
+(** [send app_ipc app_request] enqueues [app_request] to be send 
+    asynchronously. *)

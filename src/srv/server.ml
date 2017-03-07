@@ -9,7 +9,7 @@ module RConv = Raft_pb_conv
 
 module APb = Raft_com_pb
 module Conf = Raft_com_conf
-module Server_stats = Raft_srv_serverstats
+module Server_stats = Raft_srv_stats
 module Client_ipc = Raft_srv_clientipc
 module Log_record = Raft_srv_logrecord
 module App_ipc = Raft_srv_appipc
@@ -87,27 +87,6 @@ let set_server_role state stats =
   in 
   (Server_stats.set_server_role stats role:unit) 
   
-let get_app_ipc_f stats configuration server_id = 
-  let (
-    send_app_request, 
-    response_stream
-  ) = App_ipc.make configuration server_id stats in 
-
-  let next_app_response () = 
-    Lwt_stream.get response_stream
-    >|=(function
-      | None -> Event.Failure "App IPC"
-      | Some r -> Event.App_response r 
-    )
-  in
-
-  let send_app_requests = fun app_requests -> 
-    List.iter (fun request -> 
-      send_app_request (Some request)
-    ) app_requests
-  in 
-  (send_app_requests, next_app_response)
-
 let init_data_from_log_records configuration id = 
   Log_record.make configuration id 
   >>=(fun log_record_handle -> 
@@ -149,6 +128,13 @@ let get_next_client_requests client_ipc =
   Raft_srv_clientipc.get_next client_ipc
   >|= (fun client_requests -> Event.Client_request client_requests) 
 
+let get_next_app_response app_ipc = 
+  Raft_srv_appipc.get_next app_ipc 
+  >|= (function
+    | None -> Event.Failure "App IPC"
+    | Some app_response -> Event.App_response app_response 
+  ) 
+
 let run_server configuration id print_header =
   let stats = 
     let print_header = if print_header then Some () else None in
@@ -158,15 +144,19 @@ let run_server configuration id print_header =
       ~id ()
   in
   
-
   let client_ipc = Raft_srv_clientipc.make configuration stats id in
 
-  let (
-    send_app_requests, 
-    next_app_response
-  ) = get_app_ipc_f stats configuration id in 
+  let app_ipc = Raft_srv_appipc.make configuration stats id in 
 
-  let raft_ipc = Raft_srv_raftipc.make configuration id in 
+  let raft_ipc = Raft_srv_raftipc.make configuration stats id in 
+      
+  let process_raft_ipc_result (state, raft_messages, 
+                               client_responses, app_requests) = 
+    Raft_srv_clientipc.send client_ipc client_responses;
+    Raft_srv_appipc.send app_ipc app_requests; 
+    Raft_srv_raftipc.send raft_ipc raft_messages; 
+    state
+  in 
   
   let rec server_loop threads state =
 
@@ -180,14 +170,6 @@ let run_server configuration id print_header =
           stats 
           (RLog.last_log_index state.Raft_srv_logic.raft_state.RTypes.log);
       set_server_role state.Raft_srv_logic.raft_state stats;
-
-      let process_raft_ipc_result (state, raft_messages, 
-                                        client_responses, app_requests) = 
-        Raft_srv_clientipc.send client_ipc client_responses;
-        send_app_requests app_requests; 
-        Raft_srv_raftipc.send ~stats raft_ipc raft_messages; 
-        state
-      in 
 
       Lwt_list.fold_left_s (fun (state, threads) event -> 
         match event with
@@ -230,7 +212,7 @@ let run_server configuration id print_header =
           >|= process_raft_ipc_result 
           >|= (fun state -> 
             let threads = { threads with
-              Event.next_app_reponse_t = next_app_response ();
+              Event.next_app_reponse_t = get_next_app_response app_ipc;
             } in
             (state, threads)
           )
@@ -273,7 +255,7 @@ let run_server configuration id print_header =
       Raft_srv_logic.initialize configuration id 
     in 
 
-    send_app_requests app_requests;
+    Raft_srv_appipc.send app_ipc app_requests;
     let state = Raft_srv_logic.({
       raft_state = initial_raft_state; 
       connection_state;
@@ -283,8 +265,8 @@ let run_server configuration id print_header =
     let initial_threads = Event.({
       next_client_request_t = get_next_client_requests client_ipc; 
       next_raft_message_t = get_next_raft_message raft_ipc;
+      next_app_reponse_t  = get_next_app_response app_ipc;
       next_timeout_t = Event.next_timeout initial_raft_state; 
-      next_app_reponse_t  = next_app_response ();
     }) in 
 
     server_loop initial_threads state
