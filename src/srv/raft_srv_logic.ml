@@ -1,16 +1,16 @@
 open Lwt.Infix 
 open !Lwt_log_core
 
-module Counter      = Raft_utl_counter
+module Counter = Raft_utl_counter
 
-module APb          = Raft_com_pb
+module APb = Raft_com_pb
 module Server_stats = Raft_srv_serverstats
-module Log          = Raft_srv_log 
-module Log_record   = Raft_srv_logrecord
+module Debug = Raft_srv_debug
+module Log_record = Raft_srv_logrecord
 
 module RTypes = Raft_types
-module RLog   = Raft_log
-module RConv  = Raft_pb_conv
+module RLog = Raft_log
+module RConv = Raft_pb_conv
 
 type client_request   = Raft_com_pb.client_request * Raft_srv_clientipc.handle
 type client_response  = Raft_com_pb.client_response * Raft_srv_clientipc.handle 
@@ -205,7 +205,7 @@ let process_result _ state result =
 let handle_raft_message ~stats ~now state msg = 
   let {raft_state; _ } = state in 
 
-  Log.print_msg_received section msg 
+  Debug.print_msg_received section msg 
   >>=(fun () ->
     Server_stats.tick_raft_msg_recv stats;
 
@@ -218,7 +218,7 @@ let handle_raft_message ~stats ~now state msg =
     process_result stats state result  
   )
   >>=(fun (({raft_state; _}, _, _, _) as r) -> 
-    Log.print_state section raft_state
+    Debug.print_state section raft_state
     >|=(fun () -> r)
   )
 
@@ -244,7 +244,7 @@ let handle_timeout ~stats ~now state timeout_type =
   end
   >>=(fun result -> process_result stats state result) 
   >>=(fun (({raft_state; _}, _, _, _) as r) -> 
-    Log.print_state section raft_state
+    Debug.print_state section raft_state
     >|=(fun () -> r)
   )
 

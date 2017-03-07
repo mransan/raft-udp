@@ -81,7 +81,7 @@ let make configuration server_id =
              * supports message not being delivered and will
              * ensure that it will recover.  *)
           | nb_bytes when nb_bytes = remaining ->
-            Raft_srv_log.print_msg_to_send section msg server_id 
+            Raft_srv_debug.print_msg_to_send section msg server_id 
             (* All good message is delivered *)
           | nb_bytes -> 
             sendto (from + nb_bytes) (remaining - nb_bytes)

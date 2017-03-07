@@ -5,7 +5,7 @@
 (** {2 Types} *)
 
 type t 
-(** state of the communication system *)
+(** IPC type *)
 
 (** {2 Creators} *)
 
