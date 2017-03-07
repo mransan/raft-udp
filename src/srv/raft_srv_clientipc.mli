@@ -26,17 +26,15 @@ val make :
   Raft_srv_serverstats.t ->
   int -> 
   t
-(** [client_request_stream configuration server_id] initialize the 
-    TCP based client IPC to process incoming client request to the RAFT
-    server. 
-
-    The function return a stream or request which will be closed upon
-    a fatal error and a send response function.  *)
+(** [make configuration stats server_id] initializes the 
+    TCP based server IPC to process incoming client request to the RAFT
+    server. *)
 
 (** {2 Communication API} *)
 
 val get_next : t -> client_request list Lwt.t 
-(** [get_next client_ipc] returns promise to the next set of client requests *)
+(** [get_next client_ipc] returns a promise to the next set of client 
+    requests *)
 
 val send : t -> client_response list -> unit 
 (** [send client_ipc client_responses] enqueues the [client_responses] for them
