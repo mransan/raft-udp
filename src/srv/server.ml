@@ -79,13 +79,21 @@ module Event = struct
 
 end 
 
-let set_server_role state stats = 
-  let role = match state.RTypes.role with
-    | RTypes.Follower _ -> Server_stats.Follower  
-    | RTypes.Candidate _ -> Server_stats.Candidate
-    | RTypes.Leader _ -> Server_stats.Leader
-  in 
-  (Server_stats.set_server_role stats role:unit) 
+module Stats = struct  
+
+  module Counter = Raft_utl_counter.Counter 
+
+  let set_server_role {Raft_srv_logic.raft_state = {RTypes.role; _}; _} = 
+    let role = match role with
+      | RTypes.Follower _ -> Server_stats.Follower  
+      | RTypes.Candidate _ -> Server_stats.Candidate
+      | RTypes.Leader _ -> Server_stats.Leader
+    in 
+    Server_stats.server_role := (Some role)
+  
+  let set_log {Raft_srv_logic.raft_state = {RTypes.log; _} ; _} = 
+    Counter.set Server_stats.log (RLog.last_log_index log) 
+end 
   
 let init_data_from_log_records configuration id = 
   Log_record.make configuration id 
@@ -136,19 +144,14 @@ let get_next_app_response app_ipc =
   ) 
 
 let run_server configuration id print_header =
-  let stats = 
-    let print_header = if print_header then Some () else None in
-    Server_stats.make 
-      ?print_header 
-      ~initial_log_size:0
-      ~id ()
-  in
+  Server_stats.server_id := id;
+  Server_stats.print_header := print_header;
   
-  let client_ipc = Raft_srv_clientipc.make configuration stats id in
+  let client_ipc = Raft_srv_clientipc.make configuration id in
 
-  let app_ipc = Raft_srv_appipc.make configuration stats id in 
+  let app_ipc = Raft_srv_appipc.make configuration id in 
 
-  let raft_ipc = Raft_srv_raftipc.make configuration stats id in 
+  let raft_ipc = Raft_srv_raftipc.make configuration id in 
       
   let process_raft_ipc_result (state, raft_messages, 
                                client_responses, app_requests) = 
@@ -166,15 +169,13 @@ let run_server configuration id print_header =
 
       let now = get_now () in
       
-      Server_stats.set_log_count 
-          stats 
-          (RLog.last_log_index state.Raft_srv_logic.raft_state.RTypes.log);
-      set_server_role state.Raft_srv_logic.raft_state stats;
+      Stats.set_log state; 
+      Stats.set_server_role state;
 
       Lwt_list.fold_left_s (fun (state, threads) event -> 
         match event with
         | Event.Raft_message msg -> (
-          Raft_srv_logic.handle_raft_message ~stats ~now state msg
+          Raft_srv_logic.handle_raft_message ~now state msg
           >|= process_raft_ipc_result
           >|= (fun state ->
             let threads = { threads with 
@@ -185,7 +186,7 @@ let run_server configuration id print_header =
         )
 
         | Event.Timeout timeout_type -> (
-          Raft_srv_logic.handle_timeout ~stats ~now state timeout_type
+          Raft_srv_logic.handle_timeout ~now state timeout_type
           >|= process_raft_ipc_result 
           >|= (fun state -> (state, threads))
         )
@@ -196,8 +197,7 @@ let run_server configuration id print_header =
         )
 
         | Event.Client_request client_requests -> (
-          Raft_srv_logic.handle_client_requests 
-                              ~stats ~now state client_requests
+          Raft_srv_logic.handle_client_requests ~now state client_requests
           >|= process_raft_ipc_result 
           >|= (fun state -> 
             let threads = {threads with
@@ -208,7 +208,7 @@ let run_server configuration id print_header =
         )
 
         | Event.App_response app_response -> (
-          Raft_srv_logic.handle_app_response ~stats ~now state app_response
+          Raft_srv_logic.handle_app_response ~now state app_response
           >|= process_raft_ipc_result 
           >|= (fun state -> 
             let threads = { threads with

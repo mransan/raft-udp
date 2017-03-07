@@ -1,8 +1,8 @@
-Raft_srv_appipc
 Raft_srv_clientipc
 Raft_srv_raftipc
+Raft_srv_appipc
 Raft_srv_logic
 
 Raft_srv_debug
 Raft_srv_logrecord
-Raft_srv_serverstats
+Raft_srv_stats

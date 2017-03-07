@@ -1,41 +1,35 @@
-(** Server performance statistics  *)
+(** Statistics  collection and display *)
 
-(** {2 Types} *)
 
-type t
-(** Statistic collector *)
+(** {2 Stats} *)
 
-(** {2 Creators} *)
+val raft_msg_send : Raft_utl_counter.Counter.t 
 
-val make : ?print_header:unit -> initial_log_size:int -> id:int -> unit -> t 
-(** [make ~initial_log_size ()] create the statistic collector
-  *)
+val raft_msg_recv : Raft_utl_counter.Counter.t 
 
-(** {2 Stats collections} *)
+val log : Raft_utl_counter.Counter.t 
 
-val tick_raft_msg_send : t -> unit 
+val heartbeat : Raft_utl_counter.Counter.t
 
-val tick_raft_msg_recv : t -> unit 
+val client_connections : Raft_utl_counter.Counter.t 
 
-val set_log_count : t -> int -> unit 
+val client_requests : Raft_utl_counter.Counter.t
 
-val tick_heartbeat : t -> unit 
+val append_entries_failure : Raft_utl_counter.Counter.t
 
-val tick_new_client_connection : t -> unit 
+val msg_processing : Raft_utl_counter.Perf.t 
 
-val tick_client_requests : t -> unit 
+val hb_processing : Raft_utl_counter.Perf.t 
 
-val tick_append_entries_failure : t -> unit 
-
-val msg_processing : t -> Raft_utl_counter.Perf.t 
-
-val hb_processing : t -> Raft_utl_counter.Perf.t 
-
-val not_processing : t -> Raft_utl_counter.Perf.t 
+val add_log_processing : Raft_utl_counter.Perf.t
 
 type server_role =
   | Leader
   | Follower
   | Candidate
 
-val set_server_role : t -> server_role -> unit  
+val server_role : server_role option ref 
+
+val server_id : int ref 
+
+val print_header : bool ref

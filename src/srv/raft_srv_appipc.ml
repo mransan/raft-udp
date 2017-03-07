@@ -161,7 +161,7 @@ let get_next_request_f request_stream =
         >|= Event.app_request request connection 
     )
 
-let make configuration (_:Server_stats.t) server_id = 
+let make configuration server_id = 
 
   let (
     request_stream, 

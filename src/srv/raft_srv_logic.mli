@@ -52,7 +52,6 @@ val initialize : Raft_com_conf.t -> int -> (connection_state * app_requests)
 (** [initialize ()] returns an empty connection state *)
 
 val handle_raft_message :
-  stats : Raft_srv_stats.t ->
   now   : float -> 
   state -> 
   Raft_pb.message ->
@@ -62,7 +61,6 @@ val handle_raft_message :
   *)
 
 val handle_timeout :
-  stats : Raft_srv_stats.t ->
   now   : float -> 
   state ->
   Raft_types.timeout_type ->
@@ -72,7 +70,6 @@ val handle_timeout :
   *)
 
 val handle_client_requests :
-  stats : Raft_srv_stats.t ->
   now : float -> 
   state ->
   client_request list ->
@@ -82,7 +79,6 @@ val handle_client_requests :
   *)
 
 val handle_app_response :
-  stats : Raft_srv_stats.t ->
   now : float -> 
   state ->
   app_response ->

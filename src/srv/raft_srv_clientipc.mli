@@ -23,7 +23,6 @@ type t
 
 val make : 
   Raft_com_conf.t ->
-  Raft_srv_stats.t ->
   int -> 
   t
 (** [make configuration stats server_id] initializes the 

@@ -9,7 +9,7 @@ type t
 
 (** {2 Creators} *)
 
-val make : Raft_com_conf.t -> Raft_srv_stats.t -> int -> t 
+val make : Raft_com_conf.t -> int -> t 
 (** [make configuration server_id] creates a new instance of the 
     communication system *)
 

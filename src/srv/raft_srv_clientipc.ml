@@ -6,6 +6,17 @@ module Conf         = Raft_com_conf
 module Server_stats = Raft_srv_stats
 module APb          = Raft_com_pb 
 
+module Stats = struct  
+
+  module Counter = Raft_utl_counter.Counter 
+
+  let tick_client_connection () = 
+    Counter.incr Raft_srv_stats.client_connections
+            
+  let tick_client_request () = 
+    Counter.incr Raft_srv_stats.client_requests
+end 
+
 type connection = (Lwt_io.input_channel * Lwt_unix.file_descr * bytes) 
 
 type handle = connection 
@@ -192,7 +203,7 @@ let create_response_stream () =
 
 type t = (unit -> client_request list Lwt.t) * (client_response option-> unit)
 
-let make configuration stats server_id =
+let make configuration server_id =
   let next_client_connection = 
     get_next_client_connection_f configuration server_id 
   in
@@ -239,7 +250,7 @@ let make configuration stats server_id =
             (next_threads, true)
 
           | Event.New_client_connection connection ->
-            Server_stats.tick_new_client_connection stats;
+            Stats.tick_client_connection ();
 
             let recv_thread  = next_client_request connection in
             let next_threads =
@@ -255,7 +266,7 @@ let make configuration stats server_id =
             (next_threads, is_failure)
 
           | Event.Client_connection_read_ok r ->
-            Server_stats.tick_client_requests stats;
+            Stats.tick_client_request ();
             request_push (Some r);
             (* Since we just got a request from the connection, 
              * we do not read the next request until a response has been

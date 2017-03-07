@@ -12,6 +12,17 @@ module RTypes = Raft_types
 module RLog = Raft_log
 module RConv = Raft_pb_conv
 
+module Stats = struct 
+  module Counter = Raft_utl_counter.Counter 
+
+  let tick_raft_msg_recv () = 
+    Counter.incr Server_stats.raft_msg_recv
+
+  let tick_heartbeat () =
+    Counter.incr Server_stats.heartbeat
+
+end 
+
 type client_request   = Raft_com_pb.client_request * Raft_srv_clientipc.handle
 type client_response  = Raft_com_pb.client_response * Raft_srv_clientipc.handle 
 type client_responses = client_response list 
@@ -159,7 +170,7 @@ let handle_leader_change pending_request leader_change =
   in 
   (Pending_requests.empty, client_responses)
 
-let process_result _ state result =  
+let process_result state result =  
   let {log_record_handle; connection_state; _ } = state in 
 
   let {
@@ -202,34 +213,34 @@ let process_result _ state result =
        outgoing_messages, client_responses, [app_request])
   )
 
-let handle_raft_message ~stats ~now state msg = 
+let handle_raft_message ~now state msg = 
   let {raft_state; _ } = state in 
 
   Debug.print_msg_received section msg 
   >>=(fun () ->
-    Server_stats.tick_raft_msg_recv stats;
+    Stats.tick_raft_msg_recv ();
 
     let msg = RConv.message_of_pb msg in
-    let perf = Server_stats.msg_processing stats in 
+    let perf = Server_stats.msg_processing in 
     let result = 
       Counter.Perf.f3 perf Raft_logic.handle_message raft_state msg now 
     in
 
-    process_result stats state result  
+    process_result state result  
   )
   >>=(fun (({raft_state; _}, _, _, _) as r) -> 
     Debug.print_state section raft_state
     >|=(fun () -> r)
   )
 
-let handle_timeout ~stats ~now state timeout_type = 
+let handle_timeout ~now state timeout_type = 
   let { raft_state; _} = state in 
   begin match timeout_type with
     | RTypes.Heartbeat -> (
-      Server_stats.tick_heartbeat stats;
+      Stats.tick_heartbeat ();
       log ~section ~level:Notice "Heartbeat timeout" 
       >|= (fun () ->
-        Counter.Perf.f2 (Server_stats.hb_processing stats)
+        Counter.Perf.f2 Server_stats.hb_processing 
           Raft_logic.handle_heartbeat_timeout raft_state now
       )
     )
@@ -242,14 +253,14 @@ let handle_timeout ~stats ~now state timeout_type =
         Raft_logic.handle_new_election_timeout raft_state now
       ))
   end
-  >>=(fun result -> process_result stats state result) 
+  >>=(fun result -> process_result state result) 
   >>=(fun (({raft_state; _}, _, _, _) as r) -> 
     Debug.print_state section raft_state
     >|=(fun () -> r)
   )
 
-let handle_client_requests ~stats ~now  state client_requests = 
-  let _ = stats and _ = now in 
+let handle_client_requests ~now  state client_requests = 
+  let _ = now in 
   let {connection_state; raft_state; _ } = state in 
   let {pending_requests; _ } = connection_state in 
 
@@ -265,7 +276,9 @@ let handle_client_requests ~stats ~now  state client_requests =
   ) (pending_requests, []) client_requests in
 
   let new_log_response  = 
-    Raft_logic.handle_add_log_entries raft_state datas now 
+    Counter.Perf.f3 
+      Raft_srv_stats.add_log_processing 
+      Raft_logic.handle_add_log_entries raft_state datas now 
   in 
 
   begin match new_log_response with
@@ -294,7 +307,7 @@ let handle_client_requests ~stats ~now  state client_requests =
       let state = {state with 
         connection_state = {connection_state with pending_requests; }
       } in 
-      process_result stats state result  
+      process_result state result  
     )
   end
       
@@ -326,8 +339,8 @@ let process_app_result is_leader acc result =
     let client_responses = (client_response_msg, handle)::client_responses in
     Lwt.return (pending_requests, client_responses) 
 
-let handle_app_response ~stats ~now state app_response = 
-  let _ = stats and _ = now in 
+let handle_app_response ~now state app_response = 
+  let _ = now in 
 
   let {connection_state; raft_state; _ } = state in 
   let {pending_requests; _} = connection_state in 
