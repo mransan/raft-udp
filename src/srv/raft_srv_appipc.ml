@@ -2,7 +2,7 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module APb = Raft_com_pb
-module Pb_util = Raft_udp_pbutil
+module Debug = Raft_com_debug
 module Server_stats = Raft_srv_stats
 module Conf = Raft_com_conf
 module U = Lwt_unix
@@ -108,7 +108,7 @@ let next_response configuration server_id connection () =
           in 
           log_f ~level:Notice ~section 
                 "Response decoded with success: %s"
-                (Pb_util.string_of_app_response app_response) 
+                (Debug.string_of_app_response app_response) 
           >|= Event.app_response app_response connection
         )
         | exception exn -> (
@@ -157,16 +157,13 @@ let get_next_request_f request_stream =
       | None -> Event.failure_lwt "Request stream is closed"
       | Some request ->
         log_f ~level:Notice ~section "New request from stream: %s"
-          (Pb_util.string_of_app_request request)
+          (Debug.string_of_app_request request)
         >|= Event.app_request request connection 
     )
 
 let make configuration server_id = 
 
-  let (
-    request_stream, 
-    push_request_f
-  ) = Lwt_stream.create () in 
+  let (request_stream, push_request_f) = Lwt_stream.create () in 
 
   let (
     response_stream, 
@@ -184,8 +181,7 @@ let make configuration server_id =
    * Once the response comes back it is appended to the response
    * stream for the client of this module to pick it up. 
    *
-   * Therefore there is only one main thread in this loop. 
-   *)
+   * Therefore there is only one main thread in this loop.  *)
   let rec loop = function
     | Event.Failure s -> 
       log_f ~level:Error ~section "Failure in app IPC: %s" s 

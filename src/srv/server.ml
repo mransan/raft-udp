@@ -10,9 +10,10 @@ module RConv = Raft_pb_conv
 module APb = Raft_com_pb
 module Conf = Raft_com_conf
 module Server_stats = Raft_srv_stats
+module Raft_ipc = Raft_srv_raftipc
 module Client_ipc = Raft_srv_clientipc
-module Log_record = Raft_srv_logrecord
 module App_ipc = Raft_srv_appipc
+module Log_record = Raft_srv_logrecord
 module Rate_limiter = Raft_utl_ratelimiter
 
 let section = Section.make (Printf.sprintf "%10s" "server")
@@ -30,17 +31,17 @@ module Event = struct
     | Failure        of string  
       (** Fatal failure, the server will exit *)
 
-    | Raft_message   of Raft_pb.message 
+    | Raft_message   of Raft_ipc.message 
       (** A RAFT message was received from one of the other RAFT servers *)
 
     | Client_request of Client_ipc.client_request list
       (** A Client request was received *)
 
+    | App_response   of App_ipc.app_response 
+      (** A response was received from the App server *)
     | Timeout        of Raft_types.timeout_type
       (** RAFT Protocol timeout happened *)
 
-    | App_response   of APb.app_response 
-      (** A response was received from the App server *)
 
   type threads = {
     next_raft_message_t : e Lwt.t;
@@ -68,7 +69,8 @@ module Event = struct
       RTypes.timeout; 
       timeout_type } = RHelper.Timeout_event.next ~now raft_state in
     if timeout <= 0.0
-    then Lwt.return (Timeout timeout_type) 
+    then 
+      Lwt.return (Timeout timeout_type) 
     else  
       Lwt_unix.sleep timeout 
       >|= (fun () -> Timeout timeout_type)
@@ -126,18 +128,18 @@ let init_data_from_log_records configuration id =
   ) 
 
 let get_next_raft_message raft_ipc = 
-  Raft_srv_raftipc.get_next raft_ipc 
+  Raft_ipc.get_next raft_ipc 
   >|= (function
-      | Raft_srv_raftipc.Failure        -> Event.Failure "Raft IPC"
-      | Raft_srv_raftipc.Raft_message x -> Event.Raft_message x
+      | Raft_ipc.Failure        -> Event.Failure "Raft IPC"
+      | Raft_ipc.Raft_message x -> Event.Raft_message x
   ) 
 
 let get_next_client_requests client_ipc = 
-  Raft_srv_clientipc.get_next client_ipc
+  Client_ipc.get_next client_ipc
   >|= (fun client_requests -> Event.Client_request client_requests) 
 
 let get_next_app_response app_ipc = 
-  Raft_srv_appipc.get_next app_ipc 
+  App_ipc.get_next app_ipc 
   >|= (function
     | None -> Event.Failure "App IPC"
     | Some app_response -> Event.App_response app_response 
@@ -147,17 +149,17 @@ let run_server configuration id print_header =
   Server_stats.server_id := id;
   Server_stats.print_header := print_header;
   
-  let client_ipc = Raft_srv_clientipc.make configuration id in
+  let client_ipc = Client_ipc.make configuration id in
 
-  let app_ipc = Raft_srv_appipc.make configuration id in 
+  let app_ipc = App_ipc.make configuration id in 
 
-  let raft_ipc = Raft_srv_raftipc.make configuration id in 
+  let raft_ipc = Raft_ipc.make configuration id in 
       
   let process_raft_ipc_result (state, raft_messages, 
                                client_responses, app_requests) = 
-    Raft_srv_clientipc.send client_ipc client_responses;
-    Raft_srv_appipc.send app_ipc app_requests; 
-    Raft_srv_raftipc.send raft_ipc raft_messages; 
+    Client_ipc.send client_ipc client_responses;
+    App_ipc.send app_ipc app_requests; 
+    Raft_ipc.send raft_ipc raft_messages; 
     state
   in 
   
@@ -167,12 +169,13 @@ let run_server configuration id print_header =
 
     >>=(fun events -> 
 
-      let now = get_now () in
       
       Stats.set_log state; 
       Stats.set_server_role state;
 
       Lwt_list.fold_left_s (fun (state, threads) event -> 
+        let now = get_now () in
+
         match event with
         | Event.Raft_message msg -> (
           Raft_srv_logic.handle_raft_message ~now state msg
@@ -229,7 +232,7 @@ let run_server configuration id print_header =
     )
   in
 
-  let initial_raft_state = Raft_logic.init
+  let raft_state = Raft_logic.init
     ~configuration:configuration.Conf.raft_configuration 
     ~now:(get_now ()) 
     ~server_id:id () 
@@ -238,7 +241,7 @@ let run_server configuration id print_header =
   init_data_from_log_records configuration id
   >>= (fun (log_record_handle, log, commit_index, current_term) ->
       
-    let initial_raft_state = {initial_raft_state with 
+    let raft_state = {raft_state with 
       RTypes.log; 
       RTypes.commit_index; 
       current_term
@@ -247,17 +250,17 @@ let run_server configuration id print_header =
     log_f ~level:Notice ~section 
         "Log read done, commit index: %i, current term: %i" 
         commit_index current_term
-    >|= (fun () -> (initial_raft_state, log_record_handle))
+    >|= (fun () -> (raft_state, log_record_handle))
   )
-  >>= (fun (initial_raft_state, log_record_handle) ->
+  >>= (fun (raft_state, log_record_handle) ->
 
     let connection_state, app_requests = 
       Raft_srv_logic.initialize configuration id 
     in 
 
-    Raft_srv_appipc.send app_ipc app_requests;
+    App_ipc.send app_ipc app_requests;
     let state = Raft_srv_logic.({
-      raft_state = initial_raft_state; 
+      raft_state;
       connection_state;
       log_record_handle;
     }) in
@@ -266,7 +269,7 @@ let run_server configuration id print_header =
       next_client_request_t = get_next_client_requests client_ipc; 
       next_raft_message_t = get_next_raft_message raft_ipc;
       next_app_reponse_t  = get_next_app_response app_ipc;
-      next_timeout_t = Event.next_timeout initial_raft_state; 
+      next_timeout_t = Event.next_timeout raft_state; 
     }) in 
 
     server_loop initial_threads state

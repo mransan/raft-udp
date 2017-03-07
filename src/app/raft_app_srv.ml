@@ -2,7 +2,7 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module APb = Raft_com_pb
-module Pb_util = Raft_udp_pbutil
+module Debug = Raft_com_debug
 module Conf = Raft_com_conf
 
 module U  = Lwt_unix 
@@ -106,7 +106,7 @@ let next_request ((ic, fd, buffer) as connection) =
           in 
           log_f ~level:Notice 
                 "Request decoded: %s" 
-                (Pb_util.string_of_app_request app_request)
+                (Debug.string_of_app_request app_request)
           >|= Event.new_request app_request connection
 
         | exception exn -> 
@@ -136,14 +136,14 @@ let send_app_response ((_, fd, _) as connection) app_response =
     >>=(fun () -> 
       log_f ~level:Notice 
             "Response sent %s"
-            (Pb_util.string_of_app_response app_response)
+            (Debug.string_of_app_response app_response)
       >|= Event.response_sent connection
     )
   ) (* catch *) (fun exn -> 
     log_f ~level:Error 
       "Failed to send response, details: %s, response: %s" 
       (Printexc.to_string exn) 
-      (Pb_util.string_of_app_response app_response) 
+      (Debug.string_of_app_response app_response) 
     >>= Event.close_connection connection
   ) 
 
@@ -217,7 +217,7 @@ end
 
 module Make(App:App_sig) = struct 
   
-  type log = {
+  type log_entry = {
     id : string; 
     index : int; 
     app_data : App.data;
@@ -229,7 +229,7 @@ module Make(App:App_sig) = struct
     app_result : App.result option; 
   } 
   
-  type add_log_entries = log list * (log_result list -> unit) 
+  type add_log_entries = log_entry list * (log_result list -> unit) 
 
   let decode_log {Raft_pb.id; index; data; _} = 
     {id; index; app_data = App.decode data}
@@ -260,6 +260,7 @@ module Make(App:App_sig) = struct
         ) results in
         (APb.(Add_log_results {results; last_log_index = state}), state) 
       )
+
     | APb.Init -> 
       Lwt.return (
         APb.(Add_log_results { results = []; last_log_index = state}), 
@@ -272,10 +273,12 @@ module Make(App:App_sig) = struct
        requests_push, 
        requests_set_ref
      ) = Lwt_stream.create_with_reference () in 
+
      let server_t = 
         let handle_app_request = handle_app_request requests_push in 
         server_loop configuration server_id handle_app_request (); 
      in 
+
      requests_set_ref server_t;
      requests_stream
 

@@ -5,7 +5,7 @@ module Counter = Raft_utl_counter
 
 module APb = Raft_com_pb
 module Server_stats = Raft_srv_stats
-module Debug = Raft_srv_debug
+module Debug = Raft_com_debug
 module Log_record = Raft_srv_logrecord
 
 module RTypes = Raft_types
@@ -14,9 +14,6 @@ module RConv = Raft_pb_conv
 
 module Stats = struct 
   module Counter = Raft_utl_counter.Counter 
-
-  let tick_raft_msg_recv () = 
-    Counter.incr Server_stats.raft_msg_recv
 
   let tick_heartbeat () =
     Counter.incr Server_stats.heartbeat
@@ -184,7 +181,6 @@ let process_result state result =
     deleted_logs; 
   }  = result in 
 
-  
   let state, client_responses = 
     match leader_change with
     | None -> 
@@ -204,34 +200,25 @@ let process_result state result =
   handle_deleted_logs log_record_handle deleted_logs () 
   >>= handle_added_logs log_record_handle added_logs 
   >>= handle_committed_logs state committed_logs
-  >|=(fun app_request_res -> 
+  >>=(fun app_request_res -> 
+
     match app_request_res with
     | None -> 
-      (state, outgoing_messages, client_responses, [])
+      Debug.print_state section raft_state
+      >|=(fun () -> (state, outgoing_messages, client_responses, []))
     | Some (connection_state, app_request) -> 
-      ({state with connection_state}, 
-       outgoing_messages, client_responses, [app_request])
+      let state = {state with connection_state} in 
+      Debug.print_state section raft_state
+      >|=(fun () -> (state, outgoing_messages, client_responses, [app_request]))
   )
 
 let handle_raft_message ~now state msg = 
   let {raft_state; _ } = state in 
-
-  Debug.print_msg_received section msg 
-  >>=(fun () ->
-    Stats.tick_raft_msg_recv ();
-
-    let msg = RConv.message_of_pb msg in
-    let perf = Server_stats.msg_processing in 
-    let result = 
-      Counter.Perf.f3 perf Raft_logic.handle_message raft_state msg now 
-    in
-
-    process_result state result  
-  )
-  >>=(fun (({raft_state; _}, _, _, _) as r) -> 
-    Debug.print_state section raft_state
-    >|=(fun () -> r)
-  )
+  let perf = Server_stats.msg_processing in 
+  let result = 
+    Counter.Perf.f3 perf Raft_logic.handle_message raft_state msg now 
+  in
+  process_result state result  
 
 let handle_timeout ~now state timeout_type = 
   let { raft_state; _} = state in 
@@ -254,10 +241,6 @@ let handle_timeout ~now state timeout_type =
       ))
   end
   >>=(fun result -> process_result state result) 
-  >>=(fun (({raft_state; _}, _, _, _) as r) -> 
-    Debug.print_state section raft_state
-    >|=(fun () -> r)
-  )
 
 let handle_client_requests ~now  state client_requests = 
   let _ = now in 

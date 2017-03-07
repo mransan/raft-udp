@@ -2,7 +2,6 @@ open Lwt.Infix
 open !Lwt_log_core
 
 module APb = Raft_com_pb
-module Pb_util = Raft_udp_pbutil
 module Conf = Raft_com_conf
 
 module U  = Lwt_unix 

@@ -54,7 +54,7 @@ val initialize : Raft_com_conf.t -> int -> (connection_state * app_requests)
 val handle_raft_message :
   now   : float -> 
   state -> 
-  Raft_pb.message ->
+  Raft_srv_raftipc.message ->
   result Lwt.t  
 (** [handle_raft_message ~stats ~now state msg] handles RAFT protocol 
     messages from other servers. 

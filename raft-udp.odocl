@@ -3,6 +3,12 @@ Raft_srv_raftipc
 Raft_srv_appipc
 Raft_srv_logic
 
-Raft_srv_debug
 Raft_srv_logrecord
 Raft_srv_stats
+
+Raft_com_conf
+Raft_com_debug
+Raft_com_pb 
+
+Raft_app_clt
+Raft_app_srv

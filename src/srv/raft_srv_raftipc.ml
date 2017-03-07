@@ -4,6 +4,7 @@ open !Lwt_log_core
 module RPb = Raft_pb
 module Conf = Raft_com_conf
 module RConv = Raft_pb_conv 
+module Debug = Raft_com_debug
 
 module Server_stats = Raft_srv_stats
 
@@ -13,13 +14,18 @@ module Stats = struct
 
   let tick_raft_msg_send () = 
     Counter.incr Server_stats.raft_msg_send 
+  
+  let tick_raft_msg_recv () = 
+    Counter.incr Server_stats.raft_msg_recv 
 
 end 
 
 let section = Section.make (Printf.sprintf "%10s" "RaftIPC")
 
+type message = Raft_types.message 
+
 type event = 
-  | Raft_message of Raft_pb.message
+  | Raft_message of message
   | Failure 
 
 type next_raft_message_f = unit -> event Lwt.t
@@ -50,13 +56,17 @@ let get_next_raft_message_f_for_server configuration server_id =
 
     fun () ->
       Lwt_unix.recvfrom fd buffer 0 buffer_size []
-      >|= (fun (nb_of_bytes_received, _) ->
+      >>= (fun (nb_of_bytes_received, _) ->
         let decoder = 
           Pbrt.Decoder.of_bytes (Bytes.sub buffer 0 nb_of_bytes_received) 
         in
         match RPb.decode_message decoder with
-        | message -> Raft_message message 
-        | exception _ -> Failure 
+        | message -> begin 
+          Stats.tick_raft_msg_recv ();
+          Debug.print_msg_received section message
+          >|=(fun () -> Raft_message (RConv.message_of_pb message))
+        end
+        | exception _ -> Lwt.return Failure 
       )
 
 let make configuration server_id = 
@@ -90,7 +100,7 @@ let make configuration server_id =
              * supports message not being delivered and will
              * ensure that it will recover.  *)
           | nb_bytes when nb_bytes = remaining ->
-            Raft_srv_debug.print_msg_to_send section msg server_id 
+            Raft_com_debug.print_msg_to_send section msg server_id 
             (* All good message is delivered *)
           | nb_bytes -> 
             sendto (from + nb_bytes) (remaining - nb_bytes)
@@ -103,9 +113,11 @@ let make configuration server_id =
       |> Lwt.fail_with
   ) outgoing_message_stream
   in  
+
   let next_raft_message = 
     get_next_raft_message_f_for_server configuration server_id
   in
+
   {
     outgoing_message_processing; 
     push_outgoing_message;

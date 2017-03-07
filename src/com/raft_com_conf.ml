@@ -22,7 +22,6 @@ type t = {
 
 let default_configuration env =  
   
-
   let servers_ipc_configuration = 
     match env with 
     | `Gcp -> [

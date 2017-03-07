@@ -4,6 +4,8 @@
 
 (** {2 Types} *)
 
+type message = Raft_types.message 
+
 type t 
 (** IPC type *)
 
@@ -17,13 +19,13 @@ val make : Raft_com_conf.t -> int -> t
 
 val send : 
   t -> 
-  (Raft_types.message * int) list -> 
+  (message * int) list -> 
   unit 
 (** [send ~stats ipc messages] enqueues [messages] to be sent 
     asynchronously *)
 
 type event = 
-  | Raft_message of Raft_pb.message
+  | Raft_message of message
   | Failure 
 (** Return for new messages. [Failure] is return if messages could not be 
     decoded *)
