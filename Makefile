@@ -46,3 +46,6 @@ lib.byte:
 
 clean:
 	$(OCB) -clean
+
+doc-gen:
+	$(OCB) raft-udp.docdir/index.html

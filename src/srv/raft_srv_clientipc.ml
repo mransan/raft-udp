@@ -12,7 +12,7 @@ type handle = connection
 
 type client_request = APb.client_request * handle
 
-type send_response_f = (APb.client_response * handle) option -> unit 
+type client_response = APb.client_response * handle
 
 let section = Section.make (Printf.sprintf "%10s" "ClientIPC")
 
@@ -190,7 +190,7 @@ let create_response_stream () =
   in
   (next_response, response_push)
 
-type t = client_request Lwt_stream.t * send_response_f 
+type t = ((unit -> client_request list Lwt.t) * (client_response list -> unit))
 
 let make configuration stats server_id =
   let next_client_connection = 
@@ -207,6 +207,16 @@ let make configuration stats server_id =
     next_response, 
     response_push
   ) = create_response_stream () in 
+
+  let send client_responses = 
+    List.iter (fun client_response -> 
+      response_push (Some client_response) 
+    ) client_responses 
+  in
+
+  let {Conf.client_rate_limit; _} = configuration in 
+
+  let get_next = Raft_utl_ratelimiter.wrap client_rate_limit request_stream in
 
   (*
    * This is the main client IPC loop.
@@ -295,8 +305,10 @@ let make configuration stats server_id =
   ] in 
 
   set_request_ref @@ loop initial_threads ();
-    (* We must attach the loop threads to the stream so that the garbage collector
-     * does not reclaim the thread. 
-     *)
+    (* We must attach the loop threads to the stream so that the 
+     * Jgarbage collector does not reclaim the thread.  *)
 
-  (request_stream, response_push)
+  ((get_next, send) : t)
+
+let get_next (get_next, _) = get_next () 
+let send (_, send) client_responses = send client_responses 

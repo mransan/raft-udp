@@ -1,7 +1,6 @@
-(** Module to handle all communication for the RAFT Protocol. *)
+(** IPC for the RAFT protocol *)
 
-(** Current implementation is using UDP and the Protobuf serialization
-    from the raft-pb package *)
+(** The IPC is based on UDP and using Raft_pb protobuf types *)
 
 (** {2 Types} *)
 
@@ -21,7 +20,7 @@ val send :
   t -> 
   (Raft_types.message * int) list -> 
   unit 
-(** [send ~states ipc messages] enqueues [messages] to be sent 
+(** [send ~stats ipc messages] enqueues [messages] to be sent 
     asynchronously *)
 
 type event = 

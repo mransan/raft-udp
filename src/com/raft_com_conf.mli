@@ -18,6 +18,8 @@ type t = {
   servers_ipc_configuration : server_ipc_configuration list;
   disk_backup : disk_backup_configuration;
   app_server_port : int list;
+    (* TODO move this to the server_ipc_configuration *)
+  client_rate_limit : int; 
 }
 
 (** {2 Utilities} *)

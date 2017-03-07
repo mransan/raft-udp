@@ -32,8 +32,6 @@ let get_next_raft_message_f_for_server configuration server_id =
      * raise an exception or return Result.result value *)
 
   | Some ad ->
-
-    let module U = Lwt_unix in
     let fd = Lwt_unix.socket Lwt_unix.PF_INET Lwt_unix.SOCK_DGRAM 0 in
     Lwt_unix.bind fd ad;
 

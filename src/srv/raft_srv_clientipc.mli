@@ -1,45 +1,43 @@
-(** Client IPC logic 
+(** IPC for the Client <-> RAFT Server Protocol *)
  
-    This module handles all the TCP based communication with
-    the clients. 
- *)
+(** The IPC is based on TCP and using Raft_com_pb protobuf types *)
+
+(** {2 Types} *)
 
 type handle 
 (** A handle to the client connection so that response can be dispatched
-  * to the right client. 
-  *
-  * Internally this is the file descriptor. 
-  *)
+    to the right client. *)
 
 type client_request = Raft_com_pb.client_request * handle
-(* type client_request  = Raft_udp_pb.client_request * handle 
- *)
+(** A client request is made of both of the message received and its 
+    associated handle which can then be used to send the corresponding 
+    response *)
 
-(** Client request type *)
+type client_response = Raft_com_pb.client_response * handle  
+(** Client response *)
 
-type send_response_f = (Raft_com_pb.client_response * handle) option -> unit 
-(** Sender function for the caller to send a response 
- *)
+type t 
+(** Client IPC type *)
 
-
-type t = client_request Lwt_stream.t * send_response_f 
-(** Client IPC type. The Client IPC consists in 2 parts:
-    
-    {ul
-    {- A stream of request which the application should iterate over}
-    {- A function to send back responses.}  
-    }
-  *)
+(** {2 Creators} *)
 
 val make : 
   Raft_com_conf.t ->
   Raft_srv_serverstats.t ->
   int -> 
   t
-(** [client_request_stream ~logger configuration server_id] initialize the 
+(** [client_request_stream configuration server_id] initialize the 
     TCP based client IPC to process incoming client request to the RAFT
     server. 
 
     The function return a stream or request which will be closed upon
-    a fatal error and a send response function.  
-  *)
+    a fatal error and a send response function.  *)
+
+(** {2 Communication API} *)
+
+val get_next : t -> client_request list Lwt.t 
+(** [get_next client_ipc] returns promise to the next set of client requests *)
+
+val send : t -> client_response list -> unit 
+(** [send client_ipc client_responses] enqueues the [client_responses] for them
+    to be sent asynchronously *) 

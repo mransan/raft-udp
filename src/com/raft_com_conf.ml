@@ -17,6 +17,7 @@ type t = {
   servers_ipc_configuration : server_ipc_configuration list;
   disk_backup : disk_backup_configuration;
   app_server_port : int list;
+  client_rate_limit : int; 
 }
 
 let default_configuration env =  
@@ -42,7 +43,7 @@ let default_configuration env =
       election_timeout = 0.70;
       election_timeout_range = 0.2;
       hearbeat_timeout = 0.1;
-      max_nb_logs_per_message = Raft_log.Bytes (50000, 8);
+      max_nb_logs_per_message = Raft_log.Bytes (10000, 8);
       max_log_size = {
         Raft_log.upper_bound = 500_000; 
         Raft_log.lower_bound = 400_000; 
@@ -56,6 +57,7 @@ let default_configuration env =
     };
   
     app_server_port = [40_000; 40_001; 40_002];
+    client_rate_limit = 3000;
   }
 
 let env_arg = 

@@ -19,7 +19,7 @@ let string_of_msg msg =
       r.RPb.vote_granted
 
   | RPb.Append_entries_request r-> 
-    begin match r.RPb.rev_log_entries with
+    begin match r.RPb.log_entries with
     | [] -> 
       Printf.sprintf "AP Req: id:%i, [Heartbeat], prev:(%i, %i), ci: %i"
         r.RPb.leader_id 
