@@ -57,7 +57,7 @@ let default_configuration env =
     };
   
     app_server_port = [40_000; 40_001; 40_002];
-    client_rate_limit = 3000;
+    client_rate_limit = 10000;
   }
 
 let env_arg = 
