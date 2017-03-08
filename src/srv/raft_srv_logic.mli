@@ -36,7 +36,7 @@ type state = {
 
 type result = (
   state * 
-  Raft_logic.message_to_send list * 
+  Raft_types.message_to_send list * 
   client_responses * 
   app_requests
 ) 

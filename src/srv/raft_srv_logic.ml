@@ -3,6 +3,7 @@ open !Lwt_log_core
 
 module RTypes = Raft_types
 module RLog = Raft_log
+module RProtocol = Raft_protocol
 
 module RConv = Raft_pb_conv
 
@@ -95,7 +96,7 @@ type state = {
 
 type result = (
   state * 
-  Raft_logic.message_to_send list * 
+  RTypes.message_to_send list * 
   client_responses * 
   app_requests
 ) 
@@ -128,7 +129,7 @@ let make_app_request connection_state raft_state =
   else 
     let log_entries = 
       let since = last_app_index in 
-      Raft_logic.committed_entries_since ~since raft_state
+      RProtocol.committed_entries_since ~since raft_state
     in 
     match log_entries with
     | [] -> 
@@ -174,7 +175,7 @@ let process_result state result =
   let {storage; connection_state; _ } = state in 
 
   let {
-    Raft_logic.state = raft_state; 
+    RTypes.state = raft_state; 
     messages_to_send = outgoing_messages; 
     committed_logs;
     leader_change;  
@@ -219,7 +220,7 @@ let handle_raft_message ~now state msg =
   let {raft_state; _ } = state in 
   let perf = Server_stats.msg_processing in 
   let result = 
-    Counter.Perf.f3 perf Raft_logic.handle_message raft_state msg now 
+    Counter.Perf.f3 perf RProtocol.handle_message raft_state msg now 
   in
   process_result state result  
 
@@ -231,7 +232,7 @@ let handle_timeout ~now state timeout_type =
       log ~section ~level:Notice "Heartbeat timeout" 
       >|= (fun () ->
         Counter.Perf.f2 Server_stats.hb_processing 
-          Raft_logic.handle_heartbeat_timeout raft_state now
+          RProtocol.handle_heartbeat_timeout raft_state now
       )
     )
 
@@ -240,7 +241,7 @@ let handle_timeout ~now state timeout_type =
             raft_state.RTypes.server_id;
       log ~level:Notice ~section "Leader Election timeout"
       >|= (fun () ->
-        Raft_logic.handle_new_election_timeout raft_state now
+        RProtocol.handle_new_election_timeout raft_state now
       ))
   end
   >>=(fun result -> process_result state result) 
@@ -264,12 +265,12 @@ let handle_client_requests ~now  state client_requests =
   let new_log_response  = 
     Counter.Perf.f3 
       Raft_srv_stats.add_log_processing 
-      Raft_logic.handle_add_log_entries raft_state datas now 
+      RProtocol.handle_add_log_entries raft_state datas now 
   in 
 
   begin match new_log_response with
-  | Raft_logic.Delay
-  | Raft_logic.Forward_to_leader _ -> 
+  | RProtocol.Delay
+  | RProtocol.Forward_to_leader _ -> 
     log ~level:Notice ~section "New logs rejected since not a leader"
     >|= (fun () ->
 
@@ -284,7 +285,7 @@ let handle_client_requests ~now  state client_requests =
       (state, [], client_responses, [])
     )
 
-  | Raft_logic.Appended result -> 
+  | RProtocol.Appended result -> 
     let log_size = RLog.last_log_index raft_state.RTypes.log in
     log_f ~level:Notice ~section 
           "Log Added (log size: %i) (nb logs: %i)" 

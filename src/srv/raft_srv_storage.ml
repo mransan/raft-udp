@@ -6,7 +6,7 @@ module Rocks = Raft_rocks
 
 module RTypes = Raft_types
 module RLog = Raft_log
-module RLogic = Raft_logic
+module RProtocol = Raft_protocol
 
 let section = Section.make (Printf.sprintf "%10s" "LogRecord")
 
@@ -117,7 +117,7 @@ let read_raft_state ~now ({configuration; server_id; _} as t) =
 
     let raft_state = 
       let configuration = raft_configuration in 
-      RLogic.init ~configuration ~now  ~server_id ()
+      RProtocol.init ~configuration ~now  ~server_id ()
     in
 
     {raft_state with RTypes.log; commit_index; current_term}
