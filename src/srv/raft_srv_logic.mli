@@ -31,7 +31,7 @@ type connection_state
 type state = {
   raft_state: Raft_types.state; 
   connection_state: connection_state; 
-  log_record_handle: Raft_srv_logrecord.t
+  storage : Raft_srv_storage.t
 }
 
 type result = (

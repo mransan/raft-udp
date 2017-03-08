@@ -1,32 +1,35 @@
 open Lwt.Infix 
 open !Lwt_log_core
 
-module Counter = Raft_utl_counter
+module RTypes = Raft_types
+module RLog = Raft_log
 
+module RConv = Raft_pb_conv
+
+module Counter = Raft_utl_counter
 module APb = Raft_com_pb
 module Server_stats = Raft_srv_stats
 module Debug = Raft_com_debug
-module Log_record = Raft_srv_logrecord
+module Storage = Raft_srv_storage
 
-module RTypes = Raft_types
-module RLog = Raft_log
-module RConv = Raft_pb_conv
+let section = Section.make (Printf.sprintf "%10s" "Logic")
 
 module Stats = struct 
   module Counter = Raft_utl_counter.Counter 
 
   let tick_heartbeat () =
     Counter.incr Server_stats.heartbeat
-
 end 
 
-type client_request   = Raft_com_pb.client_request * Raft_srv_clientipc.handle
-type client_response  = Raft_com_pb.client_response * Raft_srv_clientipc.handle 
-type client_responses = client_response list 
-type app_requests = Raft_com_pb.app_request list 
-type app_response = Raft_com_pb.app_response 
+type client_request = Raft_com_pb.client_request * Raft_srv_clientipc.handle
 
-let section = Section.make (Printf.sprintf "%10s" "Logic")
+type client_response = Raft_com_pb.client_response * Raft_srv_clientipc.handle 
+
+type client_responses = client_response list 
+
+type app_requests = Raft_com_pb.app_request list 
+
+type app_response = Raft_com_pb.app_response 
 
 module StringMap = Map.Make(struct
   type t = string
@@ -87,7 +90,7 @@ let initialize _ _ =
 type state = {
   raft_state: RTypes.state; 
   connection_state: connection_state; 
-  log_record_handle : Log_record.t;
+  storage : Storage.t;
 }
 
 type result = (
@@ -97,18 +100,18 @@ type result = (
   app_requests
 ) 
 
-let handle_deleted_logs log_record_handle deleted_logs () = 
+let handle_deleted_logs storage deleted_logs () = 
   match deleted_logs with
   | [] -> Lwt.return_unit
-  | _ ->  Log_record.delete_logs deleted_logs log_record_handle
+  | _ ->  Storage.delete_logs deleted_logs storage
 
-let handle_added_logs log_record_handle added_logs () = 
+let handle_added_logs storage added_logs () = 
   match added_logs with
   | [] -> Lwt.return_unit
   | _ ->
     (* The RAFT protocol dictates that all committed log entries must be stored
      * permanently on DISK. This way, if a server crashes it can recover.  *)
-    Log_record.add_logs added_logs log_record_handle 
+    Storage.add_logs added_logs storage 
 
 (* Determine whether a new app_request should be sent. The following 
  * 2 conditions should be met for a new app_request to be sent:
@@ -142,11 +145,11 @@ let make_app_request connection_state raft_state =
       Lwt.return (Some (connection_state, request)) 
 
 let handle_committed_logs state committed_logs () = 
-  let {connection_state; log_record_handle; raft_state; _} = state in 
+  let {connection_state; storage; raft_state; _} = state in 
   match committed_logs with
   | [] -> Lwt.return None
   | _ ->
-    Log_record.set_committed committed_logs log_record_handle 
+    Storage.set_committed committed_logs storage 
     >>=(fun () -> make_app_request connection_state raft_state) 
 
 (* This function compute the `not a leader` client response for 
@@ -168,7 +171,7 @@ let handle_leader_change pending_request leader_change =
   (Pending_requests.empty, client_responses)
 
 let process_result state result =  
-  let {log_record_handle; connection_state; _ } = state in 
+  let {storage; connection_state; _ } = state in 
 
   let {
     Raft_logic.state = raft_state; 
@@ -197,8 +200,8 @@ let process_result state result =
       ({state with raft_state; connection_state}, client_responses)
   in  
 
-  handle_deleted_logs log_record_handle deleted_logs () 
-  >>= handle_added_logs log_record_handle added_logs 
+  handle_deleted_logs storage deleted_logs () 
+  >>= handle_added_logs storage added_logs 
   >>= handle_committed_logs state committed_logs
   >>=(fun app_request_res -> 
 

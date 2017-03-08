@@ -13,12 +13,27 @@ module Server_stats = Raft_srv_stats
 module Raft_ipc = Raft_srv_raftipc
 module Client_ipc = Raft_srv_clientipc
 module App_ipc = Raft_srv_appipc
-module Log_record = Raft_srv_logrecord
+module Storage = Raft_srv_storage
 module Rate_limiter = Raft_utl_ratelimiter
+module Debug = Raft_com_debug
 
 let section = Section.make (Printf.sprintf "%10s" "server")
 
-(* -- Server -- *)
+module Stats = struct  
+
+  module Counter = Raft_utl_counter.Counter 
+
+  let set_server_role {Raft_srv_logic.raft_state = {RTypes.role; _}; _} = 
+    let role = match role with
+      | RTypes.Follower _ -> Server_stats.Follower  
+      | RTypes.Candidate _ -> Server_stats.Candidate
+      | RTypes.Leader _ -> Server_stats.Leader
+    in 
+    Server_stats.server_role := (Some role)
+  
+  let set_log {Raft_srv_logic.raft_state = {RTypes.log; _} ; _} = 
+    Counter.set Server_stats.log (RLog.last_log_index log) 
+end 
   
 let get_now =
   (* Mtime guarantees monotomic time which is a requirement from 
@@ -30,18 +45,14 @@ module Event = struct
   type e  = 
     | Failure        of string  
       (** Fatal failure, the server will exit *)
-
     | Raft_message   of Raft_ipc.message 
       (** A RAFT message was received from one of the other RAFT servers *)
-
     | Client_request of Client_ipc.client_request list
       (** A Client request was received *)
-
     | App_response   of App_ipc.app_response 
       (** A response was received from the App server *)
     | Timeout        of Raft_types.timeout_type
       (** RAFT Protocol timeout happened *)
-
 
   type threads = {
     next_raft_message_t : e Lwt.t;
@@ -81,52 +92,6 @@ module Event = struct
 
 end 
 
-module Stats = struct  
-
-  module Counter = Raft_utl_counter.Counter 
-
-  let set_server_role {Raft_srv_logic.raft_state = {RTypes.role; _}; _} = 
-    let role = match role with
-      | RTypes.Follower _ -> Server_stats.Follower  
-      | RTypes.Candidate _ -> Server_stats.Candidate
-      | RTypes.Leader _ -> Server_stats.Leader
-    in 
-    Server_stats.server_role := (Some role)
-  
-  let set_log {Raft_srv_logic.raft_state = {RTypes.log; _} ; _} = 
-    Counter.set Server_stats.log (RLog.last_log_index log) 
-end 
-  
-let init_data_from_log_records configuration id = 
-  Log_record.make configuration id 
-  >>=(fun log_record_handle -> 
-    let raft_configuration = configuration.Conf.raft_configuration in 
-    let b =  
-      RLog.Builder.make raft_configuration.RTypes.max_log_size 
-    in
-    let f acc log_entry is_committed = 
-      let b, commit_index = acc in 
-      let b = RLog.Builder.add_log_entry b log_entry in 
-      let commit_index = 
-        if is_committed && log_entry.RLog.index > commit_index
-        then  log_entry.RLog.index
-        else commit_index 
-      in 
-      (b, commit_index)
-    in  
-    let {RLog.lower_bound; _} = raft_configuration.RTypes.max_log_size in 
-    Log_record.read_log_records lower_bound log_record_handle f (b, 0) 
-    >|= (fun (b, commit_index) -> 
-      let log = RLog.Builder.to_log b in 
-      
-      let _, current_term = 
-        RLog.last_log_index_and_term log
-      in 
-
-      (log_record_handle, log, commit_index, current_term)
-    )  
-  ) 
-
 let get_next_raft_message raft_ipc = 
   Raft_ipc.get_next raft_ipc 
   >|= (function
@@ -136,7 +101,10 @@ let get_next_raft_message raft_ipc =
 
 let get_next_client_requests client_ipc = 
   Client_ipc.get_next client_ipc
-  >|= (fun client_requests -> Event.Client_request client_requests) 
+  >|= (function
+    | [] -> Event.Failure "Client IPC"
+    | client_requests -> Event.Client_request client_requests
+  ) 
 
 let get_next_app_response app_ipc = 
   App_ipc.get_next app_ipc 
@@ -149,10 +117,10 @@ let run_server configuration id print_header =
   Server_stats.server_id := id;
   Server_stats.print_header := print_header;
   
+  (* Initialize the 3 IPC system of the RAFT server *)
+
   let client_ipc = Client_ipc.make configuration id in
-
   let app_ipc = App_ipc.make configuration id in 
-
   let raft_ipc = Raft_ipc.make configuration id in 
       
   let process_raft_ipc_result (state, raft_messages, 
@@ -168,7 +136,6 @@ let run_server configuration id print_header =
     Lwt.nchoose (Event.list_of_threads threads) 
 
     >>=(fun events -> 
-
       
       Stats.set_log state; 
       Stats.set_server_role state;
@@ -232,37 +199,27 @@ let run_server configuration id print_header =
     )
   in
 
-  let raft_state = Raft_logic.init
-    ~configuration:configuration.Conf.raft_configuration 
-    ~now:(get_now ()) 
-    ~server_id:id () 
-  in
-
-  init_data_from_log_records configuration id
-  >>= (fun (log_record_handle, log, commit_index, current_term) ->
-      
-    let raft_state = {raft_state with 
-      RTypes.log; 
-      RTypes.commit_index; 
-      current_term
-    } in 
-    
-    log_f ~level:Notice ~section 
-        "Log read done, commit index: %i, current term: %i" 
-        commit_index current_term
-    >|= (fun () -> (raft_state, log_record_handle))
-  )
-  >>= (fun (raft_state, log_record_handle) ->
+  Storage.make configuration id
+  >>=(fun storage -> 
+    Storage.read_raft_state ~now:(get_now ()) storage
+    >>=(fun raft_state -> 
+      log ~level:Notice ~section "Read from persistent storage done" 
+      >>=(fun () -> Debug.print_state section raft_state) 
+      >|=(fun () -> (storage, raft_state))
+    )
+  ) 
+  >>= (fun (storage, raft_state) ->
 
     let connection_state, app_requests = 
       Raft_srv_logic.initialize configuration id 
     in 
 
     App_ipc.send app_ipc app_requests;
+
     let state = Raft_srv_logic.({
       raft_state;
       connection_state;
-      log_record_handle;
+      storage;
     }) in
     
     let initial_threads = Event.({

@@ -30,14 +30,11 @@ let () =
     exit 1
   end;
 
-  let {
-    Conf.disk_backup = {Conf.log_record_directory};
-    _ 
-  } = Conf.default_configuration !env in 
+  let {Conf.storage_directory; _} = Conf.default_configuration !env in 
 
   begin 
     ignore @@ 
-      Sys.command @@ Printf.sprintf "rm -rf %s/*.data" log_record_directory; 
+      Sys.command @@ Printf.sprintf "rm -rf %s/*.data" storage_directory; 
     ignore @@ 
       Sys.command @@ "rm -f *.log"
   end; 

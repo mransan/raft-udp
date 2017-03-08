@@ -1,5 +1,4 @@
-(** Counter utility for measuring rate of an recurrent event
- *)
+(** Counter utility for measuring rate of a recurrent event *)
 
 
 (** {2 Types} *) 
@@ -49,7 +48,7 @@ module Perf : sig
   val f3 : t -> ('a -> 'b -> 'c -> 'd) -> 'a -> 'b -> 'c -> 'd 
 
   val stats : ?reset:unit -> t -> (float * float * float * int)  
-  (** [stats ~reset:() t] returns [(min, max, avg, count) for the current
+  (** [stats ~reset:() t] returns [(min, max, avg, count)] for the current
       period. if [reset] argument is given then the period is reset.  *) 
   
   val avg : ?reset:unit -> ?unit_:[`Us | `Ms]  -> t -> float 

@@ -9,14 +9,10 @@ type server_ipc_configuration = {
   client_port : int;
 }
 
-type disk_backup_configuration = {
-  log_record_directory : string;
-}
-
 type t = {
   raft_configuration : Raft_types.configuration;
   servers_ipc_configuration : server_ipc_configuration list;
-  disk_backup : disk_backup_configuration;
+  storage_directory : string;
   app_server_port : int list;
     (* TODO move this to the server_ipc_configuration *)
   client_rate_limit : int; 

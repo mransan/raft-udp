@@ -2,8 +2,7 @@ Raft_srv_clientipc
 Raft_srv_raftipc
 Raft_srv_appipc
 Raft_srv_logic
-
-Raft_srv_logrecord
+Raft_srv_storage
 Raft_srv_stats
 
 Raft_com_conf
@@ -12,3 +11,8 @@ Raft_com_pb
 
 Raft_app_clt
 Raft_app_srv
+
+Raft_utl_counter
+Raft_utl_ratelimiter
+Raft_utl_connection
+Raft_utl_unix

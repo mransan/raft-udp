@@ -1,4 +1,3 @@
-
 module RTypes = Raft_types
 
 type server_ipc_configuration = {
@@ -8,14 +7,10 @@ type server_ipc_configuration = {
   client_port : int;
 }
 
-type disk_backup_configuration = {
-  log_record_directory : string;
-}
-
 type t = {
   raft_configuration : Raft_types.configuration;
   servers_ipc_configuration : server_ipc_configuration list;
-  disk_backup : disk_backup_configuration;
+  storage_directory : string;
   app_server_port : int list;
   client_rate_limit : int; 
 }
@@ -51,11 +46,10 @@ let default_configuration env =
   
     servers_ipc_configuration;
   
-    disk_backup = {
-      log_record_directory = "/tmp/";
-    };
+    storage_directory = "/tmp/";
   
     app_server_port = [40_000; 40_001; 40_002];
+
     client_rate_limit = 10000;
   }
 
