@@ -315,8 +315,17 @@ let make configuration server_id =
 
   ((get_next, response_push_f) : t)
 
+type event = [
+  | `Client_request of client_request list 
+  | `Failure of string 
+]
+
 let get_next (get_next, _) = 
   get_next () 
+  >|=(function
+    | [] -> `Failure "Client IPC"
+    | client_requests -> `Client_request client_requests
+  )
 
 let send (_, response_push_f) client_responses = 
   List.iter (fun client_response -> 

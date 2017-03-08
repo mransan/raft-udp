@@ -24,9 +24,10 @@ let section = Section.make (Printf.sprintf "%10s" "RaftIPC")
 
 type message = Raft_types.message 
 
-type event = 
-  | Raft_message of message
-  | Failure 
+type event = [
+  | `Raft_message of message
+  | `Failure of string 
+] 
 
 type next_raft_message_f = unit -> event Lwt.t
 
@@ -42,7 +43,7 @@ type t = {
 let get_next_raft_message_f_for_server configuration server_id =
   match Conf.sockaddr_of_server_id `Raft configuration server_id with
   | None ->
-    (fun () -> Lwt.return Failure)
+    (fun () -> Lwt.return (`Failure "Invalid server_id"))
     (* TODO: investigate if we could avoid this construct and rather 
      * raise an exception or return Result.result value *)
 
@@ -64,9 +65,9 @@ let get_next_raft_message_f_for_server configuration server_id =
         | message -> begin 
           Stats.tick_raft_msg_recv ();
           Debug.print_msg_received section message
-          >|=(fun () -> Raft_message (RConv.message_of_pb message))
+          >|=(fun () -> `Raft_message (RConv.message_of_pb message))
         end
-        | exception _ -> Lwt.return Failure 
+        | exception _ -> Lwt.return (`Failure "RAFT Decoding error") 
       )
 
 let make configuration server_id = 

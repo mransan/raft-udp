@@ -207,8 +207,17 @@ let make configuration server_id =
 
   (response_stream, push_request_f) 
 
+type event = [
+  | `App_response of app_response 
+  | `Failure of string 
+]
+
 let get_next (response_stream, _) = 
   Lwt_stream.get response_stream
+  >|=(function
+    | None -> `Failure "App IPC"
+    | Some app_response -> `App_response app_response
+  ) 
 
 let send (_, push_request_f) app_requests = 
   List.iter (fun app_request -> 

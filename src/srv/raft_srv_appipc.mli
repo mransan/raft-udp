@@ -19,7 +19,12 @@ val make :
 (** [make configuration stats server_id] initialize the IPC state with 
     the App server. *) 
 
-val get_next : t -> app_response option Lwt.t 
+type event = [
+  | `App_response of app_response 
+  | `Failure of string 
+]
+
+val get_next : t -> event Lwt.t 
 (** [get_next app_ipc] returns promise to the next response from the 
     App server. *)
 

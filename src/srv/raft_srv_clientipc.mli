@@ -31,7 +31,12 @@ val make :
 
 (** {2 Communication API} *)
 
-val get_next : t -> client_request list Lwt.t 
+type event = [
+  | `Client_request of client_request list 
+  | `Failure of string 
+]
+
+val get_next : t -> event Lwt.t 
 (** [get_next client_ipc] returns a promise to the next set of client 
     requests *)
 

@@ -20,7 +20,6 @@ module Debug = Raft_com_debug
 let section = Section.make (Printf.sprintf "%10s" "server")
 
 module Stats = struct  
-
   module Counter = Raft_utl_counter.Counter 
 
   let set_server_role {Raft_srv_logic.raft_state = {RTypes.role; _}; _} = 
@@ -42,17 +41,18 @@ let get_now =
   (fun () -> Mtime.(count t0 |> to_s)) 
 
 module Event = struct 
-  type e  = 
-    | Failure        of string  
+  type e  = [ 
+    | `Failure        of string  
       (** Fatal failure, the server will exit *)
-    | Raft_message   of Raft_ipc.message 
+    | `Raft_message   of Raft_ipc.message 
       (** A RAFT message was received from one of the other RAFT servers *)
-    | Client_request of Client_ipc.client_request list
+    | `Client_request of Client_ipc.client_request list
       (** A Client request was received *)
-    | App_response   of App_ipc.app_response 
+    | `App_response   of App_ipc.app_response 
       (** A response was received from the App server *)
-    | Timeout        of Raft_types.timeout_type
+    | `Timeout        of Raft_types.timeout_type
       (** RAFT Protocol timeout happened *)
+  ]
 
   type threads = {
     next_raft_message_t : e Lwt.t;
@@ -81,47 +81,68 @@ module Event = struct
       timeout_type } = RHelper.Timeout_event.next ~now raft_state in
     if timeout <= 0.0
     then 
-      Lwt.return (Timeout timeout_type) 
+      Lwt.return (`Timeout timeout_type) 
     else  
       Lwt_unix.sleep timeout 
-      >|= (fun () -> Timeout timeout_type)
+      >|= (fun () -> `Timeout timeout_type)
 
   let reset_next_timeout threads raft_state = 
     Lwt.cancel threads.next_timeout_t;
     {threads with next_timeout_t = next_timeout raft_state}
-
 end 
 
-let get_next_raft_message raft_ipc = 
-  Raft_ipc.get_next raft_ipc 
-  >|= (function
-      | Raft_ipc.Failure        -> Event.Failure "Raft IPC"
-      | Raft_ipc.Raft_message x -> Event.Raft_message x
-  ) 
+let get_next_raft_message raft_ipc =
+  (Raft_ipc.get_next raft_ipc :> Event.e Lwt.t) 
 
 let get_next_client_requests client_ipc = 
-  Client_ipc.get_next client_ipc
-  >|= (function
-    | [] -> Event.Failure "Client IPC"
-    | client_requests -> Event.Client_request client_requests
-  ) 
+  (Client_ipc.get_next client_ipc :> Event.e Lwt.t)
 
 let get_next_app_response app_ipc = 
-  App_ipc.get_next app_ipc 
-  >|= (function
-    | None -> Event.Failure "App IPC"
-    | Some app_response -> Event.App_response app_response 
-  ) 
+  (App_ipc.get_next app_ipc :> Event.e Lwt.t) 
 
-let run_server configuration id print_header =
+let init_server configuration id print_header = 
   Server_stats.server_id := id;
   Server_stats.print_header := print_header;
-  
+
   (* Initialize the 3 IPC system of the RAFT server *)
 
   let client_ipc = Client_ipc.make configuration id in
   let app_ipc = App_ipc.make configuration id in 
   let raft_ipc = Raft_ipc.make configuration id in 
+  Storage.make configuration id
+  >>=(fun storage -> 
+    Storage.read_raft_state ~now:(get_now ()) storage
+    >>=(fun raft_state -> 
+      log ~level:Notice ~section "Read from persistent storage done" 
+      >>=(fun () -> Debug.print_state section raft_state) 
+      >|=(fun () -> (storage, raft_state))
+    )
+  ) 
+  >|= (fun (storage, raft_state) ->
+
+    let connection_state, app_requests = 
+      Raft_srv_logic.initialize configuration id 
+    in 
+
+    App_ipc.send app_ipc app_requests;
+
+    let state = Raft_srv_logic.({
+      raft_state;
+      connection_state;
+      storage;
+    }) in
+    
+    let threads = Event.({
+      next_client_request_t = get_next_client_requests client_ipc; 
+      next_raft_message_t = get_next_raft_message raft_ipc;
+      next_app_reponse_t  = get_next_app_response app_ipc;
+      next_timeout_t = Event.next_timeout raft_state; 
+    }) in 
+
+    (client_ipc, app_ipc, raft_ipc, threads, state) 
+  )
+
+let run_server (client_ipc, app_ipc, raft_ipc, threads, state) =
       
   let process_raft_ipc_result (state, raft_messages, 
                                client_responses, app_requests) = 
@@ -144,7 +165,7 @@ let run_server configuration id print_header =
         let now = get_now () in
 
         match event with
-        | Event.Raft_message msg -> (
+        | `Raft_message msg -> (
           Raft_srv_logic.handle_raft_message ~now state msg
           >|= process_raft_ipc_result
           >|= (fun state ->
@@ -155,18 +176,18 @@ let run_server configuration id print_header =
           )
         )
 
-        | Event.Timeout timeout_type -> (
+        | `Timeout timeout_type -> (
           Raft_srv_logic.handle_timeout ~now state timeout_type
           >|= process_raft_ipc_result 
           >|= (fun state -> (state, threads))
         )
 
-        | Event.Failure context -> (
+        | `Failure context -> (
           Printf.eprintf "Exiting, context: %s\n" context; 
           exit 1
         )
 
-        | Event.Client_request client_requests -> (
+        | `Client_request client_requests -> (
           Raft_srv_logic.handle_client_requests ~now state client_requests
           >|= process_raft_ipc_result 
           >|= (fun state -> 
@@ -177,7 +198,7 @@ let run_server configuration id print_header =
           )
         )
 
-        | Event.App_response app_response -> (
+        | `App_response app_response -> (
           Raft_srv_logic.handle_app_response ~now state app_response
           >|= process_raft_ipc_result 
           >|= (fun state -> 
@@ -198,39 +219,7 @@ let run_server configuration id print_header =
       )
     )
   in
-
-  Storage.make configuration id
-  >>=(fun storage -> 
-    Storage.read_raft_state ~now:(get_now ()) storage
-    >>=(fun raft_state -> 
-      log ~level:Notice ~section "Read from persistent storage done" 
-      >>=(fun () -> Debug.print_state section raft_state) 
-      >|=(fun () -> (storage, raft_state))
-    )
-  ) 
-  >>= (fun (storage, raft_state) ->
-
-    let connection_state, app_requests = 
-      Raft_srv_logic.initialize configuration id 
-    in 
-
-    App_ipc.send app_ipc app_requests;
-
-    let state = Raft_srv_logic.({
-      raft_state;
-      connection_state;
-      storage;
-    }) in
-    
-    let initial_threads = Event.({
-      next_client_request_t = get_next_client_requests client_ipc; 
-      next_raft_message_t = get_next_raft_message raft_ipc;
-      next_app_reponse_t  = get_next_app_response app_ipc;
-      next_timeout_t = Event.next_timeout raft_state; 
-    }) in 
-
-    server_loop initial_threads state
-  )
+  server_loop threads state 
 
 let run configuration id print_header log = 
   let logger_t = 
@@ -243,7 +232,10 @@ let run configuration id print_header log =
       Lwt.return_unit
     end 
   in 
-  let server_t = run_server configuration id print_header in 
+  let server_t = 
+    init_server configuration id print_header 
+    >>= run_server 
+  in
   Lwt_main.run @@ Lwt.join [logger_t; server_t] 
 
 let () =

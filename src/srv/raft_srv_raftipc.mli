@@ -24,9 +24,10 @@ val send :
 (** [send ~stats ipc messages] enqueues [messages] to be sent 
     asynchronously *)
 
-type event = 
-  | Raft_message of message
-  | Failure 
+type event = [
+  | `Raft_message of message
+  | `Failure of string 
+] 
 (** Return for new messages. [Failure] is return if messages could not be 
     decoded *)
 
