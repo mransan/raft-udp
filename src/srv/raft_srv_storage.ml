@@ -115,12 +115,7 @@ let read_raft_state ~now ({configuration; server_id; _} as t) =
     let log = RLog.Builder.to_log b in 
     let _, current_term = RLog.last_log_index_and_term log in 
 
-    let raft_state = 
-      let configuration = raft_configuration in 
-      RProtocol.init ~configuration ~now  ~server_id ()
-    in
-
-    {raft_state with RTypes.log; commit_index; current_term}
-    (* TODO Fix RAFT library so that those parameter could be given to the 
-     * init function *)
+    let configuration = raft_configuration in 
+    RProtocol.init ~log ~commit_index ~current_term 
+                   ~configuration ~now  ~server_id ()
   ) 
